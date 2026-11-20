@@ -154,17 +154,21 @@ fun SceneStudio() {
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                         .background(Color(0xFF0B1220), RoundedCornerShape(9.dp))
                         .pointerInput(index) {
+                            var draggingLayerId: Long? = null
                             detectDragGestures(
                                 onDragStart = { point ->
                                     val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
                                         item.visible && point.x >= item.x * size.width && point.x <= item.x * size.width + size.width * .52f &&
                                             point.y >= item.y * size.height && point.y <= item.y * size.height + size.height * .22f
                                     }
+                                    draggingLayerId = hit?.id
                                     if (hit != null) selected = hit.id
                                 },
+                                onDragEnd = { draggingLayerId = null },
+                                onDragCancel = { draggingLayerId = null },
                                 onDrag = { change, drag ->
                                     change.consume()
-                                    val chosen = latestScene.value.layers.firstOrNull { it.id == selected }
+                                    val chosen = latestScene.value.layers.firstOrNull { it.id == draggingLayerId }
                                     if (chosen != null && !chosen.locked) {
                                         latestUpdateLayer.value(chosen.id) {
                                             it.copy(
