@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.alpha
 import android.view.TextureView
+import android.graphics.SurfaceTexture
 import android.content.Intent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,14 +122,29 @@ fun StreamForgeApp(
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Preview") })
                 }
 
-                // Keep a real preview SurfaceView attached before streaming begins.
-                AndroidView(
-                    factory = { viewContext -> TextureView(viewContext).also { StreamService.previewView = it } },
-                    update = { StreamService.previewView = it },
-                    modifier = Modifier.fillMaxWidth()
-                        .then(if (selectedTab == 1) Modifier.aspectRatio(16f / 9f) else Modifier.size(1.dp))
-                        .alpha(if (selectedTab == 1) 1f else 0f)
-                )
+                if (selectedTab == 1) {
+                    AndroidView(
+                        factory = { viewContext ->
+                            TextureView(viewContext).also { view ->
+                                StreamService.previewView = view
+                                view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                        viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
+                                    }
+                                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                        viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
+                                        StreamService.previewView = null
+                                        return true
+                                    }
+                                }
+                            }
+                        },
+                        update = { StreamService.previewView = it },
+                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                    )
+                }
 
                 if (selectedTab == 1) {
                     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
