@@ -1,0 +1,68 @@
+package app.streamforge
+
+import android.Manifest
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import app.streamforge.stream.StreamService
+import app.streamforge.ui.StreamForgeApp
+
+class MainActivity : ComponentActivity() {
+    private var pendingEndpoint by androidx.compose.runtime.mutableStateOf("")
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            requestScreenCapture()
+        }
+    }
+
+    private val captureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data != null && pendingEndpoint.isNotBlank()) {
+            val serviceIntent = Intent(this, StreamService::class.java).apply {
+                action = StreamService.ACTION_START_STREAM
+                putExtra(StreamService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(StreamService.EXTRA_RESULT_DATA, data)
+                putExtra(StreamService.EXTRA_ENDPOINT, pendingEndpoint)
+            }
+            ContextCompat.startForegroundService(this, serviceIntent)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setContent {
+            StreamForgeApp(
+                onStartStream = { endpoint ->
+                    pendingEndpoint = endpoint
+                    val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                    if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+                    permissionLauncher.launch(permissions.toTypedArray())
+                },
+                onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
+                onStartRecording = { sendServiceAction(StreamService.ACTION_START_RECORDING) },
+                onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) }
+            )
+        }
+    }
+
+    private fun sendServiceAction(action: String) {
+        startService(Intent(this, StreamService::class.java).setAction(action))
+    }
+
+    private fun requestScreenCapture() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        captureLauncher.launch(manager.createScreenCaptureIntent())
+    }
+}
