@@ -120,6 +120,7 @@ fun StreamForgeApp(
                 TabRow(selectedTabIndex = selectedTab, containerColor = Panel, contentColor = Accent) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Studio") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Preview") })
+                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Scenes") })
                 }
 
                 if (selectedTab == 1) {
@@ -159,6 +160,8 @@ fun StreamForgeApp(
                             OutlinedButton(onClick = { selectedTab = 0 }, modifier = Modifier.fillMaxWidth()) { Text("Back to Studio") }
                         }
                     }
+                } else if (selectedTab == 2) {
+                    SceneStudio()
                 } else {
                 if (isStreaming && showLiveDashboard) {
                     LiveDashboard(
