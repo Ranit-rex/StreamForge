@@ -5,6 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.graphics.Color as AndroidColor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.net.Uri
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.content.Intent
@@ -46,6 +53,8 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_START_RECORDING = "app.streamforge.START_RECORDING"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
+        const val ACTION_APPLY_SCENE = "app.streamforge.APPLY_SCENE"
+        const val EXTRA_SCENE_INDEX = "scene_index"
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
         const val ACTION_STOP_PREVIEW = "app.streamforge.STOP_PREVIEW"
         @Volatile var previewView: TextureView? = null
@@ -86,6 +95,8 @@ class StreamService : Service(), ConnectChecker {
     private var activeVideoBitrate = 4_500_000
     private var lastBitrateAdjustmentAt = 0L
     private var stableNetworkSince = 0L
+    private var activeStreamWidth = 1280
+    private var activeStreamHeight = 720
     private var overlayRoot: LinearLayout? = null
     private var overlayExpanded = false
 
@@ -109,6 +120,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_STOP_RECORDING -> stopRecording()
             ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
             ACTION_STOP_PREVIEW -> stream?.let { if (it.isOnPreview) it.stopPreview() }
+            ACTION_APPLY_SCENE -> applyScene(intent.getIntExtra(EXTRA_SCENE_INDEX, 0))
             ACTION_UPDATE_COLOR -> updateColorTuning(
                 intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
                 intent.getFloatExtra(EXTRA_COLOR_CONTRAST, colorContrast.value),
@@ -131,6 +143,8 @@ class StreamService : Service(), ConnectChecker {
         val width = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(640, 3840)
         val height = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(360, 2160)
         val fps = intent.getIntExtra(EXTRA_FPS, 30).coerceIn(24, 60)
+        activeStreamWidth = width
+        activeStreamHeight = height
         val bitrate = intent.getIntExtra(EXTRA_BITRATE, 4_500_000).coerceIn(800_000, 35_000_000)
         if (projectionData == null || endpoint.isBlank()) {
             status.value = "Missing screen permission or destination"
@@ -214,6 +228,83 @@ class StreamService : Service(), ConnectChecker {
         // changes update uniforms only; no filter-list mutations happen live.
         activeStream.getGlInterface().setFilter(filter)
         colorGradingFilter = filter
+        applyScene(getSharedPreferences("streamforge_studio", 0).getInt("active_scene", 0))
+    }
+
+    private fun applyScene(sceneIndex: Int) {
+        val filter = colorGradingFilter ?: return
+        val prefs = getSharedPreferences("streamforge_studio", 0)
+        val raw = prefs.getString("scenes", "[]").orEmpty()
+        val scenes = runCatching { org.json.JSONArray(raw) }.getOrNull()
+        if (scenes == null || scenes.length() == 0) {
+            filter.setSceneOverlayBitmap(null)
+            return
+        }
+        val safeIndex = sceneIndex.coerceIn(0, scenes.length() - 1)
+        val scene = scenes.optJSONObject(safeIndex) ?: return
+        val layers = scene.optJSONArray("layers") ?: org.json.JSONArray()
+        val outputWidth = activeStreamWidth.coerceAtMost(1920).coerceAtLeast(640)
+        val outputHeight = activeStreamHeight.coerceAtMost(1080).coerceAtLeast(360)
+        val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        for (i in 0 until layers.length()) {
+            val item = layers.optJSONObject(i) ?: continue
+            if (!item.optBoolean("visible", true)) continue
+            val kind = item.optString("kind")
+            if (kind == "screen") continue
+            val left = item.optDouble("x", .08).toFloat().coerceIn(0f, 1f) * outputWidth
+            val top = item.optDouble("y", .08).toFloat().coerceIn(0f, 1f) * outputHeight
+            val width = item.optDouble("width", .42).toFloat().coerceIn(.02f, 1f) * outputWidth
+            val height = item.optDouble("height", .16).toFloat().coerceIn(.02f, 1f) * outputHeight
+            val rect = RectF(left, top, (left + width).coerceAtMost(outputWidth.toFloat()), (top + height).coerceAtMost(outputHeight.toFloat()))
+            val alpha = (item.optDouble("opacity", 1.0).toFloat().coerceIn(0f, 1f) * 255).toInt()
+
+            when (kind) {
+                "text" -> {
+                    val value = item.optString("text").trim()
+                    if (value.isNotEmpty()) {
+                        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = AndroidColor.WHITE
+                            this.alpha = alpha
+                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                            textSize = (rect.height() * .58f).coerceIn(20f, 112f)
+                            setShadowLayer(5f, 2f, 2f, AndroidColor.BLACK)
+                        }
+                        val baseline = rect.top + (rect.height() - (paint.descent() + paint.ascent())) / 2f
+                        canvas.save()
+                        canvas.clipRect(rect)
+                        canvas.drawText(value, rect.left + rect.width() * .025f, baseline, paint)
+                        canvas.restore()
+                    }
+                }
+                "image" -> {
+                    val uri = runCatching { Uri.parse(item.optString("text")) }.getOrNull()
+                    val image = uri?.let { parsed ->
+                        runCatching { contentResolver.openInputStream(parsed)?.use { BitmapFactory.decodeStream(it) } }.getOrNull()
+                    }
+                    if (image != null) {
+                        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha }
+                        canvas.drawBitmap(image, null, rect, paint)
+                        image.recycle()
+                    }
+                }
+                "camera" -> {
+                    val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = AndroidColor.argb((alpha * .72f).toInt(), 28, 42, 58)
+                    }
+                    canvas.drawRoundRect(rect, 16f, 16f, background)
+                    val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = AndroidColor.WHITE
+                        this.alpha = alpha
+                        textSize = (rect.height() * .16f).coerceIn(14f, 32f)
+                        typeface = Typeface.DEFAULT_BOLD
+                    }
+                    canvas.drawText("CAMERA SOURCE", rect.left + 12f, rect.centerY(), label)
+                }
+            }
+        }
+        filter.setSceneOverlayBitmap(bitmap)
     }
 
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
