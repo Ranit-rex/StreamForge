@@ -84,6 +84,7 @@ class StreamService : Service(), ConnectChecker {
     private val microphoneSource = MicrophoneSource()
     private var brightnessFilter: BrightnessFilterRender? = null
     private var contrastFilter: ContrastFilterRender? = null
+    private var saturationFilter: SafeSaturationFilterRender? = null
     private var sharpnessFilter: SharpnessFilterRender? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
@@ -210,15 +211,18 @@ class StreamService : Service(), ConnectChecker {
         // signed offset where 0.0 is truly neutral.
         val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value - 1.0f) }
         val contrast = ContrastFilterRender().apply { setContrast(colorContrast.value) }
+        val saturation = SafeSaturationFilterRender().apply { setSaturation(colorSaturation.value) }
         val sharpness = SharpnessFilterRender().apply { setSharpness(colorSharpness.value) }
         activeStream.getGlInterface().apply {
             clearFilters()
             addFilter(brightness)
             addFilter(contrast)
+            addFilter(saturation)
             addFilter(sharpness)
         }
         brightnessFilter = brightness
         contrastFilter = contrast
+        saturationFilter = saturation
         sharpnessFilter = sharpness
     }
 
@@ -412,7 +416,7 @@ class StreamService : Service(), ConnectChecker {
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
         previewView = null
-        brightnessFilter = null; contrastFilter = null; sharpnessFilter = null
+        brightnessFilter = null; contrastFilter = null; saturationFilter = null; sharpnessFilter = null
         projection?.stop()
         projection = null
         super.onDestroy()
