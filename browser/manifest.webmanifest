@@ -1,9 +1,10 @@
 {
- "name":"StreamForge Studio",
+ "name":"StreamForge Live Studio",
  "short_name":"StreamForge",
  "start_url":"./",
+ "scope":"./",
  "display":"standalone",
- "background_color":"#0b0e13",
- "theme_color":"#0b0e13",
- "description":"StreamForge browser companion studio"
+ "background_color":"#090c12",
+ "theme_color":"#090c12",
+ "description":"Browser-based screen streaming and local recording studio"
 }
