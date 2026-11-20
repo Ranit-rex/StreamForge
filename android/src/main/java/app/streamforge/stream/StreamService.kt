@@ -30,9 +30,6 @@ import androidx.core.app.ServiceCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
-import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender
-import com.pedro.encoder.input.gl.render.filters.ContrastFilterRender
-import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
@@ -82,10 +79,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var stream: GenericStream? = null
     private val microphoneSource = MicrophoneSource()
-    private var brightnessFilter: BrightnessFilterRender? = null
-    private var contrastFilter: ContrastFilterRender? = null
-    private var saturationFilter: SafeSaturationFilterRender? = null
-    private var sharpnessFilter: SharpnessFilterRender? = null
+    private var colorGradingFilter: ColorGradingFilterRender? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
     private var requestedVideoBitrate = 4_500_000
@@ -208,24 +202,18 @@ class StreamService : Service(), ConnectChecker {
 
     private fun installColorFilters() {
         val activeStream = stream ?: return
-        // RootEncoder's brightness shader adds this value directly to every RGB
-        // channel. StreamForge's slider is centered at 1.0, so convert it to a
-        // signed offset where 0.0 is truly neutral.
-        val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value - 1.0f) }
-        val contrast = ContrastFilterRender().apply { setContrast(colorContrast.value) }
-        val saturation = SafeSaturationFilterRender().apply { setSaturation(colorSaturation.value) }
-        val sharpness = SharpnessFilterRender().apply { setSharpness(colorSharpness.value) }
-        activeStream.getGlInterface().apply {
-            clearFilters()
-            addFilter(brightness)
-            addFilter(contrast)
-            addFilter(saturation)
-            addFilter(sharpness)
+        val filter = ColorGradingFilterRender().apply {
+            setColorTuning(
+                colorBrightness.value - 1.0f,
+                colorContrast.value,
+                colorSaturation.value,
+                colorSharpness.value
+            )
         }
-        brightnessFilter = brightness
-        contrastFilter = contrast
-        saturationFilter = saturation
-        sharpnessFilter = sharpness
+        // Exactly one GL pass is installed before streaming starts. Slider
+        // changes update uniforms only; no filter-list mutations happen live.
+        activeStream.getGlInterface().setFilter(filter)
+        colorGradingFilter = filter
     }
 
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
@@ -233,13 +221,14 @@ class StreamService : Service(), ConnectChecker {
         colorContrast.value = contrast.coerceIn(0.8f, 1.4f)
         colorSaturation.value = saturation.coerceIn(0f, 2f)
         colorSharpness.value = sharpness.coerceIn(0f, 0.8f)
-        // Do not rebuild or append GL filters while a live frame is rendering.
-        // The complete chain is installed once before startStream; these setters
-        // only change uniforms consumed by the existing filter instances.
-        brightnessFilter?.setBrightness(colorBrightness.value - 1.0f)
-        contrastFilter?.setContrast(colorContrast.value)
-        saturationFilter?.setSaturation(colorSaturation.value)
-        sharpnessFilter?.setSharpness(colorSharpness.value)
+
+        // Mutate only volatile shader parameters on the existing single filter.
+        colorGradingFilter?.setColorTuning(
+            colorBrightness.value - 1.0f,
+            colorContrast.value,
+            colorSaturation.value,
+            colorSharpness.value
+        )
     }
 
     private fun startRecording() {
@@ -417,7 +406,7 @@ class StreamService : Service(), ConnectChecker {
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
         previewView = null
-        brightnessFilter = null; contrastFilter = null; saturationFilter = null; sharpnessFilter = null
+        colorGradingFilter = null
         projection?.stop()
         projection = null
         super.onDestroy()
