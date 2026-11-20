@@ -34,13 +34,13 @@ private data class StreamQuality(
 )
 
 private val qualityOptions = listOf(
-    StreamQuality("4K Ultra HD · 30 FPS", 3840, 2160, 30, 20_000_000),
-    StreamQuality("1440p QHD · 30 FPS", 2560, 1440, 30, 14_000_000),
-    StreamQuality("1080p Full HD · 60 FPS", 1920, 1080, 60, 12_000_000),
-    StreamQuality("1080p Full HD · 30 FPS", 1920, 1080, 30, 8_000_000),
-    StreamQuality("720p HD · 60 FPS", 1280, 720, 60, 6_000_000),
-    StreamQuality("720p HD · 30 FPS", 1280, 720, 30, 4_500_000),
-    StreamQuality("480p Data Saver · 30 FPS", 854, 480, 30, 2_500_000)
+    StreamQuality("4K Ultra HD · 30 FPS", 3840, 2160, 30, 18_000_000),
+    StreamQuality("1440p QHD · 30 FPS", 2560, 1440, 30, 12_000_000),
+    StreamQuality("1080p Full HD · 60 FPS", 1920, 1080, 60, 7_500_000),
+    StreamQuality("1080p Full HD · 30 FPS", 1920, 1080, 30, 5_000_000),
+    StreamQuality("720p HD · 60 FPS", 1280, 720, 60, 4_500_000),
+    StreamQuality("720p HD · 30 FPS", 1280, 720, 30, 3_000_000),
+    StreamQuality("480p Data Saver · 30 FPS", 854, 480, 30, 1_500_000)
 )
 
 @Composable
@@ -65,6 +65,7 @@ fun StreamForgeApp(
     val liveResolution by StreamService.streamResolution.collectAsState()
     val liveFps by StreamService.streamFps.collectAsState()
     val startedAt by StreamService.streamStartedAt.collectAsState()
+    val networkHealth by StreamService.networkHealth.collectAsState()
 
     LaunchedEffect(isStreaming, startedAt) {
         if (isStreaming && startedAt > 0L) {
@@ -110,6 +111,7 @@ fun StreamForgeApp(
                         bitrate = bitrate,
                         resolution = liveResolution,
                         fps = liveFps,
+                        networkHealth = networkHealth,
                         onHide = { showLiveDashboard = false },
                         onStop = onStopStream
                     )
@@ -123,7 +125,7 @@ fun StreamForgeApp(
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("▣", color = Accent, fontSize = 36.sp)
                         Text("Screen broadcast", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Broadcast your Android screen with adjustable quality up to 4K.", color = Muted, fontSize = 12.sp)
+                        Text("Broadcast your Android screen with adaptive bitrate and quality up to 4K.", color = Muted, fontSize = 12.sp)
                         Surface(color = if (isStreaming) Color(0xFF3B1720) else Color(0xFF202A38), shape = RoundedCornerShape(50)) {
                             Text(status, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (isStreaming) LiveRed else Color(0xFFB7C5D9), fontSize = 12.sp)
                         }
@@ -175,7 +177,7 @@ fun StreamForgeApp(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("STREAM QUALITY", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
                     QualityPicker(selectedQuality) { selectedQuality = it }
-                    Text("4K and 60 FPS depend on your phone's hardware encoder, thermal limits, network upload speed and platform ingest limits. If the device cannot encode the selected mode, choose a lower preset.", color = Muted, fontSize = 11.sp)
+                    Text("Adaptive bitrate lowers video data automatically when the upload queue gets congested, then cautiously recovers after the connection stabilises. 4K still needs strong, consistent upload speed and a capable hardware encoder.", color = Muted, fontSize = 11.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         InfoTile("Resolution", selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
                         InfoTile("Frame rate", "${selectedQuality.fps} FPS", Modifier.weight(1f))
@@ -206,6 +208,7 @@ private fun LiveDashboard(
     bitrate: Long,
     resolution: String,
     fps: Int,
+    networkHealth: String,
     onHide: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -225,6 +228,7 @@ private fun LiveDashboard(
                 LiveMetric("QUALITY", resolution, Modifier.weight(1f))
                 LiveMetric("FPS", "$fps", Modifier.weight(1f))
             }
+            Text(networkHealth, color = if (networkHealth.contains("congested", ignoreCase = true)) Color(0xFFFFC46B) else Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Text("Audience count is not exposed by a standard RTMP connection. Platform analytics / OAuth is needed for verified viewer numbers.", color = Muted, fontSize = 10.sp)
             OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("End stream") }
         }
