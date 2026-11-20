@@ -19,6 +19,13 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Keep one debug signing identity across ephemeral GitHub runners. Without this,
+      # every APK gets a different certificate and Android refuses in-place upgrades.
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: streamforge-debug-signing-v1
       - name: Install Android SDK packages
         shell: bash
         run: |
