@@ -179,10 +179,12 @@ class StreamService : Service(), ConnectChecker {
             // Start with the unfiltered capture pipeline. Filters are attached only
             // after the user changes a colour control, avoiding a filter-init race.
             stream?.getGlInterface()?.clearFilters()
-            // Preview is optional and must never gate the actual broadcast.
-            startPreviewIfAvailable()
+            // Start the broadcast first. ScreenSource must create exactly one
+            // MediaProjection virtual display; preview attaches to the running GL
+            // pipeline only after streaming has been started.
             stream?.startStream(endpoint)
             status.value = "Connecting…"
+            startPreviewIfAvailable()
         } catch (error: Exception) {
             stopStream("Could not start: ${error.message ?: error.javaClass.simpleName}")
         }
@@ -192,7 +194,10 @@ class StreamService : Service(), ConnectChecker {
     private fun startPreviewIfAvailable() {
         val activeStream = stream ?: return
         val view = previewView ?: return
-        if (activeStream.isOnPreview) return
+        // Never initialise a screen-capture preview while idle. It can create a
+        // VirtualDisplay before the broadcast and collide with MediaProjection.
+        if (!activeStream.isStreaming || projection == null || activeStream.isOnPreview) return
+        if (!view.isAvailable || view.width <= 0 || view.height <= 0) return
         runCatching { activeStream.startPreview(view) }
             .onFailure { status.value = "Preview unavailable: ${it.message ?: "surface error"}" }
     }
