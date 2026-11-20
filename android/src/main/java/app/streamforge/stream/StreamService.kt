@@ -201,8 +201,9 @@ class StreamService : Service(), ConnectChecker {
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 val p = root.layoutParams as? WindowManager.LayoutParams ?: return false
                 when (e.action) {
-                    MotionEvent.ACTION_DOWN -> { sx = p.x; sy = p.y; tx = e.rawX; ty = e.rawY; return false }
+                    MotionEvent.ACTION_DOWN -> { sx = p.x; sy = p.y; tx = e.rawX; ty = e.rawY; return true }
                     MotionEvent.ACTION_MOVE -> { p.x = sx - (e.rawX - tx).toInt(); p.y = sy + (e.rawY - ty).toInt(); runCatching { manager.updateViewLayout(root, p) }; return true }
+                    MotionEvent.ACTION_UP -> { overlayExpanded = !overlayExpanded; controls.visibility = if (overlayExpanded) View.VISIBLE else View.GONE; return true }
                 }; return false
             }
         })
