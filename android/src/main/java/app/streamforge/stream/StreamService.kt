@@ -162,8 +162,12 @@ class StreamService : Service(), ConnectChecker {
             bitrateKbps.value = 0L
             val prepared = stream?.prepareVideo(width, height, bitrate, fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("Video encoder could not prepare this quality")
-            installColorFilters()
+            // MediaProjection already provides display orientation. RootEncoder otherwise
+            // applies its camera orientation transform, which can produce a blank/white
+            // GL frame for ScreenSource on some devices.
+            stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            installColorFilters()
             stream?.startStream(endpoint)
             status.value = "Connecting…"
         } catch (error: Exception) {
