@@ -194,8 +194,9 @@ fun SceneStudio() {
                             val top = item.y * size.height
                             val rect = RectF(left, top, left + size.width * .52f, top + size.height * .22f)
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
-                            if (item.kind == "image" && imageBitmaps[item.id] != null) {
-                                native.drawBitmap(imageBitmaps[item.id], null, rect, paint)
+                            val importedBitmap = if (item.kind == "image") imageBitmaps[item.id] else null
+                            if (importedBitmap != null) {
+                                native.drawBitmap(importedBitmap, null, rect, paint)
                             } else {
                                 paint.color = when (item.kind) {
                                     "text" -> android.graphics.Color.rgb(48, 72, 120)
