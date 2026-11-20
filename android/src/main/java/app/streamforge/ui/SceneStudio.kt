@@ -30,16 +30,16 @@ import androidx.compose.ui.unit.sp
 
 private data class SceneLayer(
     val id: Long, val name: String, val kind: String, val text: String = "",
-    val x: Float = .08f, val y: Float = .08f, val opacity: Float = 1f,
+    val x: Float = .08f, val y: Float = .08f, val width: Float = .52f, val height: Float = .22f, val opacity: Float = 1f,
     val visible: Boolean = true, val locked: Boolean = false
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
 private fun sceneDefaults() = listOf(
-    SceneModel(1, "Starting Soon", listOf(SceneLayer(11, "Screen Capture", "screen", x=0f, y=0f), SceneLayer(12, "Main title", "text", "STREAM STARTING SOON", .12f, .4f))),
-    SceneModel(2, "Gameplay", listOf(SceneLayer(21, "Screen Capture", "screen", x=0f, y=0f), SceneLayer(22, "Channel label", "text", "PLAYING LIVE • STREAMFORGE", .04f, .05f))),
-    SceneModel(3, "BRB", listOf(SceneLayer(31, "Screen Capture", "screen", x=0f, y=0f), SceneLayer(32, "BRB title", "text", "BE RIGHT BACK", .2f, .42f))),
-    SceneModel(4, "Ending", listOf(SceneLayer(41, "Screen Capture", "screen", x=0f, y=0f), SceneLayer(42, "Ending title", "text", "THANKS FOR WATCHING", .12f, .4f)))
+    SceneModel(1, "Starting Soon", listOf(SceneLayer(11, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(12, "Main title", "text", "STREAM STARTING SOON", .12f, .4f))),
+    SceneModel(2, "Gameplay", listOf(SceneLayer(21, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(22, "Channel label", "text", "PLAYING LIVE • STREAMFORGE", .04f, .05f))),
+    SceneModel(3, "BRB", listOf(SceneLayer(31, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(32, "BRB title", "text", "BE RIGHT BACK", .2f, .42f))),
+    SceneModel(4, "Ending", listOf(SceneLayer(41, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(42, "Ending title", "text", "THANKS FOR WATCHING", .12f, .4f)))
 )
 
 private fun encodeSceneList(items: List<SceneModel>): String {
@@ -49,7 +49,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
         scene.layers.forEach { layer ->
             layers.put(JSONObject().apply {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
-                put("text", layer.text); put("x", layer.x); put("y", layer.y)
+                put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked)
             })
         }
@@ -68,7 +68,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                 val item = layers.getJSONObject(j)
                 SceneLayer(item.optLong("id"), item.optString("name"), item.optString("kind"),
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
-                    item.optDouble("y", .08).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
+                    item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false))
             })
     }
@@ -116,7 +116,7 @@ fun SceneStudio() {
         val count = current.layers.count { it.kind == kind } + 1
         val item = SceneLayer(System.nanoTime(), when (kind) {
             "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Screen capture"
-        }, kind, if (kind == "text") "YOUR TEXT" else "", if (kind == "screen") 0f else .08f, if (kind == "screen") 0f else .08f)
+        }, kind, if (kind == "text") "YOUR TEXT" else "", if (kind == "screen") 0f else .08f, if (kind == "screen") 0f else .08f, if (kind == "screen") 1f else .52f, if (kind == "screen") 1f else .22f)
         scenes[index] = current.copy(layers = current.layers + item)
         selected = item.id
     }
@@ -143,7 +143,7 @@ fun SceneStudio() {
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("LIVE LAYOUT EDITOR", color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                    Text("16:9 canvas", color = Color.Gray, fontSize = 10.sp)
+                    Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
                 }
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" }.map { it.id to it.text }) {
                     scene.layers.filter { it.kind == "image" && it.text.isNotBlank() }.mapNotNull { item ->
@@ -192,7 +192,7 @@ fun SceneStudio() {
                         scene.layers.filter { it.visible }.forEach { item ->
                             val left = item.x * size.width
                             val top = item.y * size.height
-                            val rect = RectF(left, top, left + size.width * .52f, top + size.height * .22f)
+                            val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
                             val importedBitmap = if (item.kind == "image") imageBitmaps[item.id] else null
                             if (importedBitmap != null) {
@@ -224,7 +224,7 @@ fun SceneStudio() {
                         }
                     }
                 }
-                Text("Tip: canvas par kisi layer ko tap karke select karo, phir finger se drag karke move karo. Lock ki hui layer move nahi hogi.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                Text("Screen capture starts full-frame. Select any layer to resize it with Width / Height, then drag it anywhere. Lock prevents moving.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
         }
@@ -268,7 +268,7 @@ fun SceneStudio() {
                         Text("Custom image added. Use Replace to choose another image.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
                         OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Replace image") }
                     }
-                    Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)\n                    Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)\n                    Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)\n                    Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)\n                    Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         OutlinedButton(onClick = {
@@ -295,7 +295,7 @@ fun SceneStudio() {
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Changes save automatically on this phone. Screen and camera source routing into the live encoder is still being integrated.", color = Color.Gray, fontSize = 10.sp)
+        Text("Scene layout saves on this phone. Go Live captures your Android screen; scene overlays are still preview/editor-only until encoder compositing is added.", color = Color.Gray, fontSize = 10.sp)
     }
 
     if (addDialog) AlertDialog(
