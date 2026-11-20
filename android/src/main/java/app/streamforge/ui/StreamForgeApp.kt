@@ -8,6 +8,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.draw.alpha
+import android.view.SurfaceView
 import android.content.Intent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +61,7 @@ fun StreamForgeApp(
     var showKey by remember { mutableStateOf(false) }
     var selectedQuality by remember { mutableStateOf(qualityOptions[5]) }
     var showLiveDashboard by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     var colorBrightness by remember { mutableFloatStateOf(1.08f) }
     var colorContrast by remember { mutableFloatStateOf(1.12f) }
@@ -112,8 +116,31 @@ fun StreamForgeApp(
                     }
                 }
 
+                TabRow(selectedTabIndex = selectedTab, containerColor = Panel, contentColor = Accent) {
+                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Studio") })
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Preview") })
+                }
+
+                // Keep a real preview SurfaceView attached before streaming begins.
+                AndroidView(
+                    factory = { viewContext -> SurfaceView(viewContext).also { StreamService.previewView = it } },
+                    update = { StreamService.previewView = it },
+                    modifier = Modifier.fillMaxWidth()
+                        .then(if (selectedTab == 1) Modifier.aspectRatio(16f / 9f) else Modifier.size(1.dp))
+                        .alpha(if (selectedTab == 1) 1f else 0f)
+                )
+
+                if (selectedTab == 1) {
+                    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("LIVE OUTPUT PREVIEW", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isStreaming) "This is the local encoder preview of the frames being sent to your stream." else "Preview surface is ready. Start a broadcast from Studio to see the captured screen here.", color = Muted, fontSize = 12.sp)
+                            Text(if (isStreaming) "● STREAMING" else "● WAITING FOR BROADCAST", color = if (isStreaming) LiveRed else Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            OutlinedButton(onClick = { selectedTab = 0 }, modifier = Modifier.fillMaxWidth()) { Text("Back to Studio") }
+                        }
+                    }
+                } else {
                 if (isStreaming && showLiveDashboard) {
-                    LiveDashboard(
                         elapsed = elapsedSeconds,
                         bitrate = bitrate,
                         resolution = liveResolution,
@@ -272,6 +299,7 @@ fun StreamForgeApp(
                     }
                 }
                 Text("StreamForge Android • Direct-to-platform • No relay server", color = Muted, fontSize = 10.sp)
+                }
             }
         }
     }
