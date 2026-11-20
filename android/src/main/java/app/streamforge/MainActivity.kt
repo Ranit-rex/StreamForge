@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 
@@ -55,6 +56,10 @@ class MainActivity : ComponentActivity() {
         // Android 15 enforces edge-to-edge for targetSdk 35. Compose applies system-bar
         // insets to the content so the app header never sits underneath the status bar.
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             StreamForgeApp(
