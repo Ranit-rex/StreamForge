@@ -168,13 +168,16 @@ class StreamService : Service(), ConnectChecker {
             streamResolution.value = "$width × $height"
             streamFps.value = fps
             bitrateKbps.value = 0L
+            // RootEncoder requires encoder color metadata to be configured before prepareVideo.
+            // Calling forceBt709Color after prepareVideo throws:
+            // "Encoder already prepared, this must be called before prepareVideo".
+            stream?.forceBt709Color(true)
             val prepared = stream?.prepareVideo(width, height, bitrate, fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("Video encoder could not prepare this quality")
             // MediaProjection already provides display orientation. RootEncoder otherwise
             // applies its camera orientation transform, which can produce a blank/white
             // GL frame for ScreenSource on some devices.
             stream?.getGlInterface()?.setCameraOrientation(0)
-            stream?.forceBt709Color(true)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
             // Start with the unfiltered capture pipeline. Filters are attached only
             // after the user changes a colour control, avoiding a filter-init race.
