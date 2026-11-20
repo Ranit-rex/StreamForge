@@ -17,15 +17,35 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.streamforge.stream.StreamService
+import kotlinx.coroutines.delay
 
 private val Background = Color(0xFF0B0E13)
 private val Panel = Color(0xFF151B25)
 private val Accent = Color(0xFF8EA5FF)
 private val Muted = Color(0xFF9AA6B8)
+private val LiveRed = Color(0xFFFF536B)
+
+private data class StreamQuality(
+    val label: String,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val bitrate: Int
+)
+
+private val qualityOptions = listOf(
+    StreamQuality("4K Ultra HD · 30 FPS", 3840, 2160, 30, 20_000_000),
+    StreamQuality("1440p QHD · 30 FPS", 2560, 1440, 30, 14_000_000),
+    StreamQuality("1080p Full HD · 60 FPS", 1920, 1080, 60, 12_000_000),
+    StreamQuality("1080p Full HD · 30 FPS", 1920, 1080, 30, 8_000_000),
+    StreamQuality("720p HD · 60 FPS", 1280, 720, 60, 6_000_000),
+    StreamQuality("720p HD · 30 FPS", 1280, 720, 30, 4_500_000),
+    StreamQuality("480p Data Saver · 30 FPS", 854, 480, 30, 2_500_000)
+)
 
 @Composable
 fun StreamForgeApp(
-    onStartStream: (String) -> Unit,
+    onStartStream: (String, Int, Int, Int, Int) -> Unit,
     onStopStream: () -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit
@@ -34,14 +54,39 @@ fun StreamForgeApp(
     var server by remember { mutableStateOf("rtmps://a.rtmp.youtube.com/live2") }
     var streamKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
+    var selectedQuality by remember { mutableStateOf(qualityOptions[5]) }
+    var showLiveDashboard by remember { mutableStateOf(false) }
+    var elapsedSeconds by remember { mutableLongStateOf(0L) }
+
     val status by StreamService.status.collectAsState()
     val isStreaming by StreamService.streaming.collectAsState()
     val isRecording by StreamService.recording.collectAsState()
+    val bitrate by StreamService.bitrateKbps.collectAsState()
+    val liveResolution by StreamService.streamResolution.collectAsState()
+    val liveFps by StreamService.streamFps.collectAsState()
+    val startedAt by StreamService.streamStartedAt.collectAsState()
+
+    LaunchedEffect(isStreaming, startedAt) {
+        if (isStreaming && startedAt > 0L) {
+            showLiveDashboard = true
+            while (isStreaming) {
+                elapsedSeconds = ((System.currentTimeMillis() - startedAt) / 1000L).coerceAtLeast(0L)
+                delay(1000)
+            }
+        } else {
+            elapsedSeconds = 0L
+        }
+    }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
         Surface(Modifier.fillMaxSize(), color = Background) {
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
+                Modifier
+                    .fillMaxSize()
+                    .systemBarsPadding()
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -55,7 +100,22 @@ fun StreamForgeApp(
                         Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp)
                     }
                     Surface(color = Color(0xFF1E2938), shape = RoundedCornerShape(50)) {
-                        Text("ANDROID ALPHA", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("ANDROID", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (isStreaming && showLiveDashboard) {
+                    LiveDashboard(
+                        elapsed = elapsedSeconds,
+                        bitrate = bitrate,
+                        resolution = liveResolution,
+                        fps = liveFps,
+                        onHide = { showLiveDashboard = false },
+                        onStop = onStopStream
+                    )
+                } else if (isStreaming) {
+                    OutlinedButton(onClick = { showLiveDashboard = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("● LIVE  ·  Open live dashboard  ·  ${formatDuration(elapsedSeconds)}")
                     }
                 }
 
@@ -63,9 +123,9 @@ fun StreamForgeApp(
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("▣", color = Accent, fontSize = 36.sp)
                         Text("Screen broadcast", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Share your Android screen directly to your streaming platform.", color = Muted, fontSize = 12.sp)
+                        Text("Broadcast your Android screen with adjustable quality up to 4K.", color = Muted, fontSize = 12.sp)
                         Surface(color = if (isStreaming) Color(0xFF3B1720) else Color(0xFF202A38), shape = RoundedCornerShape(50)) {
-                            Text(status, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (isStreaming) Color(0xFFFF6B7A) else Color(0xFFB7C5D9), fontSize = 12.sp)
+                            Text(status, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (isStreaming) LiveRed else Color(0xFFB7C5D9), fontSize = 12.sp)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                             Button(
@@ -75,7 +135,7 @@ fun StreamForgeApp(
                                         val cleanServer = server.trim().trimEnd('/')
                                         val cleanKey = streamKey.trim().trimStart('/')
                                         if ((cleanServer.startsWith("rtmp://") || cleanServer.startsWith("rtmps://")) && cleanKey.isNotBlank()) {
-                                            onStartStream("$cleanServer/$cleanKey")
+                                            onStartStream("$cleanServer/$cleanKey", selectedQuality.width, selectedQuality.height, selectedQuality.fps, selectedQuality.bitrate)
                                         }
                                     }
                                 },
@@ -109,18 +169,100 @@ fun StreamForgeApp(
                         visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "Hide" else "Show") } }
                     )
-                    Text("Stream key stays in this app session. It is not uploaded to StreamForge servers.", color = Muted, fontSize = 11.sp)
+                    Text("Your stream key stays on this device and is never sent to StreamForge servers.", color = Muted, fontSize = 11.sp)
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("QUICK SETTINGS", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Text("STREAM QUALITY", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    QualityPicker(selectedQuality) { selectedQuality = it }
+                    Text("4K and 60 FPS depend on your phone's hardware encoder, thermal limits, network upload speed and platform ingest limits. If the device cannot encode the selected mode, choose a lower preset.", color = Muted, fontSize = 11.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        InfoTile("Resolution", "720p", Modifier.weight(1f))
-                        InfoTile("Video", "H.264", Modifier.weight(1f))
-                        InfoTile("Audio", "AAC", Modifier.weight(1f))
+                        InfoTile("Resolution", selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
+                        InfoTile("Frame rate", "${selectedQuality.fps} FPS", Modifier.weight(1f))
+                        InfoTile("Target bitrate", "${selectedQuality.bitrate / 1_000_000.0} Mbps", Modifier.weight(1f))
                     }
                 }
-                Text("StreamForge Android alpha • Direct-to-platform • No relay server", color = Muted, fontSize = 10.sp)
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("LIVE TOOLS", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                    Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("• Live dashboard with stream timer and encoder bitrate", color = Color.White, fontSize = 12.sp)
+                            Text("• One-tap local MP4 recording while live", color = Color.White, fontSize = 12.sp)
+                            Text("• YouTube, Twitch, Kick and custom RTMP destinations", color = Color.White, fontSize = 12.sp)
+                            Text("• Foreground streaming notification and screen-awake mode", color = Color.White, fontSize = 12.sp)
+                        }
+                    }
+                }
+                Text("StreamForge Android • Direct-to-platform • No relay server", color = Muted, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveDashboard(
+    elapsed: Long,
+    bitrate: Long,
+    resolution: String,
+    fps: Int,
+    onHide: () -> Unit,
+    onStop: () -> Unit
+) {
+    Surface(color = Color(0xFF24151D), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = LiveRed, shape = RoundedCornerShape(50)) {
+                    Text("● LIVE", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(formatDuration(elapsed), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onHide) { Text("Minimise", color = Muted) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LiveMetric("BITRATE", if (bitrate > 0) "$bitrate kbps" else "Starting…", Modifier.weight(1f))
+                LiveMetric("QUALITY", resolution, Modifier.weight(1f))
+                LiveMetric("FPS", "$fps", Modifier.weight(1f))
+            }
+            Text("Audience count is not exposed by a standard RTMP connection. Platform analytics / OAuth is needed for verified viewer numbers.", color = Muted, fontSize = 10.sp)
+            OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("End stream") }
+        }
+    }
+}
+
+@Composable
+private fun LiveMetric(label: String, value: String, modifier: Modifier = Modifier) {
+    Surface(modifier, color = Color(0xFF351E29), shape = RoundedCornerShape(10.dp)) {
+        Column(Modifier.padding(10.dp)) {
+            Text(label, color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(value, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+private fun formatDuration(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val secs = seconds % 60
+    return if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, secs)
+    else String.format("%02d:%02d", minutes, secs)
+}
+
+@Composable
+private fun QualityPicker(selected: StreamQuality, onSelect: (StreamQuality) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(selected.label, Modifier.weight(1f))
+            Text("▾")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            qualityOptions.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = { onSelect(option); expanded = false }
+                )
             }
         }
     }
