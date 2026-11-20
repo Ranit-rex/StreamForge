@@ -28,6 +28,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setMinimumSize(1050, 680);
     buildInterface();
     applyTheme();
+
+    const bool engineReady = engine_.initialize();
+    engineStatusLabel_->setText(engineReady
+        ? "●  LIBOBS ENGINE INITIALIZED"
+        : "●  LIBOBS SDK NOT AVAILABLE");
+    engineStatusLabel_->setToolTip(engine_.statusMessage());
 }
 
 QWidget *MainWindow::createPanel(const QString &title, QWidget *content, QWidget *parent) {
@@ -56,14 +62,13 @@ void MainWindow::buildInterface() {
     topBar->addSpacing(18);
     topBar->addWidget(workspace);
     topBar->addStretch();
-    engineStatusLabel_ = new QLabel("●  ENGINE NOT CONNECTED");
+    engineStatusLabel_ = new QLabel("●  CHECKING ENGINE");
     engineStatusLabel_->setObjectName("statusPill");
     topBar->addWidget(engineStatusLabel_);
     root->addLayout(topBar);
 
     auto *workspaceRow = new QHBoxLayout();
     workspaceRow->setSpacing(12);
-
     sceneList_ = new QListWidget();
     sceneList_->addItems({"Starting Soon", "Gameplay", "Just Chatting", "BRB", "Ending"});
     sceneList_->setCurrentRow(1);
@@ -83,7 +88,7 @@ void MainWindow::buildInterface() {
     auto *previewTitle = new QLabel("Your stream preview");
     previewTitle->setObjectName("previewTitle");
     previewTitle->setAlignment(Qt::AlignCenter);
-    auto *previewHint = new QLabel("Connect the capture engine to add sources and see your live composition.");
+    auto *previewHint = new QLabel("Capture sources and the live composition preview are coming with the next engine milestone.");
     previewHint->setObjectName("mutedText");
     previewHint->setWordWrap(true);
     previewHint->setAlignment(Qt::AlignCenter);
@@ -93,7 +98,7 @@ void MainWindow::buildInterface() {
     previewInner->addWidget(previewHint);
     previewInner->addStretch();
     previewLayout->addWidget(preview, 1);
-    previewStatusLabel_ = new QLabel("Preview is a UI placeholder — capture is not active.");
+    previewStatusLabel_ = new QLabel("No media capture is active.");
     previewStatusLabel_->setObjectName("mutedText");
     previewLayout->addWidget(previewStatusLabel_);
     workspaceRow->addWidget(createPanel("PREVIEW", previewContent), 6);
@@ -135,12 +140,12 @@ void MainWindow::buildInterface() {
     recordButton_ = makeToolButton("Start Recording");
     startStreamButton_->setEnabled(false);
     recordButton_->setEnabled(false);
-    startStreamButton_->setToolTip("Available after the capture and output engine is integrated.");
-    recordButton_->setToolTip("Available after the recording engine is integrated.");
+    startStreamButton_->setToolTip("Available after capture and output modules are implemented.");
+    recordButton_->setToolTip("Available after the recording output is implemented.");
     buttons->addWidget(startStreamButton_);
     buttons->addWidget(recordButton_);
     outputLayout->addLayout(buttons);
-    auto *nextStep = new QLabel("Next milestone: integrate libobs capture, scene and output APIs.");
+    auto *nextStep = new QLabel("Engine lifecycle is scaffolded. Next: video, audio and output pipelines.");
     nextStep->setObjectName("mutedText");
     nextStep->setWordWrap(true);
     outputLayout->addWidget(nextStep);
@@ -148,11 +153,11 @@ void MainWindow::buildInterface() {
     root->addLayout(bottomRow, 2);
 
     auto *footer = new QHBoxLayout();
-    auto *footerText = new QLabel("STREAMFORGE ALPHA 0.1.0  •  LOCAL DESKTOP SHELL");
+    auto *footerText = new QLabel("STREAMFORGE ALPHA 0.1.0  •  ENGINE FOUNDATION");
     footerText->setObjectName("footerText");
     footer->addWidget(footerText);
     footer->addStretch();
-    footer->addWidget(new QLabel("No cloud account required"));
+    footer->addWidget(new QLabel("Direct-to-platform • No relay"));
     root->addLayout(footer);
     setCentralWidget(central);
 }
