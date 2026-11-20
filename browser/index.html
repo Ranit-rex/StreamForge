@@ -19,7 +19,7 @@
   <section class="intro">
     <div class="eyebrow">BROWSER BROADCAST WORKSPACE</div>
     <h1>Your stream.<br><span>Your control.</span></h1>
-    <p>Capture your screen, mix your microphone, record locally or send a live feed to a compatible WHIP destination.</p>
+    <p>Capture your screen, mix your microphone, record locally or prepare a live broadcast destination.</p>
   </section>
   <section class="workspace">
     <div class="preview-card">
@@ -45,11 +45,11 @@
     </div>
     <aside class="side-column">
       <section class="card">
-        <div class="eyebrow">01 / DESTINATION</div><h2>Broadcast output</h2>
+        <div class="eyebrow">01 / DESTINATION</div><h2>Broadcast output</h2><button id="connectYoutube" class="button youtube full" type="button">▶ Connect YouTube</button><p class="note">YouTube account linking and one-tap live setup require Google OAuth and a secure streaming bridge.</p>
         <label for="platform">Platform / destination</label>
         <select id="platform">
           <option value="custom">Custom WHIP endpoint</option>
-          <option value="youtube">YouTube (WHIP endpoint required)</option>
+          <option value="youtube">YouTube (connect account setup)</option>
           <option value="twitch">Twitch (WHIP gateway required)</option>
           <option value="kick">Kick (WHIP gateway required)</option>
         </select>
@@ -71,7 +71,7 @@
   </section>
   <div class="privacy"><span>STREAMFORGE</span><span>Local recording · No StreamForge relay · Credentials are not saved</span></div>
 </main>
-<footer>BUILT FOR CREATORS · BROWSER STUDIO</footer>
+<div id="dialogBackdrop" class="dialog-backdrop" hidden><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button id="dialogClose" class="dialog-close" aria-label="Close dialog">×</button><div class="eyebrow">STREAMFORGE CONTROL</div><h2 id="dialogTitle">Confirm action</h2><p id="dialogBody"></p><div id="dialogActions" class="dialog-actions"></div></section></div><footer>BUILT FOR CREATORS · BROWSER STUDIO</footer>
 <script src="app.js"></script>
 </body>
 </html>
