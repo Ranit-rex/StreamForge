@@ -243,6 +243,19 @@ class StreamService : Service(), ConnectChecker {
         val safeIndex = sceneIndex.coerceIn(0, scenes.length() - 1)
         val scene = scenes.optJSONObject(safeIndex) ?: return
         val layers = scene.optJSONArray("layers") ?: org.json.JSONArray()
+        val screenLayer = (0 until layers.length())
+            .mapNotNull { layers.optJSONObject(it) }
+            .firstOrNull { it.optString("kind") == "screen" && it.optBoolean("visible", true) }
+        if (screenLayer != null) {
+            filter.setScreenRect(
+                screenLayer.optDouble("x", 0.0).toFloat(),
+                screenLayer.optDouble("y", 0.0).toFloat(),
+                screenLayer.optDouble("width", 1.0).toFloat(),
+                screenLayer.optDouble("height", 1.0).toFloat()
+            )
+        } else {
+            filter.setScreenRect(0f, 0f, 1f, 1f)
+        }
         val outputWidth = activeStreamWidth.coerceAtMost(1920).coerceAtLeast(640)
         val outputHeight = activeStreamHeight.coerceAtMost(1080).coerceAtLeast(360)
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
