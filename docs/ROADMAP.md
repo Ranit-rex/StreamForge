@@ -10,7 +10,7 @@
 ## Milestone 1 — libobs engine integration
 - [ ] Pin a supported OBS Studio/libobs version
 - [ ] Add reproducible dependency setup for all desktop platforms
-- [ ] Initialize and shut down libobs safely
+- [x] Add optional libobs initialization and shutdown wrapper
 - [ ] Add engine diagnostics and structured logging
 - [ ] Add a real preview render surface
 
