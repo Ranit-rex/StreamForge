@@ -181,7 +181,8 @@ fun StreamForgeApp(
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("▣", color = Accent, fontSize = 36.sp)
                         Text("Screen broadcast", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Choose your entire screen or a single app in Android’s screen-sharing prompt, then broadcast up to 4K.", color = Muted, fontSize = 12.sp)\n                        Text("SOURCE · FULL SCREEN / SINGLE APP", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Choose your entire screen or a single app in Android’s screen-sharing prompt, then broadcast up to 4K.", color = Muted, fontSize = 12.sp)
+                        Text("SOURCE · FULL SCREEN / SINGLE APP", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Surface(color = if (isStreaming) Color(0xFF3B1720) else Color(0xFF202A38), shape = RoundedCornerShape(50)) {
                             Text(status, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (isStreaming) LiveRed else Color(0xFFB7C5D9), fontSize = 12.sp)
                         }
