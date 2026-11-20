@@ -1,0 +1,13 @@
+/build/
+/cmake-build-*/
+/out/
+/dist/
+*.user
+*.user.*
+.idea/
+.vscode/
+.DS_Store
+*.log
+*.tmp
+/vendor/
+/third_party/build/
