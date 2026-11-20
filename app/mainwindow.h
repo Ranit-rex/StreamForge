@@ -1,4 +1,5 @@
 #pragma once
+#include "obsengine.h"
 #include <QMainWindow>
 class QLabel;
 class QListWidget;
@@ -12,6 +13,7 @@ private:
     void buildInterface();
     void applyTheme();
     QWidget *createPanel(const QString &title, QWidget *content, QWidget *parent = nullptr);
+    ObsEngine engine_;
     QLabel *engineStatusLabel_ = nullptr;
     QLabel *previewStatusLabel_ = nullptr;
     QListWidget *sceneList_ = nullptr;
