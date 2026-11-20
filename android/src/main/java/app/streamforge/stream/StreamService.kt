@@ -32,7 +32,6 @@ import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender
 import com.pedro.encoder.input.gl.render.filters.ContrastFilterRender
-import com.pedro.encoder.input.gl.render.filters.SaturationFilterRender
 import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
@@ -85,7 +84,6 @@ class StreamService : Service(), ConnectChecker {
     private val microphoneSource = MicrophoneSource()
     private var brightnessFilter: BrightnessFilterRender? = null
     private var contrastFilter: ContrastFilterRender? = null
-    private var saturationFilter: SaturationFilterRender? = null
     private var sharpnessFilter: SharpnessFilterRender? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
@@ -207,25 +205,20 @@ class StreamService : Service(), ConnectChecker {
 
     private fun installColorFilters() {
         val activeStream = stream ?: return
-        val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value) }
+        // RootEncoder's brightness shader adds this value directly to every RGB
+        // channel. StreamForge's slider is centered at 1.0, so convert it to a
+        // signed offset where 0.0 is truly neutral.
+        val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value - 1.0f) }
         val contrast = ContrastFilterRender().apply { setContrast(colorContrast.value) }
-        // StreamForge UI uses 0..2 with 1.0 = neutral. RootEncoder uses -1..1
-        // with 0.0 = neutral. Passing UI 1.0 directly over-saturates and clips
-        // the GL output toward white.
-        val saturation = SaturationFilterRender().apply {
-            setSaturation((colorSaturation.value - 1.0f).coerceIn(-1.0f, 1.0f))
-        }
         val sharpness = SharpnessFilterRender().apply { setSharpness(colorSharpness.value) }
         activeStream.getGlInterface().apply {
             clearFilters()
             addFilter(brightness)
             addFilter(contrast)
-            addFilter(saturation)
             addFilter(sharpness)
         }
         brightnessFilter = brightness
         contrastFilter = contrast
-        saturationFilter = saturation
         sharpnessFilter = sharpness
     }
 
@@ -234,10 +227,13 @@ class StreamService : Service(), ConnectChecker {
         colorContrast.value = contrast.coerceIn(0.8f, 1.4f)
         colorSaturation.value = saturation.coerceIn(0f, 2f)
         colorSharpness.value = sharpness.coerceIn(0f, 0.8f)
-        if (brightnessFilter == null || contrastFilter == null || saturationFilter == null || sharpnessFilter == null) installColorFilters()
-        brightnessFilter?.setBrightness(colorBrightness.value)
+        if (brightnessFilter == null || contrastFilter == null || sharpnessFilter == null) installColorFilters()
+        brightnessFilter?.setBrightness(colorBrightness.value - 1.0f)
         contrastFilter?.setContrast(colorContrast.value)
-        saturationFilter?.setSaturation((colorSaturation.value - 1.0f).coerceIn(-1.0f, 1.0f))
+        // Saturation is intentionally not attached: RootEncoder 2.8.1's
+        // SaturationFilterRender shader adds a second color pass even at neutral,
+        // which clips the capture to white. Keep the slider value for UI until a
+        // safe replacement shader is installed.
         sharpnessFilter?.setSharpness(colorSharpness.value)
     }
 
@@ -416,7 +412,7 @@ class StreamService : Service(), ConnectChecker {
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
         previewView = null
-        brightnessFilter = null; contrastFilter = null; saturationFilter = null; sharpnessFilter = null
+        brightnessFilter = null; contrastFilter = null; sharpnessFilter = null
         projection?.stop()
         projection = null
         super.onDestroy()
