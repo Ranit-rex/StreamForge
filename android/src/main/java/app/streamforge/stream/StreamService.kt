@@ -11,6 +11,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.pedro.common.ConnectChecker
@@ -46,11 +47,16 @@ class StreamService : Service(), ConnectChecker {
         val streamResolution = MutableStateFlow("1280 × 720")
         val streamFps = MutableStateFlow(30)
         val streamStartedAt = MutableStateFlow(0L)
+        val networkHealth = MutableStateFlow("Network monitoring")
     }
 
     private var stream: GenericStream? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
+    private var requestedVideoBitrate = 4_500_000
+    private var activeVideoBitrate = 4_500_000
+    private var lastBitrateAdjustmentAt = 0L
+    private var stableNetworkSince = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -58,6 +64,8 @@ class StreamService : Service(), ConnectChecker {
         stream = GenericStream(this, this, NoVideoSource(), MicrophoneSource()).apply {
             getGlInterface().setForceRender(true, 15)
             prepareAudio(44_100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
+            // A smaller queue detects upload congestion sooner on mobile networks.
+            getStreamClient().resizeCache(200)
         }
     }
 
@@ -104,6 +112,11 @@ class StreamService : Service(), ConnectChecker {
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, projectionData)
                 ?: throw IllegalStateException("Screen capture permission was not granted")
+            requestedVideoBitrate = bitrate
+            activeVideoBitrate = bitrate
+            lastBitrateAdjustmentAt = 0L
+            stableNetworkSince = 0L
+            networkHealth.value = "Network monitoring"
             streamResolution.value = "$width × $height"
             streamFps.value = fps
             bitrateKbps.value = 0L
@@ -179,6 +192,35 @@ class StreamService : Service(), ConnectChecker {
     }
     override fun onNewBitrate(bitrate: Long) {
         bitrateKbps.value = bitrate / 1000
+        val activeStream = stream
+        val now = SystemClock.elapsedRealtime()
+        if (streaming.value && activeStream != null && now - lastBitrateAdjustmentAt >= 5_000L) {
+            lastBitrateAdjustmentAt = now
+            val congested = runCatching { activeStream.getStreamClient().hasCongestion() }.getOrDefault(false)
+            if (congested) {
+                stableNetworkSince = 0L
+                val reduced = (activeVideoBitrate * 0.80).toInt().coerceAtLeast(600_000)
+                if (reduced < activeVideoBitrate) {
+                    activeVideoBitrate = reduced
+                    runCatching { activeStream.setVideoBitrateOnFly(reduced) }
+                    networkHealth.value = "Network congested · reducing bitrate"
+                } else {
+                    networkHealth.value = "Network congested · minimum bitrate reached"
+                }
+            } else {
+                if (stableNetworkSince == 0L) stableNetworkSince = now
+                if (now - stableNetworkSince >= 30_000L && activeVideoBitrate < requestedVideoBitrate) {
+                    activeVideoBitrate = (activeVideoBitrate * 1.05).toInt().coerceAtMost(requestedVideoBitrate)
+                    runCatching { activeStream.setVideoBitrateOnFly(activeVideoBitrate) }
+                    stableNetworkSince = now
+                }
+                networkHealth.value = if (activeVideoBitrate < requestedVideoBitrate) {
+                    "Connection recovering · ${activeVideoBitrate / 1000} kbps target"
+                } else {
+                    "Connection stable"
+                }
+            }
+        }
         status.value = if (streaming.value) "LIVE • ${bitrate / 1000} kbps" else status.value
     }
     override fun onDisconnect() {
