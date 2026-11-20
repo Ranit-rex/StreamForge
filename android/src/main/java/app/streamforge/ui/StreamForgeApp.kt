@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,6 +59,11 @@ fun StreamForgeApp(
     var selectedQuality by remember { mutableStateOf(qualityOptions[5]) }
     var showLiveDashboard by remember { mutableStateOf(false) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
+    var colorBrightness by remember { mutableFloatStateOf(1.08f) }
+    var colorContrast by remember { mutableFloatStateOf(1.12f) }
+    var colorSaturation by remember { mutableFloatStateOf(0.22f) }
+    var colorSharpness by remember { mutableFloatStateOf(0.22f) }
+    val context = LocalContext.current
 
     val status by StreamService.status.collectAsState()
     val isStreaming by StreamService.streaming.collectAsState()
@@ -182,6 +189,74 @@ fun StreamForgeApp(
                         InfoTile("Resolution", selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
                         InfoTile("Frame rate", "${selectedQuality.fps} FPS", Modifier.weight(1f))
                         InfoTile("Target bitrate", "${selectedQuality.bitrate / 1_000_000.0} Mbps", Modifier.weight(1f))
+                    }
+                }
+
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("STREAM COLOUR", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                            Text("Vivid live colour tuning · applies to the outgoing stream", color = Muted, fontSize = 10.sp)
+                        }
+                        TextButton(onClick = {
+                            colorBrightness = 1.08f; colorContrast = 1.12f; colorSaturation = 0.22f; colorSharpness = 0.22f
+                            context.startService(Intent(context, StreamService::class.java).apply {
+                                action = StreamService.ACTION_UPDATE_COLOR
+                                putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
+                                putExtra(StreamService.EXTRA_COLOR_CONTRAST, colorContrast)
+                                putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
+                                putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
+                            })
+                        }) { Text("Reset") }
+                    }
+                    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Brightness  ${(colorBrightness * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
+                            Slider(value = colorBrightness, onValueChange = {
+                                colorBrightness = it
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_COLOR
+                                    putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
+                                    putExtra(StreamService.EXTRA_COLOR_CONTRAST, colorContrast)
+                                    putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
+                                    putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
+                                })
+                            }, valueRange = 0.8f..1.35f)
+                            Text("Contrast  ${(colorContrast * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
+                            Slider(value = colorContrast, onValueChange = {
+                                colorContrast = it
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_COLOR
+                                    putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
+                                    putExtra(StreamService.EXTRA_COLOR_CONTRAST, colorContrast)
+                                    putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
+                                    putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
+                                })
+                            }, valueRange = 0.8f..1.4f)
+                            Text("Colour vibrance  ${(colorSaturation * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
+                            Slider(value = colorSaturation, onValueChange = {
+                                colorSaturation = it
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_COLOR
+                                    putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
+                                    putExtra(StreamService.EXTRA_COLOR_CONTRAST, colorContrast)
+                                    putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
+                                    putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
+                                })
+                            }, valueRange = -0.2f..0.6f)
+                            Text("Sharpness  ${(colorSharpness * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
+                            Slider(value = colorSharpness, onValueChange = {
+                                colorSharpness = it
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_COLOR
+                                    putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
+                                    putExtra(StreamService.EXTRA_COLOR_CONTRAST, colorContrast)
+                                    putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
+                                    putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
+                                })
+                            }, valueRange = 0f..0.8f)
+                        }
                     }
                 }
 
