@@ -21,10 +21,12 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        // Screen capture can still be requested if the user declines microphone access.
-        // The streaming service will surface an audio-permission error if mic capture is unavailable.
-        requestScreenCapture()
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            requestScreenCapture()
+        } else {
+            StreamService.status.value = "Microphone permission is required to start a broadcast"
+        }
     }
 
     private val captureLauncher = registerForActivityResult(
