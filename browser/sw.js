@@ -1,5 +1,5 @@
 const CACHE = "streamforge-web-v3";
-const APP_FILES = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest"];
+const APP_FILES = ["./", "./index.html", "./styles.css", "./app.js", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", event => {
   event.waitUntil(
