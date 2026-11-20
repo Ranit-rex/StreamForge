@@ -74,10 +74,10 @@ class StreamService : Service(), ConnectChecker {
         val streamStartedAt = MutableStateFlow(0L)
         val networkHealth = MutableStateFlow("Network monitoring")
         val microphoneMuted = MutableStateFlow(false)
-        val colorBrightness = MutableStateFlow(1.08f)
-        val colorContrast = MutableStateFlow(1.12f)
-        val colorSaturation = MutableStateFlow(0.22f)
-        val colorSharpness = MutableStateFlow(0.22f)
+        val colorBrightness = MutableStateFlow(1.0f)
+        val colorContrast = MutableStateFlow(1.0f)
+        val colorSaturation = MutableStateFlow(1.0f)
+        val colorSharpness = MutableStateFlow(0.0f)
     }
 
     private var stream: GenericStream? = null
@@ -175,7 +175,9 @@ class StreamService : Service(), ConnectChecker {
             // Start a real RootEncoder preview surface before streaming. This also
             // gives us a local visual check of the exact GL frames sent to the encoder.
             startPreviewIfAvailable()
-            installColorFilters()
+            // Start with the unfiltered capture pipeline. Filters are attached only
+            // after the user changes a colour control, avoiding a filter-init race.
+            stream?.getGlInterface()?.clearFilters()
             stream?.startStream(endpoint)
             status.value = "Connecting…"
         } catch (error: Exception) {
@@ -215,8 +217,9 @@ class StreamService : Service(), ConnectChecker {
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
         colorBrightness.value = brightness.coerceIn(0.8f, 1.35f)
         colorContrast.value = contrast.coerceIn(0.8f, 1.4f)
-        colorSaturation.value = saturation.coerceIn(-0.2f, 0.6f)
+        colorSaturation.value = saturation.coerceIn(0f, 2f)
         colorSharpness.value = sharpness.coerceIn(0f, 0.8f)
+        if (brightnessFilter == null || contrastFilter == null || saturationFilter == null || sharpnessFilter == null) installColorFilters()
         brightnessFilter?.setBrightness(colorBrightness.value)
         contrastFilter?.setContrast(colorContrast.value)
         saturationFilter?.setSaturation(colorSaturation.value)
