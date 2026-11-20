@@ -63,10 +63,10 @@ fun StreamForgeApp(
     var showLiveDashboard by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
-    var colorBrightness by remember { mutableFloatStateOf(1.08f) }
-    var colorContrast by remember { mutableFloatStateOf(1.12f) }
-    var colorSaturation by remember { mutableFloatStateOf(0.22f) }
-    var colorSharpness by remember { mutableFloatStateOf(0.22f) }
+    var colorBrightness by remember { mutableFloatStateOf(1.0f) }
+    var colorContrast by remember { mutableFloatStateOf(1.0f) }
+    var colorSaturation by remember { mutableFloatStateOf(1.0f) }
+    var colorSharpness by remember { mutableFloatStateOf(0.0f) }
     val context = LocalContext.current
 
     val status by StreamService.status.collectAsState()
@@ -227,7 +227,7 @@ fun StreamForgeApp(
                             Text("Vivid live colour tuning · applies to the outgoing stream", color = Muted, fontSize = 10.sp)
                         }
                         TextButton(onClick = {
-                            colorBrightness = 1.08f; colorContrast = 1.12f; colorSaturation = 0.22f; colorSharpness = 0.22f
+                            colorBrightness = 1.0f; colorContrast = 1.0f; colorSaturation = 1.0f; colorSharpness = 0.0f
                             context.startService(Intent(context, StreamService::class.java).apply {
                                 action = StreamService.ACTION_UPDATE_COLOR
                                 putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, colorBrightness)
@@ -271,7 +271,7 @@ fun StreamForgeApp(
                                     putExtra(StreamService.EXTRA_COLOR_SATURATION, colorSaturation)
                                     putExtra(StreamService.EXTRA_COLOR_SHARPNESS, colorSharpness)
                                 })
-                            }, valueRange = -0.2f..0.6f)
+                            }, valueRange = 0f..2f)
                             Text("Sharpness  ${(colorSharpness * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
                             Slider(value = colorSharpness, onValueChange = {
                                 colorSharpness = it
