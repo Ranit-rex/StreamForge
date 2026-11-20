@@ -45,7 +45,7 @@
     </div>
     <aside class="side-column">
       <section class="card">
-        <div class="eyebrow">01 / DESTINATION</div><h2>Broadcast output</h2>
+        <div class="eyebrow">01 / DESTINATION</div><h2>Broadcast output</h2><button id="connectYoutube" class="button youtube full" type="button">▶ Connect YouTube</button><p class="note">YouTube account linking and one-tap live setup require Google OAuth and a secure streaming bridge.</p>
         <label for="platform">Platform / destination</label>
         <select id="platform">
           <option value="custom">Custom WHIP endpoint</option>
@@ -71,7 +71,7 @@
   </section>
   <div class="privacy"><span>STREAMFORGE</span><span>Local recording · No StreamForge relay · Credentials are not saved</span></div>
 </main>
-<footer>BUILT FOR CREATORS · BROWSER STUDIO</footer>
+<div id="dialogBackdrop" class="dialog-backdrop" hidden><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle"><button id="dialogClose" class="dialog-close" aria-label="Close dialog">×</button><div class="eyebrow">STREAMFORGE CONTROL</div><h2 id="dialogTitle">Confirm action</h2><p id="dialogBody"></p><div id="dialogActions" class="dialog-actions"></div></section></div><footer>BUILT FOR CREATORS · BROWSER STUDIO</footer>
 <script src="app.js"></script>
 </body>
 </html>
