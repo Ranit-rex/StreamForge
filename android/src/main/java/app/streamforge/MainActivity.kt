@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         val data = result.data
         if (result.resultCode == RESULT_OK && data != null && pendingEndpoint.isNotBlank()) {
+            StreamService.status.value = "Screen access granted · starting stream service…"
             val serviceIntent = Intent(this, StreamService::class.java).apply {
                 action = StreamService.ACTION_START_STREAM
                 putExtra(StreamService.EXTRA_RESULT_CODE, result.resultCode)
@@ -51,7 +52,17 @@ class MainActivity : ComponentActivity() {
                 putExtra(StreamService.EXTRA_FPS, pendingFps)
                 putExtra(StreamService.EXTRA_BITRATE, pendingBitrate)
             }
-            ContextCompat.startForegroundService(this, serviceIntent)
+            try {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } catch (error: Exception) {
+                StreamService.status.value = "Could not launch stream service: ${error.message ?: error.javaClass.simpleName}"
+            }
+        } else {
+            StreamService.status.value = if (pendingEndpoint.isBlank()) {
+                "Stream destination is missing"
+            } else {
+                "Screen sharing was cancelled or permission was denied"
+            }
         }
     }
 
@@ -107,6 +118,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestScreenCapture() {
+        StreamService.status.value = "Choose what to share, then tap Start now"
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
             manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
