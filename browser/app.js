@@ -1,6 +1,24 @@
 const $ = id => document.getElementById(id);
 const state = { display:null, mic:null, combined:null, recorder:null, chunks:[], peer:null, whipResource:null, live:false, audioContext:null, audioDestination:null, mixSources:[] };
 const say = message => { $("message").textContent = message; };
+function showDialog(title,body,actions=[{label:"OK",kind:"primary"}]){
+ $("dialogTitle").textContent=title;$("dialogBody").textContent=body;
+ const host=$("dialogActions");host.replaceChildren();
+ actions.forEach(item=>{const b=document.createElement("button");b.className="button "+(item.kind||"secondary");b.textContent=item.label;b.addEventListener("click",()=>{closeDialog();if(item.action)item.action();});host.append(b);});
+ $("dialogBackdrop").hidden=false;
+}
+function closeDialog(){$("dialogBackdrop").hidden=true;}
+$("dialogClose").addEventListener("click",closeDialog);
+$("dialogBackdrop").addEventListener("click",e=>{if(e.target===$("dialogBackdrop"))closeDialog();});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDialog();});
+function screenCaptureCapability(){
+ if(!window.isSecureContext)return {ok:false,reason:"Open the official HTTPS website. Screen capture is blocked on insecure pages."};
+ if(!navigator.mediaDevices||typeof navigator.mediaDevices.getDisplayMedia!=="function"){
+  const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  return {ok:false,reason:mobile?"This mobile browser does not expose screen-sharing support. Use desktop Chrome/Edge, or the native StreamForge Android app when available.":"This browser does not support screen capture. Update Chrome or Edge and try again."};
+ }
+ return {ok:true};
+}
 const setStatus = (label, live=false) => { $("statusText").textContent=label; $("statusDot").classList.toggle("live",live); };
 function refresh(){
  const hasVideo=!!state.display;
@@ -35,13 +53,17 @@ async function buildCombined(){
  refresh();
 }
 async function shareScreen(){
- if(!window.isSecureContext){say("Open StreamForge over HTTPS to enable screen capture.");return;}
- if(!navigator.mediaDevices?.getDisplayMedia){say("This browser does not support screen sharing. Try the latest Chrome or Edge.");return;}
+ const capability=screenCaptureCapability();
+ if(!capability.ok){say(capability.reason);showDialog("Screen capture unavailable",capability.reason);return;}
  try{
   state.display=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:30,max:60}},audio:true});
   state.display.getVideoTracks()[0]?.addEventListener("ended",stopCapture,{once:true});
   await buildCombined();setStatus("SCREEN READY");say("Screen is shared. Enable your mic or start recording.");
- }catch(e){if(e.name!=="NotAllowedError")say("Screen capture failed: "+e.message);}
+  showDialog("Screen sharing started","Your screen is now visible in the studio preview.");
+ }catch(e){
+  const message=e.name==="NotAllowedError"?"Permission was denied or the screen picker was closed. Try again and select a screen or tab.":e.name==="NotSupportedError"?"This device or browser does not support screen capture. Try desktop Chrome or Edge.":"Screen capture failed: "+e.message;
+  say(message);showDialog("Could not share screen",message);
+ }
  refresh();
 }
 async function toggleMic(){
@@ -132,15 +154,15 @@ async function endBroadcast(){
  $("goLive").hidden=false;$("endLive").hidden=true;setStatus("STUDIO READY");say(wasLive?"Broadcast ended.":"Broadcast stopped.");refresh();
 }
 $("shareScreen").addEventListener("click",shareScreen);
-$("stopCapture").addEventListener("click",stopCapture);
-$("toggleMic").addEventListener("click",toggleMic);
+$("stopCapture").addEventListener("click",()=>showDialog("Stop screen capture?","This will also stop any active recording or live broadcast.",[{label:"Cancel",kind:"secondary"},{label:"Stop capture",kind:"danger",action:stopCapture}]));
+$("toggleMic").addEventListener("click",async()=>{await toggleMic();showDialog(state.mic?"Microphone enabled":"Microphone muted",state.mic?"Microphone is active.":"Microphone capture has stopped.");});
 $("startRecord").addEventListener("click",startRecording);
 $("stopRecord").addEventListener("click",stopRecording);
-$("goLive").addEventListener("click",startBroadcast);
-$("endLive").addEventListener("click",endBroadcast);
+$("goLive").addEventListener("click",()=>showDialog("Start live broadcast?","Your current screen and available audio will be sent to the configured WHIP destination.",[{label:"Cancel",kind:"secondary"},{label:"Go live",kind:"live",action:startBroadcast}]));
+$("endLive").addEventListener("click",()=>showDialog("End live stream?","This disconnects the current broadcast.",[{label:"Keep streaming",kind:"secondary"},{label:"End stream",kind:"danger",action:endBroadcast}]));
 $("whipUrl").addEventListener("input",refresh);
 $("toggleToken").addEventListener("click",()=>{const input=$("streamToken"),show=input.type==="password";input.type=show?"text":"password";$("toggleToken").textContent=show?"Hide":"Show";});
-$("copyEndpoint").addEventListener("click",async()=>{const value=$("whipUrl").value.trim();if(!value){say("Enter an endpoint URL first.");return;}try{await navigator.clipboard.writeText(value);say("Endpoint URL copied.");}catch{say("Clipboard access unavailable in this browser.");}});
+$("connectYoutube").addEventListener("click",()=>showDialog("Connect YouTube","Automatic YouTube setup needs a Google OAuth client ID, YouTube Data API v3 enabled, a secure token-handling backend, and a WHIP-to-RTMPS streaming bridge. These are not configured in this repository yet, so account linking and one-tap streaming cannot be activated safely. Never enter your Google password or YouTube stream key into this page.",[{label:"Understood",kind:"primary"}]));\n$("copyEndpoint").addEventListener("click",async()=>{const value=$("whipUrl").value.trim();if(!value){say("Enter an endpoint URL first.");return;}try{await navigator.clipboard.writeText(value);say("Endpoint URL copied.");}catch{say("Clipboard access unavailable in this browser.");}});
 $("platform").addEventListener("change",()=>{const p=$("platform").value;const hints={custom:"Enter the WHIP URL supplied by your ingest provider.",youtube:"Use a WHIP ingest URL from a supported YouTube workflow or gateway; standard RTMP URLs will not work here.",twitch:"Twitch requires a compatible WHIP gateway for this browser studio.",kick:"Kick requires a compatible WHIP gateway for this browser studio."};say(hints[p]);});
 let installPrompt;
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e;$("install").hidden=false;});
@@ -148,6 +170,6 @@ $("install").addEventListener("click",async()=>{if(!installPrompt)return;install
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(e=>console.warn("Service worker",e)));
 $("secureInfo").textContent=window.isSecureContext?"SECURE":"HTTPS REQUIRED";
 $("secureInfo").style.color=window.isSecureContext?"var(--green)":"var(--red)";
-$("captureSupport").textContent=navigator.mediaDevices?.getDisplayMedia?"AVAILABLE":"UNAVAILABLE";
+$("captureSupport").textContent=screenCaptureCapability().ok?"AVAILABLE":"NOT SUPPORTED HERE";
 $("recordSupport").textContent=window.MediaRecorder?"AVAILABLE":"UNAVAILABLE";
 refresh();
