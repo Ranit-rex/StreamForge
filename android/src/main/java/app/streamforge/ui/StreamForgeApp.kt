@@ -10,7 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.draw.alpha
-import android.view.SurfaceView
+import android.view.TextureView
 import android.content.Intent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -123,7 +123,7 @@ fun StreamForgeApp(
 
                 // Keep a real preview SurfaceView attached before streaming begins.
                 AndroidView(
-                    factory = { viewContext -> SurfaceView(viewContext).also { StreamService.previewView = it } },
+                    factory = { viewContext -> TextureView(viewContext).also { StreamService.previewView = it } },
                     update = { StreamService.previewView = it },
                     modifier = Modifier.fillMaxWidth()
                         .then(if (selectedTab == 1) Modifier.aspectRatio(16f / 9f) else Modifier.size(1.dp))
