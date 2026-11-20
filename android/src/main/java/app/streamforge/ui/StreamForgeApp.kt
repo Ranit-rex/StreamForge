@@ -93,9 +93,11 @@ fun StreamForgeApp(
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
         Surface(Modifier.fillMaxSize(), color = Background) {
+            Column(Modifier.fillMaxSize()) {
             Column(
                 Modifier
-                    .fillMaxSize()
+                    .weight(1f)
+                    .fillMaxWidth()
                     .systemBarsPadding()
                     .imePadding()
                     .verticalScroll(rememberScrollState())
@@ -115,13 +117,6 @@ fun StreamForgeApp(
                     Surface(color = Color(0xFF1E2938), shape = RoundedCornerShape(50)) {
                         Text("ANDROID", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
-                }
-
-                TabRow(selectedTabIndex = selectedTab, containerColor = Panel, contentColor = Accent) {
-                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Studio") })
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Preview") })
-                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Scenes") })
-                    Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Recordings") })
                 }
 
                 if (selectedTab == 1) {
@@ -186,7 +181,7 @@ fun StreamForgeApp(
                     Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("▣", color = Accent, fontSize = 36.sp)
                         Text("Screen broadcast", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("Broadcast your Android screen with adaptive bitrate and quality up to 4K.", color = Muted, fontSize = 12.sp)
+                        Text("Choose your entire screen or a single app in Android’s screen-sharing prompt, then broadcast up to 4K.", color = Muted, fontSize = 12.sp)\n                        Text("SOURCE · FULL SCREEN / SINGLE APP", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Surface(color = if (isStreaming) Color(0xFF3B1720) else Color(0xFF202A38), shape = RoundedCornerShape(50)) {
                             Text(status, Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (isStreaming) LiveRed else Color(0xFFB7C5D9), fontSize = 12.sp)
                         }
@@ -204,7 +199,7 @@ fun StreamForgeApp(
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = isStreaming || (streamKey.isNotBlank() && (server.startsWith("rtmp://") || server.startsWith("rtmps://")))
-                            ) { Text(if (isStreaming) "Stop live" else "Go live") }
+                            ) { Text(if (isStreaming) "Stop live" else "Choose screen & Go Live") }
                             OutlinedButton(
                                 onClick = { if (isRecording) onStopRecording() else onStartRecording() },
                                 modifier = Modifier.weight(1f),
@@ -327,6 +322,18 @@ fun StreamForgeApp(
                 }
                 Text("StreamForge Android • Direct-to-platform • No relay server", color = Muted, fontSize = 10.sp)
                 }
+            }
+            NavigationBar(containerColor = Panel, contentColor = Accent) {
+                listOf("Studio", "Preview", "Scenes", "Recordings").forEachIndexed { index, label ->
+                    NavigationBarItem(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = { Text(listOf("●", "▣", "▦", "▤")[index], fontSize = 18.sp) },
+                        label = { Text(label, fontSize = 10.sp) },
+                        alwaysShowLabel = true
+                    )
+                }
+            }
             }
         }
     }
