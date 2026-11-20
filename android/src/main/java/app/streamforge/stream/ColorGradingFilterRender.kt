@@ -29,6 +29,7 @@ class ColorGradingFilterRender : BaseFilterRender() {
     private var uSharpness = -1
     private var uResolution = -1
     private var uOverlay = -1
+    private var uScreenRect = -1
     private var overlayTextureId = -1
     @Volatile private var sceneOverlayBitmap: Bitmap? = null
     @Volatile private var overlayVersion = 0
@@ -39,6 +40,10 @@ class ColorGradingFilterRender : BaseFilterRender() {
     @Volatile private var contrast = 1f
     @Volatile private var saturation = 1f
     @Volatile private var sharpness = 0f
+    @Volatile private var screenX = 0f
+    @Volatile private var screenY = 0f
+    @Volatile private var screenWidth = 1f
+    @Volatile private var screenHeight = 1f
 
     private val vertices = floatArrayOf(
         -1f, -1f, 0f, 0f, 0f,
@@ -63,23 +68,29 @@ class ColorGradingFilterRender : BaseFilterRender() {
             uniform float uSharpness;
             uniform vec2 uResolution;
             uniform sampler2D uOverlay;
+            uniform mat4 uSTMatrix;
+            uniform vec4 uScreenRect;
             varying vec2 vTextureCoord;
 
             void main() {
                 vec2 texel = 1.0 / max(uResolution, vec2(1.0));
-                vec4 center = texture2D(uSampler, vTextureCoord);
-                vec3 up = texture2D(uSampler, vTextureCoord + vec2(0.0, texel.y)).rgb;
-                vec3 down = texture2D(uSampler, vTextureCoord - vec2(0.0, texel.y)).rgb;
-                vec3 left = texture2D(uSampler, vTextureCoord - vec2(texel.x, 0.0)).rgb;
-                vec3 right = texture2D(uSampler, vTextureCoord + vec2(texel.x, 0.0)).rgb;
+                vec2 outputTop = vec2(gl_FragCoord.x / uResolution.x, 1.0 - gl_FragCoord.y / uResolution.y);
+                vec2 localTop = (outputTop - uScreenRect.xy) / max(uScreenRect.zw, vec2(0.001));
+                bool insideScreen = outputTop.x >= uScreenRect.x && outputTop.y >= uScreenRect.y &&
+                    outputTop.x <= uScreenRect.x + uScreenRect.z && outputTop.y <= uScreenRect.y + uScreenRect.w;
+                vec2 sourceUv = (uSTMatrix * vec4(localTop.x, 1.0 - localTop.y, 0.0, 1.0)).xy;
+                vec4 center = insideScreen ? texture2D(uSampler, sourceUv) : vec4(0.025, 0.035, 0.055, 1.0);
+                vec3 up = texture2D(uSampler, sourceUv + vec2(0.0, texel.y)).rgb;
+                vec3 down = texture2D(uSampler, sourceUv - vec2(0.0, texel.y)).rgb;
+                vec3 left = texture2D(uSampler, sourceUv - vec2(texel.x, 0.0)).rgb;
+                vec3 right = texture2D(uSampler, sourceUv + vec2(texel.x, 0.0)).rgb;
 
                 vec3 rgb = center.rgb + uSharpness * (4.0 * center.rgb - up - down - left - right);
                 float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
                 rgb = mix(vec3(luma), rgb, uSaturation);
                 rgb = (rgb - vec3(0.5)) * uContrast + vec3(0.5);
                 rgb = clamp(rgb + vec3(uBrightness), 0.0, 1.0);
-                vec2 overlayCoord = vec2(vTextureCoord.x, 1.0 - vTextureCoord.y);
-                vec4 overlay = texture2D(uOverlay, overlayCoord);
+                vec4 overlay = texture2D(uOverlay, outputTop);
                 rgb = mix(rgb, overlay.rgb, overlay.a);
                 gl_FragColor = vec4(rgb, center.a);
             }
@@ -97,6 +108,7 @@ class ColorGradingFilterRender : BaseFilterRender() {
         uSharpness = GLES20.glGetUniformLocation(program, "uSharpness")
         uResolution = GLES20.glGetUniformLocation(program, "uResolution")
         uOverlay = GLES20.glGetUniformLocation(program, "uOverlay")
+        uScreenRect = GLES20.glGetUniformLocation(program, "uScreenRect")
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         overlayTextureId = textures[0]
@@ -128,6 +140,7 @@ class ColorGradingFilterRender : BaseFilterRender() {
         GLES20.glUniform1f(uSaturation, saturation)
         GLES20.glUniform1f(uSharpness, sharpness)
         GLES20.glUniform2f(uResolution, getWidth().toFloat(), getHeight().toFloat())
+        GLES20.glUniform4f(uScreenRect, screenX, screenY, screenWidth, screenHeight)
         val requestedOverlayVersion = overlayVersion
         if (requestedOverlayVersion != uploadedOverlayVersion) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
@@ -168,6 +181,13 @@ class ColorGradingFilterRender : BaseFilterRender() {
         }
         uploadedBitmap?.let { if (!it.isRecycled) it.recycle() }
         uploadedBitmap = null
+    }
+
+    fun setScreenRect(x: Float, y: Float, width: Float, height: Float) {
+        screenX = x.coerceIn(0f, 1f)
+        screenY = y.coerceIn(0f, 1f)
+        screenWidth = width.coerceIn(0.001f, 1f - screenX)
+        screenHeight = height.coerceIn(0.001f, 1f - screenY)
     }
 
     fun setSceneOverlayBitmap(bitmap: Bitmap?) {
