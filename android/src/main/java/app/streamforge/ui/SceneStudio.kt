@@ -79,7 +79,25 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
 fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
-    val scenes = remember { mutableStateListOf<SceneModel>().apply { addAll(decodeSceneList(prefs.getString("scenes", "") ?: "")) } }
+    val scenes = remember {
+        mutableStateListOf<SceneModel>().apply {
+            val loaded = decodeSceneList(prefs.getString("scenes", "") ?: "")
+            val needsMigration = prefs.getInt("scene_layout_version", 0) < 2
+            val normalized = if (needsMigration) loaded.map { savedScene ->
+                savedScene.copy(layers = savedScene.layers.map { savedLayer ->
+                    when (savedLayer.kind) {
+                        "screen" -> savedLayer.copy(x = 0f, y = 0f, width = 1f, height = 1f)
+                        "text" -> savedLayer.copy(width = .42f, height = .16f)
+                        "camera" -> savedLayer.copy(width = .30f, height = .24f)
+                        "image" -> savedLayer.copy(width = .34f, height = .34f)
+                        else -> savedLayer
+                    }
+                })
+            } else loaded
+            addAll(normalized)
+            if (needsMigration) prefs.edit().putInt("scene_layout_version", 2).apply()
+        }
+    }
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
     var selected by remember { mutableLongStateOf(-1L) }
     var addDialog by remember { mutableStateOf(false) }
@@ -224,24 +242,39 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
                             val importedBitmap = if (item.kind == "image") imageBitmaps[item.id] else null
                             if (importedBitmap != null) {
+                                paint.style = Paint.Style.FILL
                                 native.drawBitmap(importedBitmap, null, rect, paint)
                             } else {
-                                paint.color = when (item.kind) {
-                                    "text" -> android.graphics.Color.rgb(48, 72, 120)
-                                    "camera" -> android.graphics.Color.rgb(54, 83, 103)
-                                    "image" -> android.graphics.Color.rgb(80, 66, 116)
-                                    else -> android.graphics.Color.rgb(25, 42, 65)
+                                paint.style = Paint.Style.FILL
+                                when (item.kind) {
+                                    "text" -> {
+                                        paint.color = android.graphics.Color.WHITE
+                                        paint.textSize = (rect.height() * .58f).coerceIn(12f, 48f)
+                                        paint.setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+                                        val baseline = rect.top + (rect.height() - (paint.descent() + paint.ascent())) / 2f
+                                        native.drawText(item.text.take(36), rect.left + 4f, baseline, paint)
+                                        paint.clearShadowLayer()
+                                    }
+                                    "camera" -> {
+                                        paint.color = android.graphics.Color.rgb(54, 83, 103)
+                                        native.drawRoundRect(rect, 10f, 10f, paint)
+                                        paint.color = android.graphics.Color.WHITE
+                                        paint.textSize = (rect.height() * .16f).coerceIn(10f, 24f)
+                                        native.drawText("CAMERA SOURCE", left + 8f, rect.centerY(), paint)
+                                    }
+                                    "image" -> {
+                                        paint.color = android.graphics.Color.rgb(80, 66, 116)
+                                        native.drawRoundRect(rect, 10f, 10f, paint)
+                                        paint.color = android.graphics.Color.WHITE
+                                        paint.textSize = 12f
+                                        native.drawText("IMAGE · " + item.name, left + 8f, rect.centerY(), paint)
+                                    }
+                                    else -> {
+                                        paint.color = android.graphics.Color.WHITE
+                                        paint.textSize = 12f
+                                        native.drawText("SCREEN CAPTURE", left + 8f, top + 22f, paint)
+                                    }
                                 }
-                                native.drawRoundRect(rect, 12f, 12f, paint)
-                                paint.color = android.graphics.Color.WHITE
-                                paint.textSize = size.width * .026f
-                                val label = when (item.kind) {
-                                    "text" -> item.text
-                                    "image" -> "IMAGE · ${item.name}"
-                                    "camera" -> "CAMERA SOURCE · ${item.name}"
-                                    else -> "SCREEN CAPTURE"
-                                }
-                                native.drawText(label.take(36), left + 10, top + size.height * .13f, paint)
                             }
                             if (item.id == selected) {
                                 paint.style = Paint.Style.STROKE; paint.strokeWidth = 3f
@@ -301,10 +334,14 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                     Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
                     Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
-                    Text("Position X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.x, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
-                    Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
+                    if (layer.width < .999f) {
+                        Text("Position X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                        Slider(value = layer.x, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
+                    } else Text("Position X · Full width", color = Color.Gray, fontSize = 11.sp)
+                    if (layer.height < .999f) {
+                        Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                        Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
+                    } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -324,7 +361,10 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
 
         Button(
             onClick = {
-                prefs.edit().putInt("active_scene", index).apply()
+                prefs.edit()
+                    .putString("scenes", encodeSceneList(scenes))
+                    .putInt("active_scene", index)
+                    .apply()
                 onApplyScene(index)
                 applyMessage = "“${scene.name}” selected for live output."
             },
