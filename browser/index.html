@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e13"><meta name="description" content="StreamForge mobile streaming studio companion.">
+<link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="styles.css">
+<title>StreamForge Studio</title>
+</head>
+<body>
+<header class="top"><a class="brand" href="#">STREAMFORGE</a><span class="tag">BROWSER STUDIO</span><button id="install" class="quiet" hidden>Install</button></header>
+<main>
+<section class="hero"><div class="eyebrow">YOUR MOBILE BROADCAST WORKSPACE</div><h1>Go live.<br><span>From anywhere.</span></h1><p>Prepare your destination, choose a platform and open the Android broadcaster when you are ready.</p><a class="primary" href="streamforge://studio">Open StreamForge APK</a></section>
+<section class="panel">
+<div class="panel-head"><div><div class="eyebrow">DESTINATIONS</div><h2>Streaming platforms</h2></div><span class="online">● LOCAL SETUP</span></div>
+<div class="platforms"><button data-platform="youtube" class="platform active">YouTube</button><button data-platform="kick" class="platform">Kick</button><button data-platform="twitch" class="platform">Twitch</button><button data-platform="custom" class="platform">Custom RTMP</button></div>
+<label>Server URL<input id="server" value="rtmps://a.rtmp.youtube.com/live2" spellcheck="false"></label>
+<p class="hint">Browser mode does not capture or transmit video. Your stream key is not saved here. Enter it directly in the APK before going live.</p>
+<button id="copyServer" class="secondary">Copy server URL</button>
+</section>
+<section class="grid">
+<article class="mini"><div class="eyebrow">01 / CAPTURE</div><h3>Screen + audio</h3><p>Android MediaProjection with microphone capture and foreground streaming.</p></article>
+<article class="mini"><div class="eyebrow">02 / OUTPUT</div><h3>Direct RTMP</h3><p>Send your encoded stream directly to YouTube, Kick, Twitch or a custom endpoint.</p></article>
+<article class="mini"><div class="eyebrow">03 / PRIVACY</div><h3>Local-first</h3><p>No StreamForge relay server. Stream credentials stay on your device.</p></article>
+</section>
+</main><footer>STREAMFORGE • ANDROID FIRST • FREE CORE</footer><script src="app.js"></script>
+</body></html>
