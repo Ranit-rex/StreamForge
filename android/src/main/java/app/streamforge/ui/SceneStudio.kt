@@ -145,10 +145,13 @@ fun SceneStudio() {
                     Text("LIVE LAYOUT EDITOR", color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     Text("16:9 canvas", color = Color.Gray, fontSize = 10.sp)
                 }
-                val imageBitmap = remember(layer?.text, layer?.kind) {
-                    if (layer?.kind == "image" && layer.text.isNotBlank()) runCatching {
-                        context.contentResolver.openInputStream(Uri.parse(layer.text))?.use { BitmapFactory.decodeStream(it) }
-                    }.getOrNull() else null
+                val imageBitmaps = remember(scene.layers.filter { it.kind == "image" }.map { it.id to it.text }) {
+                    scene.layers.filter { it.kind == "image" && it.text.isNotBlank() }.mapNotNull { item ->
+                        val bitmap = runCatching {
+                            context.contentResolver.openInputStream(Uri.parse(item.text))?.use { BitmapFactory.decodeStream(it) }
+                        }.getOrNull()
+                        if (bitmap != null) item.id to bitmap else null
+                    }.toMap()
                 }
                 Canvas(
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -191,8 +194,8 @@ fun SceneStudio() {
                             val top = item.y * size.height
                             val rect = RectF(left, top, left + size.width * .52f, top + size.height * .22f)
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
-                            if (item.kind == "image" && item.id == selected && imageBitmap != null) {
-                                native.drawBitmap(imageBitmap, null, rect, paint)
+                            if (item.kind == "image" && imageBitmaps[item.id] != null) {
+                                native.drawBitmap(imageBitmaps[item.id], null, rect, paint)
                             } else {
                                 paint.color = when (item.kind) {
                                     "text" -> android.graphics.Color.rgb(48, 72, 120)
