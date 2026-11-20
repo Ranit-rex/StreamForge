@@ -21,6 +21,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.SurfaceView
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -49,6 +50,8 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_START_RECORDING = "app.streamforge.START_RECORDING"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
+        const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
+        @Volatile var previewView: SurfaceView? = null
         const val EXTRA_COLOR_BRIGHTNESS = "color_brightness"
         const val EXTRA_COLOR_CONTRAST = "color_contrast"
         const val EXTRA_COLOR_SATURATION = "color_saturation"
@@ -109,6 +112,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_STOP_STREAM -> stopStream()
             ACTION_START_RECORDING -> startRecording()
             ACTION_STOP_RECORDING -> stopRecording()
+            ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
             ACTION_UPDATE_COLOR -> updateColorTuning(
                 intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
                 intent.getFloatExtra(EXTRA_COLOR_CONTRAST, colorContrast.value),
@@ -166,7 +170,11 @@ class StreamService : Service(), ConnectChecker {
             // applies its camera orientation transform, which can produce a blank/white
             // GL frame for ScreenSource on some devices.
             stream?.getGlInterface()?.setCameraOrientation(0)
+            stream?.forceBt709Color(true)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            // Start a real RootEncoder preview surface before streaming. This also
+            // gives us a local visual check of the exact GL frames sent to the encoder.
+            startPreviewIfAvailable()
             installColorFilters()
             stream?.startStream(endpoint)
             status.value = "Connecting…"
@@ -176,6 +184,14 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
+
+    private fun startPreviewIfAvailable() {
+        val activeStream = stream ?: return
+        val view = previewView ?: return
+        if (activeStream.isOnPreview || activeStream.isStreaming) return
+        runCatching { activeStream.startPreview(view) }
+            .onFailure { status.value = "Preview unavailable: ${it.message ?: "surface error"}" }
+    }
 
     private fun installColorFilters() {
         val activeStream = stream ?: return
@@ -227,7 +243,10 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private fun stopStream() {
-        stream?.let { if (it.isStreaming) it.stopStream() }
+        stream?.let {
+            if (it.isStreaming) it.stopStream()
+            if (it.isOnPreview) it.stopPreview()
+        }
         streaming.value = false
         streamStartedAt.value = 0L
         hideFloatingControls()
@@ -372,8 +391,9 @@ class StreamService : Service(), ConnectChecker {
     override fun onDestroy() {
         stopRecording()
         hideFloatingControls()
-        stream?.let { if (it.isStreaming) it.stopStream(); it.release() }
+        stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
+        previewView = null
         brightnessFilter = null; contrastFilter = null; saturationFilter = null; sharpnessFilter = null
         projection?.stop()
         projection = null
