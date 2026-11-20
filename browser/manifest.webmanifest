@@ -6,5 +6,6 @@
  "display":"standalone",
  "background_color":"#090c12",
  "theme_color":"#090c12",
- "description":"Browser-based screen streaming and local recording studio"
+ "description":"Browser-based screen streaming and local recording studio",
+ "icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
 }
