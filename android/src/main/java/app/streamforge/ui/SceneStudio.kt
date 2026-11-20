@@ -36,10 +36,10 @@ private data class SceneLayer(
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
 private fun sceneDefaults() = listOf(
-    SceneModel(1, "Starting Soon", listOf(SceneLayer(11, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(12, "Main title", "text", "STREAM STARTING SOON", .12f, .4f))),
-    SceneModel(2, "Gameplay", listOf(SceneLayer(21, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(22, "Channel label", "text", "PLAYING LIVE • STREAMFORGE", .04f, .05f))),
-    SceneModel(3, "BRB", listOf(SceneLayer(31, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(32, "BRB title", "text", "BE RIGHT BACK", .2f, .42f))),
-    SceneModel(4, "Ending", listOf(SceneLayer(41, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(42, "Ending title", "text", "THANKS FOR WATCHING", .12f, .4f)))
+    SceneModel(1, "Starting Soon", listOf(SceneLayer(11, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(12, "Main title", "text", "STREAM STARTING SOON", .12f, .4f, .48f, .16f))),
+    SceneModel(2, "Gameplay", listOf(SceneLayer(21, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(22, "Channel label", "text", "PLAYING LIVE • STREAMFORGE", .04f, .05f, .42f, .12f))),
+    SceneModel(3, "BRB", listOf(SceneLayer(31, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(32, "BRB title", "text", "BE RIGHT BACK", .2f, .42f, .45f, .16f))),
+    SceneModel(4, "Ending", listOf(SceneLayer(41, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(42, "Ending title", "text", "THANKS FOR WATCHING", .12f, .4f, .52f, .16f)))
 )
 
 private fun encodeSceneList(items: List<SceneModel>): String {
@@ -75,7 +75,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
 
 @Composable
-fun SceneStudio() {
+fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     val scenes = remember { mutableStateListOf<SceneModel>().apply { addAll(decodeSceneList(prefs.getString("scenes", "") ?: "")) } }
@@ -84,6 +84,8 @@ fun SceneStudio() {
     var addDialog by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
+    var sourceMessage by remember { mutableStateOf("") }
+    var applyMessage by remember { mutableStateOf("") }
     var canvasWidth by remember { mutableFloatStateOf(1f) }
     var canvasHeight by remember { mutableFloatStateOf(1f) }
 
@@ -92,7 +94,7 @@ fun SceneStudio() {
             runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val idx = active.coerceIn(0, scenes.lastIndex)
             val current = scenes[idx]
-            val layer = SceneLayer(System.nanoTime(), "Image ${current.layers.count { it.kind == "image" } + 1}", "image", uri.toString(), .12f, .12f)
+            val layer = SceneLayer(System.nanoTime(), "Image ${current.layers.count { it.kind == "image" } + 1}", "image", uri.toString(), .12f, .12f, .34f, .34f)
             scenes[idx] = current.copy(layers = current.layers + layer)
             selected = layer.id
         }
@@ -113,10 +115,23 @@ fun SceneStudio() {
     fun addSource(kind: String) {
         if (kind == "image") { imagePicker.launch(arrayOf("image/*")); return }
         val current = scenes[index]
+        if (kind == "screen" && current.layers.any { it.kind == "screen" }) {
+            selected = current.layers.first { it.kind == "screen" }.id
+            sourceMessage = "This scene already has its screen capture source. Resize or move that layer."
+            return
+        }
         val count = current.layers.count { it.kind == kind } + 1
-        val item = SceneLayer(System.nanoTime(), when (kind) {
-            "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Screen capture"
-        }, kind, if (kind == "text") "YOUR TEXT" else "", if (kind == "screen") 0f else .08f, if (kind == "screen") 0f else .08f, if (kind == "screen") 1f else .52f, if (kind == "screen") 1f else .22f)
+        val item = SceneLayer(
+            System.nanoTime(),
+            when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Screen capture" },
+            kind,
+            if (kind == "text") "YOUR TEXT" else "",
+            if (kind == "screen") 0f else .08f,
+            if (kind == "screen") 0f else .08f,
+            when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; else -> .34f },
+            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; else -> .34f }
+        )
+        sourceMessage = ""
         scenes[index] = current.copy(layers = current.layers + item)
         selected = item.id
     }
@@ -157,12 +172,24 @@ fun SceneStudio() {
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                         .background(Color(0xFF0B1220), RoundedCornerShape(9.dp))
                         .pointerInput(index) {
+                            detectTapGestures { point ->
+                                val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
+                                    item.visible &&
+                                        point.x >= item.x * size.width &&
+                                        point.x <= (item.x + item.width) * size.width &&
+                                        point.y >= item.y * size.height &&
+                                        point.y <= (item.y + item.height) * size.height
+                                }
+                                selected = hit?.id ?: -1L
+                            }
+                        }
+                        .pointerInput(index) {
                             var draggingLayerId: Long? = null
                             detectDragGestures(
                                 onDragStart = { point ->
                                     val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
-                                        item.visible && point.x >= item.x * size.width && point.x <= item.x * size.width + size.width * .52f &&
-                                            point.y >= item.y * size.height && point.y <= item.y * size.height + size.height * .22f
+                                        item.visible && point.x >= item.x * size.width && point.x <= (item.x + item.width) * size.width &&
+                                            point.y >= item.y * size.height && point.y <= (item.y + item.height) * size.height
                                     }
                                     draggingLayerId = hit?.id
                                     if (hit != null) selected = hit.id
@@ -175,8 +202,8 @@ fun SceneStudio() {
                                     if (chosen != null && !chosen.locked) {
                                         latestUpdateLayer.value(chosen.id) {
                                             it.copy(
-                                                x = (it.x + drag.x / size.width).coerceIn(0f, .48f),
-                                                y = (it.y + drag.y / size.height).coerceIn(0f, .78f)
+                                                x = (it.x + drag.x / size.width).coerceIn(0f, (1f - it.width).coerceAtLeast(0f)),
+                                                y = (it.y + drag.y / size.height).coerceIn(0f, (1f - it.height).coerceAtLeast(0f))
                                             )
                                         }
                                     }
@@ -224,7 +251,8 @@ fun SceneStudio() {
                         }
                     }
                 }
-                Text("Screen capture starts full-frame. Select any layer to resize it with Width / Height, then drag it anywhere. Lock prevents moving.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                Text("Select a layer to resize it. Dragging now uses that layer's real bounds; each source has its own starting size.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFC46B), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
         }
@@ -272,6 +300,10 @@ fun SceneStudio() {
                     Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
                     Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
+                    Text("Position X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Slider(value = layer.x, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
+                    Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -289,6 +321,16 @@ fun SceneStudio() {
             }
         }
 
+        Button(
+            onClick = {
+                prefs.edit().putInt("active_scene", index).apply()
+                onApplyScene(index)
+                applyMessage = "“${scene.name}” selected for live output."
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Apply scene to LIVE output") }
+        if (applyMessage.isNotBlank()) Text(applyMessage, color = Color(0xFF91E6B0), fontSize = 11.sp)
+
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
             OutlinedButton(onClick = {
@@ -299,7 +341,7 @@ fun SceneStudio() {
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Scene layout saves on this phone. Go Live captures your Android screen; scene overlays are still preview/editor-only until encoder compositing is added.", color = Color.Gray, fontSize = 10.sp)
+        Text("Scene layouts are saved on this phone. Apply a scene before or during a broadcast to use its text and image overlays.", color = Color.Gray, fontSize = 10.sp)
     }
 
     if (addDialog) AlertDialog(
