@@ -1,53 +1,47 @@
 # StreamForge
 
-**A free, local-first desktop broadcasting studio.**
+**Free, Android-first broadcasting studio with a browser companion.**
 
-StreamForge is an independent broadcasting application in development. Its core workflow runs on the user's computer and sends streams directly to YouTube, Kick, Twitch, Facebook Live and custom RTMP/RTMPS destinations.
+StreamForge is being developed as a native Android broadcaster. It captures the Android screen, encodes on-device and sends directly to YouTube, Kick, Twitch or any compatible RTMP/RTMPS destination. No StreamForge media relay is required.
 
-## Product principles
+## Product targets
 
-- No mandatory StreamForge media servers or relay.
-- No account required for basic local recording and direct streaming.
-- No watermark or artificial time limit.
-- Native desktop application for Windows, macOS and Linux.
-- Free core software.
-- Optional online integrations never block basic broadcasting.
+- Android APK: native screen capture, microphone audio, local recording and direct streaming.
+- Browser PWA: responsive companion studio for destination setup, platform guides and app handoff.
+- No mandatory StreamForge account or relay server.
+- No watermark or artificial streaming time limit.
+- Free core application.
 
-## Current status
+The browser companion does not claim to capture the Android screen or stream by itself. Android browser screen-capture support is restricted; the APK handles MediaProjection and foreground streaming.
 
-**Alpha 0.1.0 — desktop UI scaffold.**
+## Build Android APK
 
-The current application is a Qt 6 desktop shell. It is not yet a functioning capture, recording or streaming application. Output buttons remain disabled until libobs is integrated.
+Requirements: JDK 17 and Android SDK platform 35.
 
-## Planned technology
+    gradle --no-daemon :android:assembleDebug
 
-- C++20
-- Qt 6
-- CMake
-- OBS libobs
-- FFmpeg where appropriate
+APK output:
 
-## Build
+    android/build/outputs/apk/debug/android-debug.apk
 
-Requirements: CMake 3.21+, a C++20 compiler and Qt 6.5+ Widgets development packages.
+GitHub Actions builds and uploads a debug APK artifact on pushes and pull requests.
 
-    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-    cmake --build build --config Release
+## Browser companion
 
-If Qt 6 is installed in a non-standard location, set CMAKE_PREFIX_PATH to the Qt installation prefix.
+Serve the browser directory from any static HTTPS host. It is an installable PWA. It deliberately does not save stream keys in browser storage.
 
-The first build does not require libobs; it builds the UI shell only. CMake can discover and link libobs when installed, but engine functionality is not implemented yet.
+## Streaming engine
 
-## Repository layout
+The Android app uses RootEncoder for on-device hardware encoding and RTMP/RTMPS transport. RootEncoder is Apache-2.0 licensed. Review dependency notices and the complete license inventory before distributing builds.
 
-- app/ — desktop application
-- docs/ARCHITECTURE.md — system boundaries and security model
-- docs/ROADMAP.md — implementation milestones
+## Current alpha
 
-## Licensing
+- Native Android Compose studio UI
+- MediaProjection permission flow
+- Foreground screen-streaming service
+- Direct RTMP/RTMPS destination input
+- Local MP4 recording path
+- Browser PWA companion
+- Automated Android debug APK build
 
-The desktop application is intended to use a GPL-compatible open-source distribution because the planned integration with OBS libobs carries GPL obligations. Third-party dependency notices and complete applicable license texts must be added and reviewed before public binary distribution. See docs/LICENSING.md.
-
-## Contributing
-
-Please open an issue before large changes. Keep platform-specific capture code behind interfaces and never commit stream keys, OAuth tokens, personal recordings or machine-specific configuration.
+This is an early alpha. A successful build and real-device/platform-ingest validation are required before production claims.
