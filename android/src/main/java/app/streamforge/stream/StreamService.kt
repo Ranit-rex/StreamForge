@@ -209,7 +209,12 @@ class StreamService : Service(), ConnectChecker {
         val activeStream = stream ?: return
         val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value) }
         val contrast = ContrastFilterRender().apply { setContrast(colorContrast.value) }
-        val saturation = SaturationFilterRender().apply { setSaturation(colorSaturation.value) }
+        // StreamForge UI uses 0..2 with 1.0 = neutral. RootEncoder uses -1..1
+        // with 0.0 = neutral. Passing UI 1.0 directly over-saturates and clips
+        // the GL output toward white.
+        val saturation = SaturationFilterRender().apply {
+            setSaturation((colorSaturation.value - 1.0f).coerceIn(-1.0f, 1.0f))
+        }
         val sharpness = SharpnessFilterRender().apply { setSharpness(colorSharpness.value) }
         activeStream.getGlInterface().apply {
             clearFilters()
@@ -232,7 +237,7 @@ class StreamService : Service(), ConnectChecker {
         if (brightnessFilter == null || contrastFilter == null || saturationFilter == null || sharpnessFilter == null) installColorFilters()
         brightnessFilter?.setBrightness(colorBrightness.value)
         contrastFilter?.setContrast(colorContrast.value)
-        saturationFilter?.setSaturation(colorSaturation.value)
+        saturationFilter?.setSaturation((colorSaturation.value - 1.0f).coerceIn(-1.0f, 1.0f))
         sharpnessFilter?.setSharpness(colorSharpness.value)
     }
 
