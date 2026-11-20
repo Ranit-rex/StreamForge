@@ -121,6 +121,7 @@ fun StreamForgeApp(
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Studio") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Preview") })
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Scenes") })
+                    Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Recordings") })
                 }
 
                 if (selectedTab == 1) {
@@ -162,6 +163,8 @@ fun StreamForgeApp(
                     }
                 } else if (selectedTab == 2) {
                     SceneStudio()
+                } else if (selectedTab == 3) {
+                    RecordingLibrary()
                 } else {
                 if (isStreaming && showLiveDashboard) {
                     LiveDashboard(
