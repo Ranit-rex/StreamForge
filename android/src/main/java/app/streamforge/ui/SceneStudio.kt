@@ -107,6 +107,9 @@ fun SceneStudio() {
         val current = scenes[index]
         scenes[index] = current.copy(layers = current.layers.map { if (it.id == id) transform(it) else it })
     }
+    val latestScene = rememberUpdatedState(scene)
+    val latestUpdateLayer = rememberUpdatedState<(Long, (SceneLayer) -> SceneLayer) -> Unit>({ id, transform -> updateLayer(id, transform) })
+
     fun addSource(kind: String) {
         if (kind == "image") { imagePicker.launch(arrayOf("image/*")); return }
         val current = scenes[index]
@@ -150,10 +153,10 @@ fun SceneStudio() {
                 Canvas(
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                         .background(Color(0xFF0B1220), RoundedCornerShape(9.dp))
-                        .pointerInput(index, selected, scene.layers) {
+                        .pointerInput(index) {
                             detectDragGestures(
                                 onDragStart = { point ->
-                                    val hit = scene.layers.asReversed().firstOrNull { item ->
+                                    val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
                                         item.visible && point.x >= item.x * size.width && point.x <= item.x * size.width + size.width * .52f &&
                                             point.y >= item.y * size.height && point.y <= item.y * size.height + size.height * .22f
                                     }
@@ -161,9 +164,9 @@ fun SceneStudio() {
                                 },
                                 onDrag = { change, drag ->
                                     change.consume()
-                                    val chosen = scene.layers.firstOrNull { it.id == selected }
+                                    val chosen = latestScene.value.layers.firstOrNull { it.id == selected }
                                     if (chosen != null && !chosen.locked) {
-                                        updateLayer(chosen.id) {
+                                        latestUpdateLayer.value(chosen.id) {
                                             it.copy(
                                                 x = (it.x + drag.x / size.width).coerceIn(0f, .48f),
                                                 y = (it.y + drag.y / size.height).coerceIn(0f, .78f)
