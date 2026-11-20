@@ -178,9 +178,11 @@ class StreamService : Service(), ConnectChecker {
             // GL frame for ScreenSource on some devices.
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
-            // Start with the unfiltered capture pipeline. Filters are attached only
-            // after the user changes a colour control, avoiding a filter-init race.
-            stream?.getGlInterface()?.clearFilters()
+            // Install the entire colour chain before the GL renderer begins streaming.
+            // RootEncoder queues filter changes asynchronously on its GL thread. Building
+            // the chain from a live slider callback can briefly expose a partial chain
+            // (and turn the outgoing frame white). Slider callbacks only update values.
+            installColorFilters()
             // Start the broadcast first. ScreenSource must create exactly one
             // MediaProjection virtual display; preview attaches to the running GL
             // pipeline only after streaming has been started.
@@ -231,13 +233,12 @@ class StreamService : Service(), ConnectChecker {
         colorContrast.value = contrast.coerceIn(0.8f, 1.4f)
         colorSaturation.value = saturation.coerceIn(0f, 2f)
         colorSharpness.value = sharpness.coerceIn(0f, 0.8f)
-        if (brightnessFilter == null || contrastFilter == null || sharpnessFilter == null) installColorFilters()
+        // Do not rebuild or append GL filters while a live frame is rendering.
+        // The complete chain is installed once before startStream; these setters
+        // only change uniforms consumed by the existing filter instances.
         brightnessFilter?.setBrightness(colorBrightness.value - 1.0f)
         contrastFilter?.setContrast(colorContrast.value)
-        // Saturation is intentionally not attached: RootEncoder 2.8.1's
-        // SaturationFilterRender shader adds a second color pass even at neutral,
-        // which clips the capture to white. Keep the slider value for UI until a
-        // safe replacement shader is installed.
+        saturationFilter?.setSaturation(colorSaturation.value)
         sharpnessFilter?.setSharpness(colorSharpness.value)
     }
 
