@@ -5,6 +5,8 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.net.Uri
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +23,7 @@ class MainActivity : ComponentActivity() {
     private var pendingHeight = 720
     private var pendingFps = 30
     private var pendingBitrate = 4_500_000
+    private var waitingForOverlayPermission = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -69,9 +72,10 @@ class MainActivity : ComponentActivity() {
                     pendingHeight = height
                     pendingFps = fps
                     pendingBitrate = bitrate
-                    val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-                    if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
-                    permissionLauncher.launch(permissions.toTypedArray())
+                    if (!Settings.canDrawOverlays(this)) {
+                        waitingForOverlayPermission = true
+                        startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)), 7402)
+                    } else beginBroadcastPermissions()
                 },
                 onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
                 onStartRecording = { sendServiceAction(StreamService.ACTION_START_RECORDING) },
@@ -80,6 +84,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun beginBroadcastPermissions() {
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+        permissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    @Deprecated("Deprecated in Android API")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 7402 && waitingForOverlayPermission) {
+            waitingForOverlayPermission = false
+            if (Settings.canDrawOverlays(this)) beginBroadcastPermissions()
+            else StreamService.status.value = "Allow display over other apps to use floating stream controls"
+        }
+    }
     private fun sendServiceAction(action: String) {
         val intent = Intent(this, StreamService::class.java).setAction(action)
         if (Build.VERSION.SDK_INT >= 26) ContextCompat.startForegroundService(this, intent)
