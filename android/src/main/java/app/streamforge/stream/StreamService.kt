@@ -14,6 +14,8 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
@@ -248,7 +250,7 @@ class StreamService : Service(), ConnectChecker {
         streaming.value = true
         streamStartedAt.value = System.currentTimeMillis()
         microphoneMuted.value = false
-        showFloatingControls()
+        Handler(Looper.getMainLooper()).post { showFloatingControls() }
         status.value = "LIVE"
     }
     override fun onConnectionFailed(reason: String) {
@@ -293,7 +295,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onDisconnect() {
         streaming.value = false
         streamStartedAt.value = 0L
-        hideFloatingControls()
+        Handler(Looper.getMainLooper()).post { hideFloatingControls() }
         status.value = "Disconnected"
     }
     override fun onAuthError() { status.value = "Destination authentication failed" }
