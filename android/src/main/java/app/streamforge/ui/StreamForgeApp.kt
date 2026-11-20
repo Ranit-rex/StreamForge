@@ -192,7 +192,7 @@ fun StreamForgeApp(
                             Text("• Live dashboard with stream timer and encoder bitrate", color = Color.White, fontSize = 12.sp)
                             Text("• One-tap local MP4 recording while live", color = Color.White, fontSize = 12.sp)
                             Text("• YouTube, Twitch, Kick and custom RTMP destinations", color = Color.White, fontSize = 12.sp)
-                            Text("• Foreground streaming notification and screen-awake mode", color = Color.White, fontSize = 12.sp)
+                            Text("• Floating gameplay controls with mic mute and chat panel", color = Color.White, fontSize = 12.sp)
                         }
                     }
                 }
