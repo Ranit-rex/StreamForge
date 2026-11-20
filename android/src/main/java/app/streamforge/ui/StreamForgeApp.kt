@@ -157,7 +157,14 @@ fun StreamForgeApp(
                         }
                     }
                 } else if (selectedTab == 2) {
-                    SceneStudio()
+                    SceneStudio(onApplyScene = { sceneIndex ->
+                        if (StreamService.streaming.value) {
+                            context.startService(Intent(context, StreamService::class.java).apply {
+                                action = StreamService.ACTION_APPLY_SCENE
+                                putExtra(StreamService.EXTRA_SCENE_INDEX, sceneIndex)
+                            })
+                        }
+                    })
                 } else if (selectedTab == 3) {
                     RecordingLibrary()
                 } else {
