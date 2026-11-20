@@ -1,5 +1,6 @@
 #include "obsengine.h"
 
+#include <QByteArray>
 #include <QDir>
 #include <QStandardPaths>
 
