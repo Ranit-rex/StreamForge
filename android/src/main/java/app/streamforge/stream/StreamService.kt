@@ -361,17 +361,17 @@ class StreamService : Service(), ConnectChecker {
             return
         }
         try {
-            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            projection = manager.getMediaProjection(resultCode, projectionData)
-                ?: throw IllegalStateException("Screen capture permission was not granted")
             ServiceCompat.startForeground(
                 this,
                 NOTIFICATION_ID,
-                buildNotification("Recording screen locally…"),
+                buildNotification("Preparing local screen recording…"),
                 if (Build.VERSION.SDK_INT >= 29) {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                 } else 0
             )
+            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection = manager.getMediaProjection(resultCode, projectionData)
+                ?: throw IllegalStateException("Screen capture permission was not granted")
             activeStreamWidth = width
             activeStreamHeight = height
             streamResolution.value = "$width × $height"
@@ -407,6 +407,12 @@ class StreamService : Service(), ConnectChecker {
             .onFailure { error ->
                 recording.value = false
                 status.value = "Recording failed: ${error.message ?: error.javaClass.simpleName}"
+                if (!streaming.value) {
+                    projection?.stop()
+                    projection = null
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
     }
 
