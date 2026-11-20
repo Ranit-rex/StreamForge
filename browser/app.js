@@ -89,7 +89,7 @@ function chooseMime(){
  return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(t=>MediaRecorder.isTypeSupported(t))||"";
 }
 function startRecording(){
- if(!state.combined||!window.MediaRecorder)return;
+ if(!state.combined||!window.MediaRecorder){showDialog("Recording unavailable","Share a screen first and use a browser that supports MediaRecorder.");return;}
  try{
   state.chunks=[];
   const mime=chooseMime();
@@ -106,10 +106,10 @@ function startRecording(){
    }else say("No recording data was produced.");
    state.recorder=null;refresh();
   };
-  state.recorder.start(1000);say("Recording locally. Press Stop & save when finished.");refresh();
+  state.recorder.start(1000);say("Recording locally. Press Stop & save when finished.");refresh();showDialog("Recording started","Your session is recording locally. Keep this page open until you stop and save.");
  }catch(e){state.recorder=null;say("Recording could not start: "+e.message);refresh();}
 }
-function stopRecording(){if(state.recorder&&state.recorder.state!=="inactive")state.recorder.stop();}
+function stopRecording(){if(state.recorder&&state.recorder.state!=="inactive"){state.recorder.stop();showDialog("Preparing your recording","The WebM file will download when the browser finishes saving it.");}}
 async function waitIce(pc){
  if(pc.iceGatheringState==="complete")return;
  await new Promise(resolve=>{
