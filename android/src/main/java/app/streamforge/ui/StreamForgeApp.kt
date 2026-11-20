@@ -206,7 +206,7 @@ fun StreamForgeApp(
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
-                                enabled = isStreaming || (streamKey.isNotBlank() && (server.startsWith("rtmp://") || server.startsWith("rtmps://")))
+                                enabled = isStreaming || (!isRecording && streamKey.isNotBlank() && (server.startsWith("rtmp://") || server.startsWith("rtmps://")))
                             ) { Text(if (isStreaming) "Stop live" else "Choose screen & Go Live") }
                             OutlinedButton(
                                 onClick = { if (isRecording) onStopRecording() else onStartRecording() },
