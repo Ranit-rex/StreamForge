@@ -184,8 +184,8 @@ class ColorGradingFilterRender : BaseFilterRender() {
     }
 
     fun setScreenRect(x: Float, y: Float, width: Float, height: Float) {
-        screenX = x.coerceIn(0f, 1f)
-        screenY = y.coerceIn(0f, 1f)
+        screenX = x.coerceIn(0f, 0.999f)
+        screenY = y.coerceIn(0f, 0.999f)
         screenWidth = width.coerceIn(0.001f, 1f - screenX)
         screenHeight = height.coerceIn(0.001f, 1f - screenY)
     }
