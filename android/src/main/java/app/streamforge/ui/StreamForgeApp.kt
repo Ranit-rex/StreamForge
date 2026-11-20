@@ -78,6 +78,7 @@ fun StreamForgeApp(
                             OutlinedButton(
                                 onClick = { if (isRecording) onStopRecording() else onStartRecording() },
                                 modifier = Modifier.weight(1f)
+                                enabled = isStreaming || isRecording
                             ) { Text(if (isRecording) "Stop recording" else "Record") }
                         }
                     }
