@@ -103,6 +103,7 @@ class StreamService : Service(), ConnectChecker {
             prepareAudio(44_100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
             // A smaller queue detects upload congestion sooner on mobile networks.
             getStreamClient().resizeCache(200)
+            getStreamClient().setReTries(5)
         }
     }
 
@@ -138,6 +139,7 @@ class StreamService : Service(), ConnectChecker {
         val bitrate = intent.getIntExtra(EXTRA_BITRATE, 4_500_000).coerceIn(800_000, 35_000_000)
         if (projectionData == null || endpoint.isBlank()) {
             status.value = "Missing screen permission or destination"
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
@@ -172,17 +174,15 @@ class StreamService : Service(), ConnectChecker {
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.forceBt709Color(true)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
-            // Start a real RootEncoder preview surface before streaming. This also
-            // gives us a local visual check of the exact GL frames sent to the encoder.
-            startPreviewIfAvailable()
             // Start with the unfiltered capture pipeline. Filters are attached only
             // after the user changes a colour control, avoiding a filter-init race.
             stream?.getGlInterface()?.clearFilters()
+            // Preview is optional and must never gate the actual broadcast.
+            startPreviewIfAvailable()
             stream?.startStream(endpoint)
             status.value = "Connecting…"
         } catch (error: Exception) {
-            status.value = "Could not start: ${error.message ?: "unknown error"}"
-            stopStream()
+            stopStream("Could not start: ${error.message ?: error.javaClass.simpleName}")
         }
     }
 
@@ -190,7 +190,7 @@ class StreamService : Service(), ConnectChecker {
     private fun startPreviewIfAvailable() {
         val activeStream = stream ?: return
         val view = previewView ?: return
-        if (activeStream.isOnPreview || activeStream.isStreaming) return
+        if (activeStream.isOnPreview) return
         runCatching { activeStream.startPreview(view) }
             .onFailure { status.value = "Preview unavailable: ${it.message ?: "surface error"}" }
     }
@@ -245,7 +245,7 @@ class StreamService : Service(), ConnectChecker {
         status.value = if (streaming.value) "LIVE" else "Ready"
     }
 
-    private fun stopStream() {
+    private fun stopStream(finalStatus: String = "Stream stopped") {
         stream?.let {
             if (it.isStreaming) it.stopStream()
             if (it.isOnPreview) it.stopPreview()
@@ -255,7 +255,7 @@ class StreamService : Service(), ConnectChecker {
         hideFloatingControls()
         projection?.stop()
         projection = null
-        status.value = "Stream stopped"
+        status.value = finalStatus
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -346,8 +346,12 @@ class StreamService : Service(), ConnectChecker {
     override fun onConnectionFailed(reason: String) {
         streaming.value = false
         streamStartedAt.value = 0L
-        status.value = "Connection failed: $reason"
-        stopStream()
+        val retrying = runCatching { stream?.getStreamClient()?.reTry(3_000L, reason) ?: false }.getOrDefault(false)
+        if (retrying) {
+            status.value = "Reconnecting… $reason"
+            return
+        }
+        stopStream("Connection failed: $reason")
     }
     override fun onNewBitrate(bitrate: Long) {
         bitrateKbps.value = bitrate / 1000
@@ -388,7 +392,7 @@ class StreamService : Service(), ConnectChecker {
         Handler(Looper.getMainLooper()).post { hideFloatingControls() }
         status.value = "Disconnected"
     }
-    override fun onAuthError() { status.value = "Destination authentication failed" }
+    override fun onAuthError() { stopStream("Authentication failed · check your stream key") }
     override fun onAuthSuccess() { status.value = "Destination authenticated" }
 
     override fun onDestroy() {
