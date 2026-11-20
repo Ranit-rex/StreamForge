@@ -3,6 +3,7 @@ package app.streamforge
 import android.Manifest
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjectionConfig
 import android.os.Build
 import android.os.Bundle
 import android.net.Uri
@@ -107,6 +108,11 @@ class MainActivity : ComponentActivity() {
 
     private fun requestScreenCapture() {
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        captureLauncher.launch(manager.createScreenCaptureIntent())
+        val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
+            manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
+        } else {
+            manager.createScreenCaptureIntent()
+        }
+        captureLauncher.launch(captureIntent)
     }
 }
