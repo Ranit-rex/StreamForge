@@ -9,19 +9,22 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 
 class MainActivity : ComponentActivity() {
-    private var pendingEndpoint by androidx.compose.runtime.mutableStateOf("")
+    private var pendingEndpoint by mutableStateOf("")
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        if (result[Manifest.permission.RECORD_AUDIO] == true) {
-            requestScreenCapture()
-        }
+    ) {
+        // Screen capture can still be requested if the user declines microphone access.
+        // The streaming service will surface an audio-permission error if mic capture is unavailable.
+        requestScreenCapture()
     }
 
     private val captureLauncher = registerForActivityResult(
@@ -58,7 +61,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendServiceAction(action: String) {
-        startService(Intent(this, StreamService::class.java).setAction(action))
+        val intent = Intent(this, StreamService::class.java).setAction(action)
+        if (Build.VERSION.SDK_INT >= 26) ContextCompat.startForegroundService(this, intent)
+        else startService(intent)
     }
 
     private fun requestScreenCapture() {
