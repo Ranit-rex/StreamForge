@@ -29,6 +29,10 @@ import androidx.core.app.ServiceCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
+import com.pedro.encoder.input.gl.render.filters.BrightnessFilterRender
+import com.pedro.encoder.input.gl.render.filters.ContrastFilterRender
+import com.pedro.encoder.input.gl.render.filters.SaturationFilterRender
+import com.pedro.encoder.input.gl.render.filters.SharpnessFilterRender
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
@@ -44,6 +48,11 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_STOP_STREAM = "app.streamforge.STOP_STREAM"
         const val ACTION_START_RECORDING = "app.streamforge.START_RECORDING"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
+        const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
+        const val EXTRA_COLOR_BRIGHTNESS = "color_brightness"
+        const val EXTRA_COLOR_CONTRAST = "color_contrast"
+        const val EXTRA_COLOR_SATURATION = "color_saturation"
+        const val EXTRA_COLOR_SHARPNESS = "color_sharpness"
         const val EXTRA_RESULT_CODE = "projection_result_code"
         const val EXTRA_RESULT_DATA = "projection_result_data"
         const val EXTRA_ENDPOINT = "stream_endpoint"
@@ -62,10 +71,18 @@ class StreamService : Service(), ConnectChecker {
         val streamStartedAt = MutableStateFlow(0L)
         val networkHealth = MutableStateFlow("Network monitoring")
         val microphoneMuted = MutableStateFlow(false)
+        val colorBrightness = MutableStateFlow(1.08f)
+        val colorContrast = MutableStateFlow(1.12f)
+        val colorSaturation = MutableStateFlow(0.22f)
+        val colorSharpness = MutableStateFlow(0.22f)
     }
 
     private var stream: GenericStream? = null
     private val microphoneSource = MicrophoneSource()
+    private var brightnessFilter: BrightnessFilterRender? = null
+    private var contrastFilter: ContrastFilterRender? = null
+    private var saturationFilter: SaturationFilterRender? = null
+    private var sharpnessFilter: SharpnessFilterRender? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
     private var requestedVideoBitrate = 4_500_000
@@ -92,6 +109,12 @@ class StreamService : Service(), ConnectChecker {
             ACTION_STOP_STREAM -> stopStream()
             ACTION_START_RECORDING -> startRecording()
             ACTION_STOP_RECORDING -> stopRecording()
+            ACTION_UPDATE_COLOR -> updateColorTuning(
+                intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
+                intent.getFloatExtra(EXTRA_COLOR_CONTRAST, colorContrast.value),
+                intent.getFloatExtra(EXTRA_COLOR_SATURATION, colorSaturation.value),
+                intent.getFloatExtra(EXTRA_COLOR_SHARPNESS, colorSharpness.value)
+            )
         }
         return START_NOT_STICKY
     }
@@ -137,7 +160,9 @@ class StreamService : Service(), ConnectChecker {
             streamResolution.value = "$width × $height"
             streamFps.value = fps
             bitrateKbps.value = 0L
-            stream?.prepareVideo(width, height, bitrate, fps, rotation = 0)
+            val prepared = stream?.prepareVideo(width, height, bitrate, fps, rotation = 0) == true
+            if (!prepared) throw IllegalStateException("Video encoder could not prepare this quality")
+            installColorFilters()
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
             stream?.startStream(endpoint)
             status.value = "Connecting…"
@@ -145,6 +170,37 @@ class StreamService : Service(), ConnectChecker {
             status.value = "Could not start: ${error.message ?: "unknown error"}"
             stopStream()
         }
+    }
+
+
+    private fun installColorFilters() {
+        val activeStream = stream ?: return
+        val brightness = BrightnessFilterRender().apply { setBrightness(colorBrightness.value) }
+        val contrast = ContrastFilterRender().apply { setContrast(colorContrast.value) }
+        val saturation = SaturationFilterRender().apply { setSaturation(colorSaturation.value) }
+        val sharpness = SharpnessFilterRender().apply { setSharpness(colorSharpness.value) }
+        activeStream.getGlInterface().apply {
+            clearFilters()
+            addFilter(brightness)
+            addFilter(contrast)
+            addFilter(saturation)
+            addFilter(sharpness)
+        }
+        brightnessFilter = brightness
+        contrastFilter = contrast
+        saturationFilter = saturation
+        sharpnessFilter = sharpness
+    }
+
+    private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
+        colorBrightness.value = brightness.coerceIn(0.8f, 1.35f)
+        colorContrast.value = contrast.coerceIn(0.8f, 1.4f)
+        colorSaturation.value = saturation.coerceIn(-0.2f, 0.6f)
+        colorSharpness.value = sharpness.coerceIn(0f, 0.8f)
+        brightnessFilter?.setBrightness(colorBrightness.value)
+        contrastFilter?.setContrast(colorContrast.value)
+        saturationFilter?.setSaturation(colorSaturation.value)
+        sharpnessFilter?.setSharpness(colorSharpness.value)
     }
 
     private fun startRecording() {
@@ -314,6 +370,7 @@ class StreamService : Service(), ConnectChecker {
         hideFloatingControls()
         stream?.let { if (it.isStreaming) it.stopStream(); it.release() }
         stream = null
+        brightnessFilter = null; contrastFilter = null; saturationFilter = null; sharpnessFilter = null
         projection?.stop()
         projection = null
         super.onDestroy()
