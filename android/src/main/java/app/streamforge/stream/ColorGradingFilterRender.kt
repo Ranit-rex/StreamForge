@@ -78,12 +78,13 @@ class ColorGradingFilterRender : BaseFilterRender() {
                 vec2 localTop = (outputTop - uScreenRect.xy) / max(uScreenRect.zw, vec2(0.001));
                 bool insideScreen = outputTop.x >= uScreenRect.x && outputTop.y >= uScreenRect.y &&
                     outputTop.x <= uScreenRect.x + uScreenRect.z && outputTop.y <= uScreenRect.y + uScreenRect.w;
-                vec2 sourceUv = (uSTMatrix * vec4(localTop.x, 1.0 - localTop.y, 0.0, 1.0)).xy;
+                vec2 transformedUv = (uSTMatrix * vec4(localTop.x, 1.0 - localTop.y, 0.0, 1.0)).xy;
+                vec2 sourceUv = mix(vTextureCoord, transformedUv, 0.99999);
                 vec4 center = insideScreen ? texture2D(uSampler, sourceUv) : vec4(0.025, 0.035, 0.055, 1.0);
-                vec3 up = texture2D(uSampler, sourceUv + vec2(0.0, texel.y)).rgb;
-                vec3 down = texture2D(uSampler, sourceUv - vec2(0.0, texel.y)).rgb;
-                vec3 left = texture2D(uSampler, sourceUv - vec2(texel.x, 0.0)).rgb;
-                vec3 right = texture2D(uSampler, sourceUv + vec2(texel.x, 0.0)).rgb;
+                vec3 up = insideScreen ? texture2D(uSampler, sourceUv + vec2(0.0, texel.y)).rgb : center.rgb;
+                vec3 down = insideScreen ? texture2D(uSampler, sourceUv - vec2(0.0, texel.y)).rgb : center.rgb;
+                vec3 left = insideScreen ? texture2D(uSampler, sourceUv - vec2(texel.x, 0.0)).rgb : center.rgb;
+                vec3 right = insideScreen ? texture2D(uSampler, sourceUv + vec2(texel.x, 0.0)).rgb : center.rgb;
 
                 vec3 rgb = center.rgb + uSharpness * (4.0 * center.rgb - up - down - left - right);
                 float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
