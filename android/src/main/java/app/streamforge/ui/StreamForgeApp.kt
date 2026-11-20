@@ -211,8 +211,8 @@ fun StreamForgeApp(
                             OutlinedButton(
                                 onClick = { if (isRecording) onStopRecording() else onStartRecording() },
                                 modifier = Modifier.weight(1f),
-                                enabled = isStreaming || isRecording
-                            ) { Text(if (isRecording) "Stop recording" else "Record") }
+                                enabled = true
+                            ) { Text(if (isRecording) "Stop recording" else if (isStreaming) "Record" else "Record screen") }
                         }
                     }
                 }
@@ -322,7 +322,7 @@ fun StreamForgeApp(
                     Surface(color = Panel, shape = RoundedCornerShape(14.dp)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("• Live dashboard with stream timer and encoder bitrate", color = Color.White, fontSize = 12.sp)
-                            Text("• One-tap local MP4 recording while live", color = Color.White, fontSize = 12.sp)
+                            Text("• Record locally with or without going live · MP4", color = Color.White, fontSize = 12.sp)
                             Text("• YouTube, Twitch, Kick and custom RTMP destinations", color = Color.White, fontSize = 12.sp)
                             Text("• Floating gameplay controls with mic mute and chat panel", color = Color.White, fontSize = 12.sp)
                         }
