@@ -21,7 +21,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.SurfaceView
+import android.view.TextureView
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -51,7 +51,7 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
-        @Volatile var previewView: SurfaceView? = null
+        @Volatile var previewView: TextureView? = null
         const val EXTRA_COLOR_BRIGHTNESS = "color_brightness"
         const val EXTRA_COLOR_CONTRAST = "color_contrast"
         const val EXTRA_COLOR_SATURATION = "color_saturation"
