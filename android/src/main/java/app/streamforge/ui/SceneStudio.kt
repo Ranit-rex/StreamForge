@@ -268,7 +268,11 @@ fun SceneStudio() {
                         Text("Custom image added. Use Replace to choose another image.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
                         OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Replace image") }
                     }
-                    Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)\n                    Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)\n                    Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)\n                    Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)\n                    Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
+                    Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+                    Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
+                    Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         OutlinedButton(onClick = {
