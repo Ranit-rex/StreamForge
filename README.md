@@ -1,47 +1,34 @@
 # StreamForge
 
-**Free, Android-first broadcasting studio with a browser companion.**
+**Browser-first live streaming studio, followed by a native Android broadcaster.**
 
-StreamForge is being developed as a native Android broadcaster. It captures the Android screen, encodes on-device and sends directly to YouTube, Kick, Twitch or any compatible RTMP/RTMPS destination. No StreamForge media relay is required.
+StreamForge is being built web-first. The browser studio captures a shared screen, optionally mixes a microphone, records locally as WebM, and can broadcast to a WebRTC WHIP-compatible ingest endpoint. It is a static website/PWA and does not require a StreamForge media relay.
 
-## Product targets
+## Web studio (current priority)
 
-- Android APK: native screen capture, microphone audio, local recording and direct streaming.
-- Browser PWA: responsive companion studio for destination setup, platform guides and app handoff.
-- No mandatory StreamForge account or relay server.
-- No watermark or artificial streaming time limit.
-- Free core application.
+- Screen/window/tab capture with live preview (HTTPS and browser permission required).
+- Optional microphone capture.
+- Local WebM recording.
+- WebRTC WHIP output with optional bearer token.
+- Responsive installable PWA.
+- No account, no watermark, and no StreamForge relay.
 
-The browser companion does not claim to capture the Android screen or stream by itself. Android browser screen-capture support is restricted; the APK handles MediaProjection and foreground streaming.
+**Protocol limitation:** browsers cannot open native RTMP/RTMPS connections directly. Standard RTMP destinations such as YouTube Live, Twitch and Kick therefore require a compatible WHIP ingest endpoint/gateway or the later Android APK. Do not paste an RTMP stream key into the WHIP fields.
 
-## Build Android APK
+## Deploy the website
+
+The GitHub Actions workflow publishes the contents of `browser/` to GitHub Pages whenever browser files change on `main`. Enable GitHub Pages with **Source: GitHub Actions** in the repository's Pages settings if it is not already enabled. The resulting website URL is shown in the workflow's deployment environment.
+
+## Android APK (later phase)
+
+The Android project remains in `android/`. APK builds are intentionally manual while the web studio is stabilized. Run the **Android APK build** workflow from Actions when beginning the Android phase.
 
 Requirements: JDK 17 and Android SDK platform 35.
 
     gradle --no-daemon :android:assembleDebug
 
-APK output:
+The APK is an early alpha; compile, device, microphone, screen-capture and platform-ingest validation are still required.
 
-    android/build/outputs/apk/debug/android-debug.apk
+## Streaming engine and licensing
 
-GitHub Actions builds and uploads a debug APK artifact on pushes and pull requests.
-
-## Browser companion
-
-Serve the browser directory from any static HTTPS host. It is an installable PWA. It deliberately does not save stream keys in browser storage.
-
-## Streaming engine
-
-The Android app uses RootEncoder for on-device hardware encoding and RTMP/RTMPS transport. RootEncoder is Apache-2.0 licensed. Review dependency notices and the complete license inventory before distributing builds.
-
-## Current alpha
-
-- Native Android Compose studio UI
-- MediaProjection permission flow
-- Foreground screen-streaming service
-- Direct RTMP/RTMPS destination input
-- Local MP4 recording path
-- Browser PWA companion
-- Automated Android debug APK build
-
-This is an early alpha. A successful build and real-device/platform-ingest validation are required before production claims.
+The Android app uses RootEncoder for on-device encoding and RTMP/RTMPS transport. Review dependency notices and the complete license inventory before distributing builds.
