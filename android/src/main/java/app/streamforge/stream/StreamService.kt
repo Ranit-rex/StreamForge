@@ -51,6 +51,7 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_START_STREAM = "app.streamforge.START_STREAM"
         const val ACTION_STOP_STREAM = "app.streamforge.STOP_STREAM"
         const val ACTION_START_RECORDING = "app.streamforge.START_RECORDING"
+        const val ACTION_START_LOCAL_RECORDING = "app.streamforge.START_LOCAL_RECORDING"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
         const val ACTION_APPLY_SCENE = "app.streamforge.APPLY_SCENE"
@@ -117,6 +118,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_START_STREAM -> startScreenStream(intent)
             ACTION_STOP_STREAM -> stopStream()
             ACTION_START_RECORDING -> startRecording()
+            ACTION_START_LOCAL_RECORDING -> startLocalRecording(intent)
             ACTION_STOP_RECORDING -> stopRecording()
             ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
             ACTION_STOP_PREVIEW -> stream?.let { if (it.isOnPreview) it.stopPreview() }
@@ -174,6 +176,8 @@ class StreamService : Service(), ConnectChecker {
             networkHealth.value = "Network monitoring"
             streamResolution.value = "$width × $height"
             streamFps.value = fps
+            activeStreamWidth = width
+            activeStreamHeight = height
             bitrateKbps.value = 0L
             // RootEncoder requires encoder color metadata to be configured before prepareVideo.
             // Calling forceBt709Color after prepareVideo throws:
@@ -335,6 +339,59 @@ class StreamService : Service(), ConnectChecker {
         )
     }
 
+    private fun startLocalRecording(intent: Intent) {
+        if (streaming.value || recording.value) {
+            startRecording()
+            return
+        }
+        val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+        val projectionData: Intent? = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_RESULT_DATA)
+        }
+        val width = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(640, 3840)
+        val height = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(360, 2160)
+        val fps = intent.getIntExtra(EXTRA_FPS, 30).coerceIn(24, 60)
+        val bitrate = intent.getIntExtra(EXTRA_BITRATE, 4_500_000).coerceIn(1_000_000, 25_000_000)
+        if (resultCode != android.app.Activity.RESULT_OK || projectionData == null) {
+            status.value = "Screen recording permission was not granted"
+            stopSelf()
+            return
+        }
+        try {
+            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection = manager.getMediaProjection(resultCode, projectionData)
+                ?: throw IllegalStateException("Screen capture permission was not granted")
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification("Recording screen locally…"),
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else 0
+            )
+            activeStreamWidth = width
+            activeStreamHeight = height
+            streamResolution.value = "$width × $height"
+            streamFps.value = fps
+            stream?.forceBt709Color(true)
+            val prepared = stream?.prepareVideo(width, height, bitrate, fps, rotation = 0) == true
+            if (!prepared) throw IllegalStateException("Video encoder could not prepare this recording quality")
+            stream?.getGlInterface()?.setCameraOrientation(0)
+            stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            installColorFilters()
+            startRecording()
+        } catch (error: Exception) {
+            status.value = "Could not start recording: ${error.message ?: error.javaClass.simpleName}"
+            projection?.stop()
+            projection = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
+    }
+
     private fun startRecording() {
         val activeStream = stream ?: return
         if (activeStream.isRecording) return
@@ -342,16 +399,29 @@ class StreamService : Service(), ConnectChecker {
         if (!directory.exists()) directory.mkdirs()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         recordFile = File(directory, "StreamForge_$stamp.mp4")
-        activeStream.startRecord(recordFile!!.absolutePath) { }
-        recording.value = true
-        status.value = "Recording locally"
+        runCatching { activeStream.startRecord(recordFile!!.absolutePath) { } }
+            .onSuccess {
+                recording.value = true
+                status.value = if (streaming.value) "Recording locally" else "Recording screen locally"
+            }
+            .onFailure { error ->
+                recording.value = false
+                status.value = "Recording failed: ${error.message ?: error.javaClass.simpleName}"
+            }
     }
 
     private fun stopRecording() {
-        val activeStream = stream ?: return
-        if (activeStream.isRecording) activeStream.stopRecord()
+        val activeStream = stream
+        if (activeStream?.isRecording == true) activeStream.stopRecord()
         recording.value = false
-        status.value = if (streaming.value) "LIVE" else "Ready"
+        status.value = if (streaming.value) "LIVE" else "Recording saved"
+        if (!streaming.value && projection != null) {
+            runCatching { activeStream?.let { if (it.isOnPreview) it.stopPreview() } }
+            projection?.stop()
+            projection = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun stopStream(finalStatus: String = "Stream stopped") {
