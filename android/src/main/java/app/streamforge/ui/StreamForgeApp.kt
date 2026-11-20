@@ -141,6 +141,7 @@ fun StreamForgeApp(
                     }
                 } else {
                 if (isStreaming && showLiveDashboard) {
+                    LiveDashboard(
                         elapsed = elapsedSeconds,
                         bitrate = bitrate,
                         resolution = liveResolution,
