@@ -28,6 +28,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
+import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
@@ -64,6 +65,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private var stream: GenericStream? = null
+    private val microphoneSource = MicrophoneSource()
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
     private var requestedVideoBitrate = 4_500_000
@@ -76,7 +78,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        stream = GenericStream(this, this, NoVideoSource(), MicrophoneSource()).apply {
+        stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
             getGlInterface().setForceRender(true, 15)
             prepareAudio(44_100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
             // A smaller queue detects upload congestion sooner on mobile networks.
@@ -178,7 +180,13 @@ class StreamService : Service(), ConnectChecker {
 
     private fun toggleMicrophone() {
         val muted = !microphoneMuted.value
-        if (muted) stream?.disableAudio() else stream?.enableAudio()
+        val activeStream = stream
+        if (activeStream != null) {
+            runCatching {
+                if (muted) activeStream.changeAudioSource(SilenceAudioSource())
+                else activeStream.changeAudioSource(microphoneSource)
+            }.onFailure { status.value = "Microphone toggle failed: ${it.message ?: "audio source error"}" }
+        }
         microphoneMuted.value = muted
         overlayRoot?.let { updateOverlayLabels(it) }
     }
