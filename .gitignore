@@ -11,3 +11,10 @@
 *.tmp
 /vendor/
 /third_party/build/
+
+# Android / Gradle
+.gradle/
+local.properties
+**/build/
+*.apk
+*.aab
