@@ -92,7 +92,7 @@ class ColorGradingFilterRender : BaseFilterRender() {
                 rgb = (rgb - vec3(0.5)) * uContrast + vec3(0.5);
                 rgb = clamp(rgb + vec3(uBrightness), 0.0, 1.0);
                 vec4 overlay = texture2D(uOverlay, outputTop);
-                rgb = mix(rgb, overlay.rgb, overlay.a);
+                rgb = rgb * (1.0 - overlay.a) + overlay.rgb;
                 gl_FragColor = vec4(rgb, center.a);
             }
         """.trimIndent()
