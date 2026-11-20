@@ -21,9 +21,12 @@
 - [ ] Improve service lifecycle and MediaProjection revocation handling.
 
 ## A2 — Studio features
-- [ ] Camera overlay and scene layouts.
-- [ ] Text, image and browser overlays.
-- [ ] Local recording controls and gallery export.
+- [x] Add a persistent on-device scene collection editor with Starting Soon, Gameplay, BRB and Ending presets.
+- [x] Add source/layer management UI with visibility, lock, opacity, position, ordering, rename, duplicate and delete controls.
+- [ ] Composite scene sources into the actual outgoing GL encoder frames (screen, camera, text and image assets).
+- [ ] Add real image picking and camera capture sources; preview must match outgoing composition.
+- [ ] Add local recording library, gallery export, playback and storage management.
+- [ ] Support standalone recording without a live RTMP destination.
 - [ ] Hotkeys / Bluetooth controls where Android permits.
 - [ ] Stream presets and per-platform setup guides.
 
