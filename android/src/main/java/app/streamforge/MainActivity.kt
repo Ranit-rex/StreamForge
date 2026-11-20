@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
     private var pendingHeight = 720
     private var pendingFps = 30
     private var pendingBitrate = 4_500_000
+    private var pendingRecordingOnly = false
     private var waitingForOverlayPermission = false
 
     private val permissionLauncher = registerForActivityResult(
@@ -32,7 +33,7 @@ class MainActivity : ComponentActivity() {
         if (result[Manifest.permission.RECORD_AUDIO] == true) {
             requestScreenCapture()
         } else {
-            StreamService.status.value = "Microphone permission is required to start a broadcast"
+            StreamService.status.value = "Microphone permission is required for audio recording"
         }
     }
 
@@ -40,10 +41,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val data = result.data
-        if (result.resultCode == RESULT_OK && data != null && pendingEndpoint.isNotBlank()) {
-            StreamService.status.value = "Screen access granted · starting stream service…"
+        if (result.resultCode == RESULT_OK && data != null) {
+            val recordingOnly = pendingRecordingOnly
+            StreamService.status.value = if (recordingOnly) "Screen access granted · starting local recording…" else "Screen access granted · starting stream service…"
             val serviceIntent = Intent(this, StreamService::class.java).apply {
-                action = StreamService.ACTION_START_STREAM
+                action = if (recordingOnly) StreamService.ACTION_START_LOCAL_RECORDING else StreamService.ACTION_START_STREAM
                 putExtra(StreamService.EXTRA_RESULT_CODE, result.resultCode)
                 putExtra(StreamService.EXTRA_RESULT_DATA, data)
                 putExtra(StreamService.EXTRA_ENDPOINT, pendingEndpoint)
@@ -55,14 +57,10 @@ class MainActivity : ComponentActivity() {
             try {
                 ContextCompat.startForegroundService(this, serviceIntent)
             } catch (error: Exception) {
-                StreamService.status.value = "Could not launch stream service: ${error.message ?: error.javaClass.simpleName}"
+                StreamService.status.value = "Could not launch capture service: ${error.message ?: error.javaClass.simpleName}"
             }
         } else {
-            StreamService.status.value = if (pendingEndpoint.isBlank()) {
-                "Stream destination is missing"
-            } else {
-                "Screen sharing was cancelled or permission was denied"
-            }
+            StreamService.status.value = "Screen sharing was cancelled or permission was denied"
         }
     }
 
@@ -79,6 +77,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate ->
+                    pendingRecordingOnly = false
                     pendingEndpoint = endpoint
                     pendingWidth = width
                     pendingHeight = height
@@ -90,7 +89,13 @@ class MainActivity : ComponentActivity() {
                     } else beginBroadcastPermissions()
                 },
                 onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
-                onStartRecording = { sendServiceAction(StreamService.ACTION_START_RECORDING) },
+                onStartRecording = {
+                    if (StreamService.streaming.value) {
+                        sendServiceAction(StreamService.ACTION_START_RECORDING)
+                    } else {
+                        beginStandaloneRecording()
+                    }
+                },
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) }
             )
         }
@@ -117,8 +122,20 @@ class MainActivity : ComponentActivity() {
         else startService(intent)
     }
 
+    private fun beginStandaloneRecording() {
+        pendingRecordingOnly = true
+        pendingEndpoint = ""
+        pendingWidth = 1280
+        pendingHeight = 720
+        pendingFps = 30
+        pendingBitrate = 4_500_000
+        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+        permissionLauncher.launch(permissions.toTypedArray())
+    }
+
     private fun requestScreenCapture() {
-        StreamService.status.value = "Choose what to share, then tap Start now"
+        StreamService.status.value = if (pendingRecordingOnly) "Choose the screen or app to record, then tap Start now" else "Choose what to share, then tap Start now"
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
             manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
