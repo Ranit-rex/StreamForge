@@ -1,6 +1,8 @@
 package app.streamforge.stream
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.opengl.GLUtils
 import android.opengl.GLES20
 import android.opengl.Matrix
 import com.pedro.encoder.R
@@ -26,6 +28,12 @@ class ColorGradingFilterRender : BaseFilterRender() {
     private var uSaturation = -1
     private var uSharpness = -1
     private var uResolution = -1
+    private var uOverlay = -1
+    private var overlayTextureId = -1
+    @Volatile private var sceneOverlayBitmap: Bitmap? = null
+    @Volatile private var overlayVersion = 0
+    private var uploadedOverlayVersion = -1
+    private var uploadedBitmap: Bitmap? = null
 
     @Volatile private var brightness = 0f
     @Volatile private var contrast = 1f
@@ -54,6 +62,7 @@ class ColorGradingFilterRender : BaseFilterRender() {
             uniform float uSaturation;
             uniform float uSharpness;
             uniform vec2 uResolution;
+            uniform sampler2D uOverlay;
             varying vec2 vTextureCoord;
 
             void main() {
@@ -69,6 +78,9 @@ class ColorGradingFilterRender : BaseFilterRender() {
                 rgb = mix(vec3(luma), rgb, uSaturation);
                 rgb = (rgb - vec3(0.5)) * uContrast + vec3(0.5);
                 rgb = clamp(rgb + vec3(uBrightness), 0.0, 1.0);
+                vec2 overlayCoord = vec2(vTextureCoord.x, 1.0 - vTextureCoord.y);
+                vec4 overlay = texture2D(uOverlay, overlayCoord);
+                rgb = mix(rgb, overlay.rgb, overlay.a);
                 gl_FragColor = vec4(rgb, center.a);
             }
         """.trimIndent()
@@ -84,6 +96,20 @@ class ColorGradingFilterRender : BaseFilterRender() {
         uSaturation = GLES20.glGetUniformLocation(program, "uSaturation")
         uSharpness = GLES20.glGetUniformLocation(program, "uSharpness")
         uResolution = GLES20.glGetUniformLocation(program, "uResolution")
+        uOverlay = GLES20.glGetUniformLocation(program, "uOverlay")
+        val textures = IntArray(1)
+        GLES20.glGenTextures(1, textures, 0)
+        overlayTextureId = textures[0]
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTextureId)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        val transparent = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+        transparent.put(byteArrayOf(0, 0, 0, 0))
+        transparent.position(0)
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 1, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, transparent)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
     }
 
     override fun drawFilter() {
@@ -102,6 +128,26 @@ class ColorGradingFilterRender : BaseFilterRender() {
         GLES20.glUniform1f(uSaturation, saturation)
         GLES20.glUniform1f(uSharpness, sharpness)
         GLES20.glUniform2f(uResolution, getWidth().toFloat(), getHeight().toFloat())
+        val requestedOverlayVersion = overlayVersion
+        if (requestedOverlayVersion != uploadedOverlayVersion) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTextureId)
+            val bitmap = sceneOverlayBitmap
+            if (bitmap != null && !bitmap.isRecycled) {
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+            } else {
+                val transparent = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+                transparent.put(byteArrayOf(0, 0, 0, 0))
+                transparent.position(0)
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 1, 1, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, transparent)
+            }
+            uploadedBitmap?.let { old -> if (old !== bitmap && !old.isRecycled) old.recycle() }
+            uploadedBitmap = bitmap
+            uploadedOverlayVersion = requestedOverlayVersion
+        }
+        GLES20.glUniform1i(uOverlay, 1)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTextureId)
         GLES20.glUniform1i(uSampler, 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, previousTexId)
@@ -116,6 +162,17 @@ class ColorGradingFilterRender : BaseFilterRender() {
             GLES20.glDeleteProgram(program)
             program = -1
         }
+        if (overlayTextureId >= 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(overlayTextureId), 0)
+            overlayTextureId = -1
+        }
+        uploadedBitmap?.let { if (!it.isRecycled) it.recycle() }
+        uploadedBitmap = null
+    }
+
+    fun setSceneOverlayBitmap(bitmap: Bitmap?) {
+        sceneOverlayBitmap = bitmap
+        overlayVersion += 1
     }
 
     fun setColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
