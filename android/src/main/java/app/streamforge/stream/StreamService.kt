@@ -33,11 +33,19 @@ class StreamService : Service(), ConnectChecker {
         const val EXTRA_RESULT_CODE = "projection_result_code"
         const val EXTRA_RESULT_DATA = "projection_result_data"
         const val EXTRA_ENDPOINT = "stream_endpoint"
+        const val EXTRA_WIDTH = "stream_width"
+        const val EXTRA_HEIGHT = "stream_height"
+        const val EXTRA_FPS = "stream_fps"
+        const val EXTRA_BITRATE = "stream_bitrate"
         private const val CHANNEL_ID = "streamforge_live"
         private const val NOTIFICATION_ID = 7401
         val status = MutableStateFlow("Ready")
         val streaming = MutableStateFlow(false)
         val recording = MutableStateFlow(false)
+        val bitrateKbps = MutableStateFlow(0L)
+        val streamResolution = MutableStateFlow("1280 × 720")
+        val streamFps = MutableStateFlow(30)
+        val streamStartedAt = MutableStateFlow(0L)
     }
 
     private var stream: GenericStream? = null
@@ -49,7 +57,6 @@ class StreamService : Service(), ConnectChecker {
         createNotificationChannel()
         stream = GenericStream(this, this, NoVideoSource(), MicrophoneSource()).apply {
             getGlInterface().setForceRender(true, 15)
-            prepareVideo(1280, 720, 2_500_000, rotation = 0)
             prepareAudio(44_100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
         }
     }
@@ -73,6 +80,10 @@ class StreamService : Service(), ConnectChecker {
             intent.getParcelableExtra(EXTRA_RESULT_DATA)
         }
         val endpoint = intent.getStringExtra(EXTRA_ENDPOINT).orEmpty()
+        val width = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(640, 3840)
+        val height = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(360, 2160)
+        val fps = intent.getIntExtra(EXTRA_FPS, 30).coerceIn(24, 60)
+        val bitrate = intent.getIntExtra(EXTRA_BITRATE, 4_500_000).coerceIn(800_000, 35_000_000)
         if (projectionData == null || endpoint.isBlank()) {
             status.value = "Missing screen permission or destination"
             stopSelf()
@@ -82,7 +93,7 @@ class StreamService : Service(), ConnectChecker {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            buildNotification("Preparing your stream…"),
+            buildNotification("Preparing stream…"),
             if (Build.VERSION.SDK_INT >= 29) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
@@ -93,6 +104,10 @@ class StreamService : Service(), ConnectChecker {
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection = manager.getMediaProjection(resultCode, projectionData)
                 ?: throw IllegalStateException("Screen capture permission was not granted")
+            streamResolution.value = "$width × $height"
+            streamFps.value = fps
+            bitrateKbps.value = 0L
+            stream?.prepareVideo(width, height, bitrate, fps, rotation = 0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
             stream?.startStream(endpoint)
             status.value = "Connecting…"
@@ -124,6 +139,7 @@ class StreamService : Service(), ConnectChecker {
     private fun stopStream() {
         stream?.let { if (it.isStreaming) it.stopStream() }
         streaming.value = false
+        streamStartedAt.value = 0L
         projection?.stop()
         projection = null
         status.value = "Stream stopped"
@@ -152,16 +168,22 @@ class StreamService : Service(), ConnectChecker {
     override fun onConnectionStarted(url: String) { status.value = "Connecting to destination…" }
     override fun onConnectionSuccess() {
         streaming.value = true
+        streamStartedAt.value = System.currentTimeMillis()
         status.value = "LIVE"
     }
     override fun onConnectionFailed(reason: String) {
         streaming.value = false
+        streamStartedAt.value = 0L
         status.value = "Connection failed: $reason"
         stopStream()
     }
-    override fun onNewBitrate(bitrate: Long) { status.value = "LIVE • ${bitrate / 1000} kbps" }
+    override fun onNewBitrate(bitrate: Long) {
+        bitrateKbps.value = bitrate / 1000
+        status.value = if (streaming.value) "LIVE • ${bitrate / 1000} kbps" else status.value
+    }
     override fun onDisconnect() {
         streaming.value = false
+        streamStartedAt.value = 0L
         status.value = "Disconnected"
     }
     override fun onAuthError() { status.value = "Destination authentication failed" }
