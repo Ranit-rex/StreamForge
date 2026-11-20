@@ -7,9 +7,18 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets)
-add_executable(streamforge app/main.cpp app/mainwindow.cpp app/mainwindow.h)
+add_executable(streamforge
+  app/main.cpp
+  app/mainwindow.cpp
+  app/mainwindow.h
+  engine/obsengine.cpp
+  engine/obsengine.h
+)
 target_link_libraries(streamforge PRIVATE Qt6::Widgets)
-target_include_directories(streamforge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/app)
+target_include_directories(streamforge PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/app
+  ${CMAKE_CURRENT_SOURCE_DIR}/engine
+)
 find_path(LIBOBS_INCLUDE_DIR obs.h HINTS ENV LIBOBS_INCLUDE_DIR PATH_SUFFIXES obs libobs)
 find_library(LIBOBS_LIBRARY NAMES obs libobs HINTS ENV LIBOBS_LIBRARY_DIR)
 if(LIBOBS_INCLUDE_DIR AND LIBOBS_LIBRARY)
