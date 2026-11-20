@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import kotlin.math.abs
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -104,7 +105,6 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
     var renameDialog by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var sourceMessage by remember { mutableStateOf("") }
-    var applyMessage by remember { mutableStateOf("") }
     var canvasWidth by remember { mutableFloatStateOf(1f) }
     var canvasHeight by remember { mutableFloatStateOf(1f) }
 
@@ -122,6 +122,13 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
     LaunchedEffect(scenes.toList()) { prefs.edit().putString("scenes", encodeSceneList(scenes)).apply() }
     val index = active.coerceIn(0, scenes.lastIndex)
     val scene = scenes[index]
+    LaunchedEffect(index, scene) {
+        prefs.edit()
+            .putString("scenes", encodeSceneList(scenes))
+            .putInt("active_scene", index)
+            .apply()
+        onApplyScene(index)
+    }
     val layer = scene.layers.firstOrNull { it.id == selected }
 
     fun updateLayer(id: Long, transform: (SceneLayer) -> SceneLayer) {
@@ -204,6 +211,7 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                         }
                         .pointerInput(index) {
                             var draggingLayerId: Long? = null
+                            var resizingLayer = false
                             detectDragGestures(
                                 onDragStart = { point ->
                                     val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
@@ -211,19 +219,31 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                                             point.y >= item.y * size.height && point.y <= (item.y + item.height) * size.height
                                     }
                                     draggingLayerId = hit?.id
-                                    if (hit != null) selected = hit.id
+                                    if (hit != null) {
+                                        selected = hit.id
+                                        val right = (hit.x + hit.width) * size.width
+                                        val bottom = (hit.y + hit.height) * size.height
+                                        resizingLayer = abs(point.x - right) <= 42f && abs(point.y - bottom) <= 42f
+                                    } else resizingLayer = false
                                 },
-                                onDragEnd = { draggingLayerId = null },
-                                onDragCancel = { draggingLayerId = null },
+                                onDragEnd = { draggingLayerId = null; resizingLayer = false },
+                                onDragCancel = { draggingLayerId = null; resizingLayer = false },
                                 onDrag = { change, drag ->
                                     change.consume()
                                     val chosen = latestScene.value.layers.firstOrNull { it.id == draggingLayerId }
                                     if (chosen != null && !chosen.locked) {
-                                        latestUpdateLayer.value(chosen.id) {
-                                            it.copy(
-                                                x = (it.x + drag.x / size.width).coerceIn(0f, (1f - it.width).coerceAtLeast(0f)),
-                                                y = (it.y + drag.y / size.height).coerceIn(0f, (1f - it.height).coerceAtLeast(0f))
-                                            )
+                                        latestUpdateLayer.value(chosen.id) { current ->
+                                            if (resizingLayer) {
+                                                current.copy(
+                                                    width = (current.width + drag.x / size.width).coerceIn(.08f, (1f - current.x).coerceAtLeast(.08f)),
+                                                    height = (current.height + drag.y / size.height).coerceIn(.05f, (1f - current.y).coerceAtLeast(.05f))
+                                                )
+                                            } else {
+                                                current.copy(
+                                                    x = (current.x + drag.x / size.width).coerceIn(0f, (1f - current.width).coerceAtLeast(0f)),
+                                                    y = (current.y + drag.y / size.height).coerceIn(0f, (1f - current.height).coerceAtLeast(0f))
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -276,12 +296,22 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                                     }
                                 }
                             }
+                            paint.style = Paint.Style.STROKE
+                            paint.strokeWidth = if (item.id == selected) 3f else 1.5f
+                            paint.color = if (item.id == selected) android.graphics.Color.CYAN else android.graphics.Color.argb(175, 210, 224, 245)
+                            native.drawRoundRect(rect, 10f, 10f, paint)
                             if (item.id == selected) {
-                                paint.style = Paint.Style.STROKE; paint.strokeWidth = 3f
-                                paint.color = android.graphics.Color.CYAN
-                                native.drawRoundRect(rect, 12f, 12f, paint)
                                 paint.style = Paint.Style.FILL
+                                paint.color = android.graphics.Color.CYAN
+                                val handleRadius = 9f
+                                native.drawCircle(rect.left, rect.top, handleRadius, paint)
+                                native.drawCircle(rect.right, rect.top, handleRadius, paint)
+                                native.drawCircle(rect.left, rect.bottom, handleRadius, paint)
+                                native.drawCircle(rect.right, rect.bottom, handleRadius + 2f, paint)
+                                paint.color = android.graphics.Color.rgb(11, 18, 32)
+                                native.drawCircle(rect.right, rect.bottom, 4f, paint)
                             }
+                            paint.style = Paint.Style.FILL
                         }
                     }
                 }
@@ -359,19 +389,6 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
             }
         }
 
-        Button(
-            onClick = {
-                prefs.edit()
-                    .putString("scenes", encodeSceneList(scenes))
-                    .putInt("active_scene", index)
-                    .apply()
-                onApplyScene(index)
-                applyMessage = "“${scene.name}” selected for live output."
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Apply scene to LIVE output") }
-        if (applyMessage.isNotBlank()) Text(applyMessage, color = Color(0xFF91E6B0), fontSize = 11.sp)
-
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
             OutlinedButton(onClick = {
@@ -382,7 +399,7 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Scene layouts are saved on this phone. Apply a scene before or during a broadcast to use its text and image overlays.", color = Color.Gray, fontSize = 10.sp)
+        Text("Selected scene auto-saves and auto-applies to the live output. Drag any layer to move; drag its bottom-right handle or use Width / Height to resize.", color = Color.Gray, fontSize = 10.sp)
     }
 
     if (addDialog) AlertDialog(
