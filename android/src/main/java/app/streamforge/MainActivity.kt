@@ -9,15 +9,17 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 
 class MainActivity : ComponentActivity() {
-    private var pendingEndpoint by mutableStateOf("")
+    private var pendingEndpoint = ""
+    private var pendingWidth = 1280
+    private var pendingHeight = 720
+    private var pendingFps = 30
+    private var pendingBitrate = 4_500_000
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -39,6 +41,10 @@ class MainActivity : ComponentActivity() {
                 putExtra(StreamService.EXTRA_RESULT_CODE, result.resultCode)
                 putExtra(StreamService.EXTRA_RESULT_DATA, data)
                 putExtra(StreamService.EXTRA_ENDPOINT, pendingEndpoint)
+                putExtra(StreamService.EXTRA_WIDTH, pendingWidth)
+                putExtra(StreamService.EXTRA_HEIGHT, pendingHeight)
+                putExtra(StreamService.EXTRA_FPS, pendingFps)
+                putExtra(StreamService.EXTRA_BITRATE, pendingBitrate)
             }
             ContextCompat.startForegroundService(this, serviceIntent)
         }
@@ -46,11 +52,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 enforces edge-to-edge for targetSdk 35. Compose applies system-bar
+        // insets to the content so the app header never sits underneath the status bar.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             StreamForgeApp(
-                onStartStream = { endpoint ->
+                onStartStream = { endpoint, width, height, fps, bitrate ->
                     pendingEndpoint = endpoint
+                    pendingWidth = width
+                    pendingHeight = height
+                    pendingFps = fps
+                    pendingBitrate = bitrate
                     val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
                     if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
                     permissionLauncher.launch(permissions.toTypedArray())
