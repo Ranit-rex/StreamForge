@@ -2,108 +2,89 @@ package app.streamforge.stream
 
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.Executors
-import org.json.JSONObject
 
-/**
- * YouTube Live Chat reader. Uses the official YouTube Data API v3 liveChatMessages.list
- * endpoint. The user supplies an API key and the active broadcast's liveChatId.
- */
+/** Reads YouTube Live Chat through StreamForge's server-side API proxy. */
 object YouTubeLiveChat {
+    private const val API_BASE = "https://streamforge-chat-api.onrender.com"
     val messages = MutableStateFlow<List<String>>(emptyList())
     val connectionState = MutableStateFlow("Not connected")
-
     @Volatile private var running = false
     @Volatile private var generation = 0
-    private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "streamforge-youtube-chat").apply { isDaemon = true }
-    }
+    private val executor = Executors.newSingleThreadExecutor { Thread(it, "streamforge-chat").apply { isDaemon = true } }
 
     fun start(context: Context) {
         if (running) return
         val prefs = context.getSharedPreferences("streamforge_chat", Context.MODE_PRIVATE)
-        val apiKey = prefs.getString("youtube_api_key", "").orEmpty().trim()
-        val liveChatId = prefs.getString("youtube_live_chat_id", "").orEmpty().trim()
-        if (apiKey.isBlank() || liveChatId.isBlank()) {
-            connectionState.value = "Add YouTube API key and live chat ID in Chat settings"
+        val videoId = extractVideoId(prefs.getString("youtube_video_id", "").orEmpty())
+        if (videoId.isBlank()) {
+            connectionState.value = "Add your YouTube LIVE video link in Chat settings"
             return
         }
         running = true
-        generation += 1
-        val activeGeneration = generation
+        val active = ++generation
         connectionState.value = "Connecting to YouTube Live Chat…"
         executor.execute {
             var pageToken = ""
             val seen = LinkedHashSet<String>()
-            while (running && activeGeneration == generation) {
-                var delayMs = 5000L
-                var connection: HttpURLConnection? = null
+            while (running && active == generation) {
+                var conn: HttpURLConnection? = null
+                var delay = 7000L
                 try {
-                    val query = buildString {
-                        append("liveChatId=").append(enc(liveChatId))
-                        append("&part=snippet,authorDetails")
-                        append("&key=").append(enc(apiKey))
-                        append("&maxResults=200")
-                        if (pageToken.isNotBlank()) append("&pageToken=").append(enc(pageToken))
-                    }
-                    connection = (URL("https://www.googleapis.com/youtube/v3/liveChat/messages?$query").openConnection() as HttpURLConnection).apply {
+                    val query = "videoId=" + enc(videoId) + if (pageToken.isNotBlank()) "&pageToken=" + enc(pageToken) else ""
+                    conn = (URL("$API_BASE/api/youtube/live-chat?$query").openConnection() as HttpURLConnection).apply {
                         requestMethod = "GET"
-                        connectTimeout = 10000
-                        readTimeout = 15000
+                        connectTimeout = 12000
+                        readTimeout = 18000
                         setRequestProperty("Accept", "application/json")
                     }
-                    val code = connection.responseCode
-                    val body = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                        ?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    val code = conn.responseCode
+                    val body = (if (code in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
                     if (code !in 200..299) {
-                        val message = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
-                        connectionState.value = "YouTube API error ($code): ${message ?: "request failed"}"
-                        delayMs = 10000L
+                        val message = runCatching { JSONObject(body).optString("error") }.getOrNull().orEmpty()
+                        connectionState.value = message.ifBlank { "Chat service error ($code)" }
+                        delay = 12000L
                     } else {
                         val json = JSONObject(body)
                         pageToken = json.optString("nextPageToken", pageToken)
-                        delayMs = json.optLong("pollingIntervalMillis", 5000L).coerceIn(1000L, 30000L)
+                        delay = json.optLong("pollingIntervalMillis", 5000L).coerceIn(1500L, 30000L)
                         val items = json.optJSONArray("items")
                         val fresh = ArrayList<String>()
-                        if (items != null) {
-                            for (i in 0 until items.length()) {
-                                val item = items.optJSONObject(i) ?: continue
-                                val id = item.optString("id")
-                                val snippet = item.optJSONObject("snippet") ?: continue
-                                val author = item.optJSONObject("authorDetails")?.optString("displayName").orEmpty()
-                                val message = snippet.optString("displayMessage").trim()
-                                if (message.isNotBlank() && (id.isBlank() || seen.add(id))) {
-                                    fresh.add(if (author.isBlank()) message else "$author: $message")
-                                }
-                            }
+                        if (items != null) for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            val id = item.optString("id")
+                            val snippet = item.optJSONObject("snippet") ?: continue
+                            val author = item.optJSONObject("authorDetails")?.optString("displayName").orEmpty()
+                            val message = snippet.optString("displayMessage").trim()
+                            if (message.isNotBlank() && (id.isBlank() || seen.add(id))) fresh.add(if (author.isBlank()) message else "$author: $message")
                         }
-                        if (fresh.isNotEmpty()) {
-                            val merged = (messages.value + fresh).takeLast(40)
-                            messages.value = merged
-                        }
+                        if (fresh.isNotEmpty()) messages.value = (messages.value + fresh).takeLast(40)
                         connectionState.value = "YouTube chat connected"
                     }
-                } catch (error: Exception) {
-                    if (running) connectionState.value = "YouTube chat: ${error.message ?: error.javaClass.simpleName}"
-                    delayMs = 10000L
-                } finally {
-                    connection?.disconnect()
-                }
-                if (running && activeGeneration == generation) try { Thread.sleep(delayMs) } catch (_: InterruptedException) { break }
+                } catch (e: Exception) {
+                    if (running) connectionState.value = "Chat connection: ${e.message ?: "network error"}"
+                    delay = 12000L
+                } finally { conn?.disconnect() }
+                if (running && active == generation) try { Thread.sleep(delay) } catch (_: InterruptedException) { break }
             }
         }
     }
 
     fun stop() {
         running = false
-        generation += 1
+        generation++
         if (connectionState.value == "YouTube chat connected") connectionState.value = "Disconnected"
     }
-
     fun clear() { messages.value = emptyList() }
 
-    private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
+    private fun extractVideoId(value: String): String {
+        val raw = value.trim()
+        if (raw.matches(Regex("[A-Za-z0-9_-]{11}"))) return raw
+        return Regex("(?:v=|youtu\\.be/|/live/|/shorts/)([A-Za-z0-9_-]{11})").find(raw)?.groupValues?.getOrNull(1).orEmpty()
+    }
+    private fun enc(value: String) = URLEncoder.encode(value, "UTF-8")
 }
