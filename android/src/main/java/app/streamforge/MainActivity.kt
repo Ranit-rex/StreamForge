@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
     private var pendingFps = 30
     private var pendingBitrate = 4_500_000
     private var pendingRecordingOnly = false
+    private var pendingCaptureMode = "GAME"
     private var waitingForOverlayPermission = false
 
     private val permissionLauncher = registerForActivityResult(
@@ -78,13 +79,14 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             StreamForgeApp(
-                onStartStream = { endpoint, width, height, fps, bitrate ->
+                onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
                     pendingRecordingOnly = false
                     pendingEndpoint = endpoint
                     pendingWidth = width
                     pendingHeight = height
                     pendingFps = fps
                     pendingBitrate = bitrate
+                    pendingCaptureMode = captureMode
                     if (!Settings.canDrawOverlays(this)) {
                         waitingForOverlayPermission = true
                         startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)), 7402)
@@ -140,7 +142,8 @@ class MainActivity : ComponentActivity() {
         StreamService.status.value = if (pendingRecordingOnly) "Choose the screen or app to record, then tap Start now" else "Choose what to share, then tap Start now"
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
-            manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForUserChoice())
+            val config = if (!pendingRecordingOnly && pendingCaptureMode == "FULL") MediaProjectionConfig.createConfigForDefaultDisplay() else MediaProjectionConfig.createConfigForUserChoice()
+            manager.createScreenCaptureIntent(config)
         } else {
             manager.createScreenCaptureIntent()
         }
