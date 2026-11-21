@@ -480,139 +480,134 @@ class StreamService : Service(), ConnectChecker {
         overlayRoot?.let { updateOverlayLabels(it) }
     }
 
+    private var overlayPanel: LinearLayout? = null
+
     private fun showFloatingControls() {
         if (overlayRoot != null || !android.provider.Settings.canDrawOverlays(this)) return
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
-        fun panel(color: Int, radius: Int) = GradientDrawable().apply {
+        fun shape(color: Int, radius: Int) = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
         }
-        fun label(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
+        fun text(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
             TextView(this).apply {
                 text = value
                 textSize = size
                 setTextColor(color)
                 if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(10), dp(8), dp(10), dp(8))
+                gravity = Gravity.CENTER
+                setPadding(dp(8), dp(6), dp(8), dp(6))
             }
 
-        val root = LinearLayout(this).apply {
+        // Small circular live bubble, inspired by common mobile-streaming controls,
+        // with StreamForge's own colors and visual identity.
+        val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = panel(0xF21B2433.toInt(), 18)
-            elevation = dp(12).toFloat()
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(0xFF526EFF.toInt(), 0xFF253B80.toInt())
+            ).apply { shape = GradientDrawable.OVAL; setStroke(dp(2), 0xFF8EA5FF.toInt()) }
+            elevation = dp(10).toFloat()
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val header = LinearLayout(this).apply {
+        val live = text("● LIVE", 9f, 0xFFFF777E.toInt(), true)
+        val viewers = text("◉ —", 12f, AndroidColor.WHITE, true)
+        bubble.addView(live)
+        bubble.addView(viewers)
+        val bubbleParams = WindowManager.LayoutParams(
+            dp(62), dp(62), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(155) }
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = shape(0xF21A2434.toInt(), 20)
+            elevation = dp(18).toFloat()
+            visibility = View.GONE
+        }
+        overlayPanel = panel
+        val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = panel(0xFF29364A.toInt(), 14)
-            setPadding(dp(4), dp(2), dp(4), dp(2))
         }
-        val live = label("● LIVE", 11f, 0xFFFF6B72.toInt(), true).apply {
-            background = panel(0x332F80FF, 10)
-            setPadding(dp(9), dp(7), dp(9), dp(7))
-        }
-        val timer = label("00:00:00", 12f, AndroidColor.WHITE, true)
+        heading.addView(text("STREAMFORGE  •  LIVE", 12f, 0xFF9DB2FF.toInt(), true), LinearLayout.LayoutParams(0, dp(38), 1f))
+        val close = text("×", 23f, 0xFFDDE6F5.toInt(), true)
+        close.setOnClickListener { panel.visibility = View.GONE }
+        heading.addView(close, LinearLayout.LayoutParams(dp(38), dp(38)))
+        panel.addView(heading)
+
+        val timer = text("00:00:00", 22f, AndroidColor.WHITE, true)
         overlayTimerLabel = timer
-        val expand = label("⌄", 21f, 0xFFB9C8DC.toInt(), true).apply {
-            gravity = Gravity.CENTER
-            setOnClickListener {
-                overlayExpanded = !overlayExpanded
-                root.getChildAt(1).visibility = if (overlayExpanded) View.VISIBLE else View.GONE
-                text = if (overlayExpanded) "⌃" else "⌄"
-            }
-        }
-        header.addView(live)
-        header.addView(timer, LinearLayout.LayoutParams(0, dp(38), 1f))
-        header.addView(expand, LinearLayout.LayoutParams(dp(38), dp(38)))
-        root.addView(header)
-
-        val details = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(dp(3), dp(7), dp(3), dp(2))
-        }
-        val stats = label("", 10f, 0xFFB9C8DC.toInt()).apply {
-            background = panel(0xFF222E40.toInt(), 10)
-        }
+        panel.addView(timer)
+        val stats = text("Viewers —  •  ${streamResolution.value}  •  ${bitrateKbps.value} kbps", 10f, 0xFFB9C8DC.toInt())
         overlayStatsLabel = stats
-        details.addView(stats)
+        panel.addView(stats)
 
-        val actions = LinearLayout(this).apply {
+        val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(7), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
-        val mic = label(if (microphoneMuted.value) "MIC OFF" else "MIC ON", 11f, AndroidColor.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = panel(0xFF3A506D.toInt(), 11)
+        val mic = text(if (microphoneMuted.value) "MIC OFF" else "MIC ON", 11f, AndroidColor.WHITE, true).apply {
+            background = shape(0xFF344B6A.toInt(), 12)
             setOnClickListener { toggleMicrophone() }
         }
         overlayMicLabel = mic
-        val chat = label("CHAT", 11f, AndroidColor.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = panel(0xFF3A506D.toInt(), 11)
+        val chat = text("CHAT", 11f, AndroidColor.WHITE, true).apply {
+            background = shape(0xFF344B6A.toInt(), 12)
+            setOnClickListener {
+                android.widget.Toast.makeText(this@StreamService, "Chat source integration is coming next.", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
-        val stop = label("STOP", 11f, AndroidColor.WHITE, true).apply {
-            gravity = Gravity.CENTER
-            background = panel(0xFFB83D50.toInt(), 11)
+        val stop = text("END LIVE", 11f, AndroidColor.WHITE, true).apply {
+            background = shape(0xFFB83D50.toInt(), 12)
             setOnClickListener { stopStream("Stream stopped") }
         }
-        val actionParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply {
-            marginEnd = dp(5)
-        }
-        actions.addView(mic, actionParams)
-        actions.addView(chat, actionParams)
-        actions.addView(stop, LinearLayout.LayoutParams(0, dp(38), 1f))
-        details.addView(actions)
+        val buttonParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
+        buttons.addView(mic, buttonParams)
+        buttons.addView(chat, buttonParams)
+        buttons.addView(stop, LinearLayout.LayoutParams(0, dp(42), 1f))
+        panel.addView(buttons)
 
-        val chatText = label("Live chat isn't connected yet. Connect a supported chat source to show audience messages here.", 10f, 0xFFD5DFED.toInt()).apply {
-            visibility = View.GONE
-            background = panel(0xFF222E40.toInt(), 10)
-        }
-        overlayChatText = chatText
-        chat.setOnClickListener {
-            chatText.visibility = if (chatText.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-        details.addView(chatText)
-        root.addView(details)
+        val panelParams = WindowManager.LayoutParams(
+            dp(280), WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(225) }
 
-        var expandedByTap = false
-        header.setOnTouchListener(object : View.OnTouchListener {
-            private var startX = 0
-            private var startY = 0
-            private var touchX = 0f
-            private var touchY = 0f
+        bubble.setOnClickListener {
+            panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        bubble.setOnTouchListener(object : View.OnTouchListener {
+            private var sx = 0
+            private var sy = 0
+            private var tx = 0f
+            private var ty = 0f
             private var dragged = false
             override fun onTouch(view: View, event: MotionEvent): Boolean {
-                val params = root.layoutParams as? WindowManager.LayoutParams ?: return false
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        startX = params.x
-                        startY = params.y
-                        touchX = event.rawX
-                        touchY = event.rawY
-                        dragged = false
+                        sx = bubbleParams.x; sy = bubbleParams.y
+                        tx = event.rawX; ty = event.rawY; dragged = false
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        val dx = (event.rawX - touchX).toInt()
-                        val dy = (event.rawY - touchY).toInt()
+                        val dx = (event.rawX - tx).toInt()
+                        val dy = (event.rawY - ty).toInt()
                         if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(5)) dragged = true
-                        params.x = (startX - dx).coerceAtLeast(0)
-                        params.y = (startY + dy).coerceAtLeast(0)
-                        runCatching { manager.updateViewLayout(root, params) }
+                        bubbleParams.x = (sx - dx).coerceAtLeast(0)
+                        bubbleParams.y = (sy + dy).coerceAtLeast(0)
+                        runCatching { manager.updateViewLayout(bubble, bubbleParams) }
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!dragged) {
-                            overlayExpanded = !overlayExpanded
-                            details.visibility = if (overlayExpanded) View.VISIBLE else View.GONE
-                            expand.text = if (overlayExpanded) "⌃" else "⌄"
-                        }
+                        if (!dragged) bubble.performClick()
                         return true
                     }
                 }
@@ -620,28 +615,24 @@ class StreamService : Service(), ConnectChecker {
             }
         })
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(10)
-            y = dp(145)
-        }
         runCatching {
-            manager.addView(root, params)
-            overlayRoot = root
+            manager.addView(bubble, bubbleParams)
+            manager.addView(panel, panelParams)
+            overlayRoot = bubble
             overlayHandler.removeCallbacks(overlayTicker)
             overlayHandler.post(overlayTicker)
+        }.onFailure {
+            runCatching { manager.removeView(bubble) }
+            runCatching { manager.removeView(panel) }
+            overlayRoot = null
+            overlayPanel = null
+            status.value = "Floating controls unavailable: ${it.message ?: "overlay error"}"
         }
     }
 
     private fun updateOverlayLabels(root: LinearLayout) {
         overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
-        overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
+        overlayStatsLabel?.text = "Viewers —  •  ${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
     }
 
     private fun hideFloatingControls() {
@@ -649,6 +640,8 @@ class StreamService : Service(), ConnectChecker {
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         overlayHandler.removeCallbacks(overlayTicker)
         runCatching { manager.removeView(root) }
+        overlayPanel?.let { panel -> runCatching { manager.removeView(panel) } }
+        overlayPanel = null
         overlayRoot = null
         overlayExpanded = false
         overlayMicLabel = null
