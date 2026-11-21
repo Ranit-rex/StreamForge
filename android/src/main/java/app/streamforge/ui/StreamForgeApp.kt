@@ -144,6 +144,7 @@ fun StreamForgeApp(
                             }
                         })
                         3 -> RecordingLibrary()
+                        5 -> AiAssistantPanel()
                         4 -> SettingsPanel(
                             quality = selectedQuality,
                             onQuality = { selectedQuality = it },
@@ -256,8 +257,8 @@ fun StreamForgeApp(
                     }
                 }
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
-                    val labels = listOf("Studio", "Preview", "Scenes", "Recordings", "Settings")
-                    val icons = listOf("●", "▣", "▦", "▤", "⚙")
+                    val labels = listOf("Studio", "Preview", "Scenes", "Recordings", "Settings", "AI")
+                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦")
                     labels.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = selectedTab == index, onClick = { selectedTab = index },
