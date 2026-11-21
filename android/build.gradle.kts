@@ -3,6 +3,7 @@ plugins {
  id("org.jetbrains.kotlin.android")
  id("org.jetbrains.kotlin.plugin.compose")
 }
+val streamforgeBuildNumber = providers.gradleProperty("streamforgeBuildNumber").orElse("1073").get().toInt()
 android {
  namespace = "app.streamforge"
  compileSdk = 35
@@ -10,8 +11,8 @@ android {
   applicationId = "app.streamforge.mobile"
   minSdk = 26
   targetSdk = 35
-  versionCode = 3
-  versionName = "0.1.2"
+  versionCode = streamforgeBuildNumber
+  versionName = "Alpha build $streamforgeBuildNumber"
  }
  buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
