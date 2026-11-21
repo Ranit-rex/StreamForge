@@ -161,6 +161,7 @@ fun StreamForgeApp(
                                 })
                             }
                         )
+                        RewardedAdsPanel()
                         else -> {
                             if (isStreaming) {
                                 if (showLiveDashboard) LiveDashboard(
