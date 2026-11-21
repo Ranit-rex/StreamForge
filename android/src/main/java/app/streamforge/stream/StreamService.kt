@@ -579,10 +579,32 @@ class StreamService : Service(), ConnectChecker {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(225) }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(70) }
+
+        // Keep the control window physically attached to the bubble. Both overlays
+        // share the same right-edge offset; the panel flips above the bubble near
+        // the bottom of the screen so it remains visible.
+        fun positionPanelWithBubble() {
+            val panelHeight = panel.height.takeIf { it > 0 } ?: dp(190)
+            val screenHeight = resources.displayMetrics.heightPixels
+            panelParams.x = bubbleParams.x
+            val below = bubbleParams.y + dp(70)
+            panelParams.y = if (below + panelHeight <= screenHeight - dp(12)) {
+                below
+            } else {
+                (bubbleParams.y - panelHeight - dp(8)).coerceAtLeast(dp(8))
+            }
+            if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
+        }
 
         bubble.setOnClickListener {
-            panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            if (panel.visibility == View.VISIBLE) {
+                panel.visibility = View.GONE
+            } else {
+                positionPanelWithBubble()
+                panel.visibility = View.VISIBLE
+                panel.post { positionPanelWithBubble() }
+            }
         }
         bubble.setOnTouchListener(object : View.OnTouchListener {
             private var sx = 0
@@ -604,6 +626,7 @@ class StreamService : Service(), ConnectChecker {
                         bubbleParams.x = (sx - dx).coerceAtLeast(0)
                         bubbleParams.y = (sy + dy).coerceAtLeast(0)
                         runCatching { manager.updateViewLayout(bubble, bubbleParams) }
+                        positionPanelWithBubble()
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
