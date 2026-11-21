@@ -575,7 +575,7 @@ class StreamService : Service(), ConnectChecker {
                 chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
                 val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
                 chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
-                positionPanelWithBubble()
+                panel.requestLayout()
             }
         }
         val stop = text("END LIVE", 11f, AndroidColor.WHITE, true).apply {
