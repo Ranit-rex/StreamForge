@@ -49,7 +49,7 @@ private val qualityOptions = listOf(
 
 @Composable
 fun StreamForgeApp(
-    onStartStream: (String, Int, Int, Int, Int) -> Unit,
+    onStartStream: (String, Int, Int, Int, Int, String) -> Unit,
     onStopStream: () -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit
@@ -59,6 +59,7 @@ fun StreamForgeApp(
     var streamKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
     var selectedQuality by remember { mutableStateOf(qualityOptions[5]) }
+    var captureMode by remember { mutableStateOf("GAME") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
@@ -204,6 +205,14 @@ fun StreamForgeApp(
                                             Text("▣", Modifier.padding(15.dp), color = Accent, fontSize = 26.sp)
                                         }
                                     }
+                                    Text("CAPTURE SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        CaptureModeCard("GAME / APP", "Capture one selected app. Best for clean floating controls.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
+                                        CaptureModeCard("FULL SCREEN", "Capture everything on your display.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
+                                    }
+                                    if (captureMode == "GAME" && android.os.Build.VERSION.SDK_INT < 34) {
+                                        Text("This Android version uses full-screen capture; app-only selection needs Android 14 or newer.", color = Color(0xFFFFC46B), fontSize = 10.sp)
+                                    }
                                     StatusLine(isStreaming, status)
                                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                                         Button(
@@ -212,7 +221,7 @@ fun StreamForgeApp(
                                                     val cleanServer = server.trim().trimEnd('/')
                                                     val cleanKey = streamKey.trim().trimStart('/')
                                                     if ((cleanServer.startsWith("rtmp://") || cleanServer.startsWith("rtmps://")) && cleanKey.isNotBlank()) {
-                                                        onStartStream("$cleanServer/$cleanKey", selectedQuality.width, selectedQuality.height, selectedQuality.fps, selectedQuality.bitrate)
+                                                        onStartStream("$cleanServer/$cleanKey", selectedQuality.width, selectedQuality.height, selectedQuality.fps, selectedQuality.bitrate, captureMode)
                                                     }
                                                 }
                                             },
@@ -501,4 +510,20 @@ private fun InfoTile(label: String, value: String, modifier: Modifier = Modifier
 @Composable
 private fun PrimaryAction(label: String, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text(label) }
+}
+
+
+@Composable
+private fun CaptureModeCard(title: String, detail: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        color = if (selected) Color(0xFF1B3150) else Panel,
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Accent else Color(0xFF2A3748))
+    ) {
+        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(if (selected) "●  $title" else "○  $title", color = if (selected) Accent else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text(detail, color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+        }
+    }
 }
