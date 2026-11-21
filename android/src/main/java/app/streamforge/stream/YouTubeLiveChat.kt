@@ -1,7 +1,6 @@
 package app.streamforge.stream
 
 import android.content.Context
-import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.net.HttpURLConnection
 import java.net.URL
@@ -18,6 +17,7 @@ object YouTubeLiveChat {
     val connectionState = MutableStateFlow("Not connected")
 
     @Volatile private var running = false
+    @Volatile private var generation = 0
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "streamforge-youtube-chat").apply { isDaemon = true }
     }
@@ -32,11 +32,13 @@ object YouTubeLiveChat {
             return
         }
         running = true
+        generation += 1
+        val activeGeneration = generation
         connectionState.value = "Connecting to YouTube Live Chat…"
         executor.execute {
             var pageToken = ""
             val seen = LinkedHashSet<String>()
-            while (running) {
+            while (running && activeGeneration == generation) {
                 var delayMs = 5000L
                 var connection: HttpURLConnection? = null
                 try {
@@ -90,13 +92,14 @@ object YouTubeLiveChat {
                 } finally {
                     connection?.disconnect()
                 }
-                if (running) try { Thread.sleep(delayMs) } catch (_: InterruptedException) { break }
+                if (running && activeGeneration == generation) try { Thread.sleep(delayMs) } catch (_: InterruptedException) { break }
             }
         }
     }
 
     fun stop() {
         running = false
+        generation += 1
         if (connectionState.value == "YouTube chat connected") connectionState.value = "Disconnected"
     }
 
