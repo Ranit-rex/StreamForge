@@ -145,7 +145,8 @@ fun StreamForgeApp(
                         })
                         3 -> RecordingLibrary()
                         5 -> AiAssistantPanel()
-                        4 -> SettingsPanel(
+                        4 -> {
+                        SettingsPanel(
                             quality = selectedQuality,
                             onQuality = { selectedQuality = it },
                             brightness = colorBrightness, contrast = colorContrast,
@@ -162,6 +163,7 @@ fun StreamForgeApp(
                             }
                         )
                         RewardedAdsPanel()
+                        }
                         else -> {
                             if (isStreaming) {
                                 if (showLiveDashboard) LiveDashboard(
