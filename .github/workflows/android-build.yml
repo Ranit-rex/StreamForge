@@ -9,6 +9,10 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android-build.yml"
+concurrency:
+  group: streamforge-android-signing
+  cancel-in-progress: false
+
 jobs:
   debug-apk:
     runs-on: ubuntu-latest
