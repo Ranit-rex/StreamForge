@@ -79,6 +79,7 @@ fun StreamForgeApp(
     val liveFps by StreamService.streamFps.collectAsState()
     val startedAt by StreamService.streamStartedAt.collectAsState()
     val networkHealth by StreamService.networkHealth.collectAsState()
+    val microphoneMuted by StreamService.microphoneMuted.collectAsState()
 
     LaunchedEffect(isStreaming, startedAt) {
         if (isStreaming && startedAt > 0L) {
@@ -228,6 +229,18 @@ fun StreamForgeApp(
                                         ) { Text(if (isRecording) "■  STOP REC" else "◉  RECORD", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                                     }
                                     if (isRecording) Text("Local MP4 recording is active.", color = LiveRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isStreaming) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                context.startService(Intent(context, StreamService::class.java).setAction(StreamService.ACTION_TOGGLE_MIC))
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (microphoneMuted) LiveRed else Good)
+                                        ) {
+                                            Text(if (microphoneMuted) "MICROPHONE MUTED · TAP TO UNMUTE" else "MICROPHONE ON · TAP TO MUTE", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        }
+                                    }
                                 }
                             }
 
