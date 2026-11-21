@@ -153,13 +153,24 @@ fun StreamForgeApp(
                             saturation = colorSaturation, sharpness = colorSharpness,
                             onColor = { b, c, s, sh ->
                                 colorBrightness = b; colorContrast = c; colorSaturation = s; colorSharpness = sh
-                                context.startService(Intent(context, StreamService::class.java).apply {
-                                    action = StreamService.ACTION_UPDATE_COLOR
-                                    putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, b)
-                                    putExtra(StreamService.EXTRA_COLOR_CONTRAST, c)
-                                    putExtra(StreamService.EXTRA_COLOR_SATURATION, s)
-                                    putExtra(StreamService.EXTRA_COLOR_SHARPNESS, sh)
-                                })
+                                // Persist tuning locally; do not start the encoder service for every slider tick.
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putFloat("color_brightness", b)
+                                    .putFloat("color_contrast", c)
+                                    .putFloat("color_saturation", s)
+                                    .putFloat("color_sharpness", sh)
+                                    .apply()
+                                // Only send live updates when a stream is already running.
+                                if (StreamService.streaming.value) {
+                                    context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_UPDATE_COLOR
+                                        putExtra(StreamService.EXTRA_COLOR_BRIGHTNESS, b)
+                                        putExtra(StreamService.EXTRA_COLOR_CONTRAST, c)
+                                        putExtra(StreamService.EXTRA_COLOR_SATURATION, s)
+                                        putExtra(StreamService.EXTRA_COLOR_SHARPNESS, sh)
+                                    })
+                                }
                             }
                         )
                         RewardedAdsPanel()
