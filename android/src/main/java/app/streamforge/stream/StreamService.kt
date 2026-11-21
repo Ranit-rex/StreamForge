@@ -220,6 +220,12 @@ class StreamService : Service(), ConnectChecker {
 
     private fun installColorFilters() {
         val activeStream = stream ?: return
+        // Load the last user-selected tuning only when the stream pipeline is being prepared.
+        val prefs = getSharedPreferences("streamforge_studio", 0)
+        colorBrightness.value = prefs.getFloat("color_brightness", colorBrightness.value).coerceIn(0.8f, 1.35f)
+        colorContrast.value = prefs.getFloat("color_contrast", colorContrast.value).coerceIn(0.8f, 1.4f)
+        colorSaturation.value = prefs.getFloat("color_saturation", colorSaturation.value).coerceIn(0f, 2f)
+        colorSharpness.value = prefs.getFloat("color_sharpness", colorSharpness.value).coerceIn(0f, 0.8f)
         val filter = ColorGradingFilterRender().apply {
             setColorTuning(
                 colorBrightness.value - 1.0f,
