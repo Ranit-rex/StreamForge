@@ -112,6 +112,8 @@ class StreamService : Service(), ConnectChecker {
             val elapsed = ((System.currentTimeMillis() - streamStartedAt.value).coerceAtLeast(0L) / 1000L)
             overlayTimerLabel?.text = String.format(Locale.US, "%02d:%02d:%02d", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60)
             overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
+            val recentChat = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
+            overlayChatText?.text = if (recentChat.isBlank()) YouTubeLiveChat.connectionState.value else recentChat
             overlayHandler.postDelayed(this, 1000L)
         }
     }
@@ -460,6 +462,7 @@ class StreamService : Service(), ConnectChecker {
         streaming.value = false
         streamStartedAt.value = 0L
         hideFloatingControls()
+        YouTubeLiveChat.stop()
         projection?.stop()
         projection = null
         status.value = finalStatus
@@ -547,6 +550,14 @@ class StreamService : Service(), ConnectChecker {
         val stats = text("Viewers —  •  ${streamResolution.value}  •  ${bitrateKbps.value} kbps", 10f, 0xFFB9C8DC.toInt())
         overlayStatsLabel = stats
         panel.addView(stats)
+        val chatFeed = text("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
+            gravity = Gravity.START
+            maxLines = 5
+            visibility = View.GONE
+            setPadding(dp(4), dp(8), dp(4), dp(4))
+        }
+        overlayChatText = chatFeed
+        panel.addView(chatFeed)
 
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -561,7 +572,10 @@ class StreamService : Service(), ConnectChecker {
         val chat = text("CHAT", 11f, AndroidColor.WHITE, true).apply {
             background = shape(0xFF344B6A.toInt(), 12)
             setOnClickListener {
-                android.widget.Toast.makeText(this@StreamService, "Chat source integration is coming next.", android.widget.Toast.LENGTH_SHORT).show()
+                chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
+                chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
+                positionPanelWithBubble()
             }
         }
         val stop = text("END LIVE", 11f, AndroidColor.WHITE, true).apply {
@@ -698,6 +712,7 @@ class StreamService : Service(), ConnectChecker {
         streamStartedAt.value = System.currentTimeMillis()
         microphoneMuted.value = false
         Handler(Looper.getMainLooper()).post { showFloatingControls() }
+        YouTubeLiveChat.start(this)
         status.value = "LIVE"
     }
     override fun onConnectionFailed(reason: String) {
@@ -747,6 +762,7 @@ class StreamService : Service(), ConnectChecker {
         streaming.value = false
         streamStartedAt.value = 0L
         Handler(Looper.getMainLooper()).post { hideFloatingControls() }
+        YouTubeLiveChat.stop()
         status.value = "Disconnected"
     }
     override fun onAuthError() { stopStream("Authentication failed · check your stream key") }
@@ -754,6 +770,7 @@ class StreamService : Service(), ConnectChecker {
 
     override fun onDestroy() {
         stopRecording()
+        YouTubeLiveChat.stop()
         hideFloatingControls()
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
