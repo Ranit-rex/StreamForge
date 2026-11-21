@@ -58,6 +58,7 @@ class StreamService : Service(), ConnectChecker {
         const val EXTRA_SCENE_INDEX = "scene_index"
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
         const val ACTION_STOP_PREVIEW = "app.streamforge.STOP_PREVIEW"
+        const val ACTION_TOGGLE_MIC = "app.streamforge.TOGGLE_MIC"
         @Volatile var previewView: TextureView? = null
         const val EXTRA_COLOR_BRIGHTNESS = "color_brightness"
         const val EXTRA_COLOR_CONTRAST = "color_contrast"
@@ -122,6 +123,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_STOP_RECORDING -> stopRecording()
             ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
             ACTION_STOP_PREVIEW -> stream?.let { if (it.isOnPreview) it.stopPreview() }
+            ACTION_TOGGLE_MIC -> toggleMicrophone()
             ACTION_APPLY_SCENE -> applyScene(intent.getIntExtra(EXTRA_SCENE_INDEX, 0))
             ACTION_UPDATE_COLOR -> updateColorTuning(
                 intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
