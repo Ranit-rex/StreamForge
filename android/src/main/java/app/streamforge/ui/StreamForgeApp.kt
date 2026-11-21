@@ -261,6 +261,8 @@ fun StreamForgeApp(
                                         "YouTube" -> "rtmps://a.rtmp.youtube.com/live2"
                                         "Kick" -> "rtmps://fa723fc1b171.global-contribute.live-video.net/app"
                                         "Twitch" -> "rtmps://live.twitch.tv/app"
+                                        "Facebook Live" -> "rtmps://live-api-s.facebook.com:443/rtmp/"
+                                        "TikTok Live" -> ""
                                         else -> ""
                                     }
                                 }
@@ -490,7 +492,7 @@ private fun PlatformPicker(selected: String, onSelect: (String) -> Unit) {
             Text(selected, Modifier.weight(1f)); Text("▾")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            listOf("YouTube", "Kick", "Twitch", "Custom RTMP").forEach { name ->
+            listOf("YouTube", "Twitch", "Kick", "Facebook Live", "TikTok Live", "Custom RTMP").forEach { name ->
                 DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(name); expanded = false })
             }
         }
