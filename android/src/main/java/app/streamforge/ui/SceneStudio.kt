@@ -137,8 +137,27 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
                         val duration = settings.first
                         val timeMs = if (settings.second.first) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        // Program Preview is a small thumbnail surface. Never decode the
+                        // source at its native resolution (large 4K clips can exhaust heap).
                         runCatching {
-                            retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                retriever.getScaledFrameAtTime(
+                                    timeMs * 1000L,
+                                    MediaMetadataRetriever.OPTION_CLOSEST,
+                                    480,
+                                    270
+                                )
+                            } else {
+                                retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                    ?.let { full ->
+                                        Bitmap.createScaledBitmap(
+                                            full,
+                                            480,
+                                            (full.height * (480f / full.width)).toInt().coerceAtLeast(1),
+                                            true
+                                        ).also { if (it !== full && !full.isRecycled) full.recycle() }
+                                    }
+                            }
                         }.getOrNull()?.let { id to it }
                     }
                 }
@@ -146,7 +165,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                delay((1000L / (videoSources.maxOfOrNull { it.third.second } ?: 30).toLong()).coerceAtLeast(16L))
+                // Keep the editor preview lightweight; the live compositor has its
+                // own frame cadence. 8 FPS is sufficient for a small editing thumbnail.
+                delay(125L)
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
