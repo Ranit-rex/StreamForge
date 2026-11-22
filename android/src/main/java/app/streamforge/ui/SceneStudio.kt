@@ -49,7 +49,7 @@ private data class SceneLayer(
     val visible: Boolean = true, val locked: Boolean = false,
     val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
-    val loop: Boolean = true
+    val loop: Boolean = true, val fps: Int = 30
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -66,7 +66,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
-                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop)
+                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -86,7 +86,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", 30).coerceIn(5, 60))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -118,15 +118,15 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
     val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
     val videoSources = remember(scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to it.loop) }) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
-            .map { Triple(it.id, it.text, it.loop) }
+            .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
     LaunchedEffect(videoSources) {
-        val sources = videoSources.mapNotNull { (id, uriString, loop) ->
+        val sources = videoSources.mapNotNull { (id, uriString, settings) ->
             runCatching {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, Uri.parse(uriString))
                 val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                Triple(id, retriever, Pair(duration, loop))
+                Triple(id, retriever, Pair(duration, settings))
             }.getOrNull()
         }
         val startedAt = SystemClock.elapsedRealtime()
@@ -136,7 +136,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     sources.mapNotNull { (id, retriever, settings) ->
                         val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
                         val duration = settings.first
-                        val timeMs = if (settings.second) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        val timeMs = if (settings.second.first) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
                         runCatching {
                             retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                         }.getOrNull()?.let { id to it }
@@ -146,7 +146,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                delay(250L)
+                delay((1000L / (videoSources.maxOfOrNull { it.third.second } ?: 30).toLong()).coerceAtLeast(16L))
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
@@ -729,6 +729,11 @@ fun SceneStudio(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Loop playback", color = Color.White, modifier = Modifier.weight(1f), fontSize = 11.sp)
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
+                        }
+                        if (layer.kind == "video") {
+                            Text("TARGET VIDEO FPS · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp)
+                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = value.toInt().coerceIn(5, 60)) } }, valueRange = 5f..60f, steps = 10)
+                            Text("Higher FPS is smoother but uses more CPU. Actual FPS depends on device decoding speed.", color = Color.Gray, fontSize = 10.sp)
                         }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
