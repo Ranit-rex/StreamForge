@@ -118,7 +118,7 @@ fun StreamForgeApp(
                         .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(15.dp)
                 ) {
-                    StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
+                    StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 8 })
                     if (isRecording) RecordingDashboard(
                         elapsed = recordingElapsedSeconds,
                         resolution = liveResolution,
@@ -172,6 +172,7 @@ fun StreamForgeApp(
                         3 -> RecordingLibrary()
                         5 -> AiAssistantPanel()
                         6 -> ChatIntegrationPanel()
+                        8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         7 -> SoundPanel(
                             microphoneGain = microphoneGain,
                             gameGain = gameGain,
@@ -291,6 +292,29 @@ fun StreamForgeApp(
                                 }
                             }
 
+                            SectionHeading("MONITOR", "Output at a glance")
+                            Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(if (isStreaming) "LIVE OUTPUT" else "OUTPUT MONITOR", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
+                                            Text(if (isStreaming) "Encoder is broadcasting" else "Preview becomes available after capture starts", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                        Surface(color = if (isStreaming) Color(0xFF3C1B28) else PanelRaised, shape = RoundedCornerShape(50)) {
+                                            Text(if (isStreaming) "● LIVE" else "READY", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                        }
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                        InfoTile("OUTPUT", if (isStreaming) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
+                                        InfoTile("FPS", if (isStreaming) "$liveFps" else "${selectedQuality.fps} target", Modifier.weight(1f))
+                                        InfoTile("BITRATE", if (isStreaming && bitrate > 0) "$bitrate kbps" else "Not live", Modifier.weight(1f))
+                                    }
+                                    OutlinedButton(onClick = { selectedTab = 1 }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp)) {
+                                        Text("OPEN PREVIEW  ↗", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+
                             SectionHeading("BROADCAST", "Your control room")
                             Surface(color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
@@ -401,13 +425,19 @@ fun StreamForgeApp(
                     }
                 }
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
-                    val labels = listOf("Studio", "Preview", "Scenes", "Records", "Settings", "AI", "Chat", "Sound")
-                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦", "☷", "♫")
-                    labels.forEachIndexed { index, label ->
+                    val destinations = listOf(
+                        Triple(0, "Studio", "●"),
+                        Triple(1, "Preview", "▣"),
+                        Triple(2, "Scenes", "▦"),
+                        Triple(7, "Sound", "♫"),
+                        Triple(8, "More", "•••")
+                    )
+                    destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = selectedTab == index, onClick = { selectedTab = index },
-                            icon = { Text(icons[index], fontSize = 17.sp) },
-                            label = { Text(label, fontSize = 9.sp, maxLines = 1) },
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..6 else selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            icon = { Text(icon, fontSize = 17.sp) },
+                            label = { Text(label, fontSize = 10.sp, maxLines = 1) },
                             alwaysShowLabel = true
                         )
                     }
@@ -772,6 +802,29 @@ private fun CaptureModeCard(title: String, detail: String, selected: Boolean, mo
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(if (selected) "●  $title" else "○  $title", color = if (selected) Accent else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
             Text(detail, color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        SectionHeading("WORKSPACE", "More tools")
+        Text("Everything beyond your main broadcast controls, grouped in one place.", color = Muted, fontSize = 11.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("▤", "Recordings", "Play, export & delete", Modifier.weight(1f)) { onNavigate(3) }
+            QuickTile("⚙", "Settings", "Quality & behaviour", Modifier.weight(1f)) { onNavigate(4) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("✦", "AI Copilot", "Connect your AI model", Modifier.weight(1f)) { onNavigate(5) }
+            QuickTile("☷", "Live Chat", "YouTube chat setup", Modifier.weight(1f)) { onNavigate(6) }
+        }
+        Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("STREAMFORGE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+                Text("Direct-to-platform streaming · Android-native capture · Local MP4 recordings", color = Muted, fontSize = 10.sp)
+                Text("Your stream key stays on this device. Platform chat and AI integrations require their own connection.", color = Muted, fontSize = 10.sp)
+            }
         }
     }
 }
