@@ -119,6 +119,7 @@ fun StreamForgeApp(
     val status by StreamService.status.collectAsState()
     val isStreaming by StreamService.streaming.collectAsState()
     val isRecording by StreamService.recording.collectAsState()
+    val isRecordingPaused by StreamService.recordingPaused.collectAsState()
     val studioPreviewReady by StreamService.studioPreviewReady.collectAsState()
     val bitrate by StreamService.bitrateKbps.collectAsState()
     val liveResolution by StreamService.streamResolution.collectAsState()
@@ -468,20 +469,25 @@ fun StreamForgeApp(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Your MP4 recording is active.", color = Muted)
-                            Text("REC  ·  ${formatDuration(recordingElapsedSeconds)}  ·  ${liveResolution}", color = LiveRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${if (isRecordingPaused) "PAUSED" else "REC"}  ·  ${formatDuration(recordingElapsedSeconds)}  ·  ${liveResolution}", color = if (isRecordingPaused) Muted else LiveRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        context.startService(Intent(context, StreamService::class.java).setAction(StreamService.ACTION_TOGGLE_RECORDING_PAUSE))
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text(if (isRecordingPaused) "RESUME" else "PAUSE", fontSize = 9.sp) }
                                 OutlinedButton(
                                     onClick = {
                                         val saved = saveProgramPreviewScreenshot(context)
-                                        status.let { }
                                         android.widget.Toast.makeText(context, if (saved) "Screenshot saved to Pictures/StreamForge" else "Preview screenshot unavailable", android.widget.Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1f)
-                                ) { Text("TAKE SS", fontSize = 10.sp) }
+                                ) { Text("TAKE SS", fontSize = 9.sp) }
                                 OutlinedButton(
                                     onClick = { showRecordingStarted = false; selectedTab = 2 },
                                     modifier = Modifier.weight(1f)
-                                ) { Text("SCENE", fontSize = 10.sp) }
+                                ) { Text("SCENE", fontSize = 9.sp) }
                             }
                         }
                     },
