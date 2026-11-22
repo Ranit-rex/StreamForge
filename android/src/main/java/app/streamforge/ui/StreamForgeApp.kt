@@ -136,7 +136,7 @@ fun StreamForgeApp(
                             isStreaming = isStreaming,
                             onPreparePreview = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onStopStudioPreview = onStopStudioPreview,
-                            onChangeCaptureSource = { onChangeCaptureSource(server.trim() + "/" + streamKey.trim(), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
+                            onChangeCaptureSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onApplyScene = { sceneIndex ->
                                 if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
                                     context.startService(Intent(context, StreamService::class.java).apply {
@@ -247,7 +247,7 @@ fun StreamForgeApp(
                                 isStreaming = isStreaming,
                                 onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                                 onStop = onStopStudioPreview,
-                                onChangeSource = { onChangeCaptureSource(server.trim() + "/" + streamKey.trim(), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
+                                onChangeSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 InfoTile("OUTPUT", if (isStreaming || studioPreviewReady) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
