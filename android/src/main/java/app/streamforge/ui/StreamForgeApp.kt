@@ -27,12 +27,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import app.streamforge.stream.StreamService
 import kotlinx.coroutines.delay
 
-private val Background = Color(0xFF080B10)
-private val Panel = Color(0xFF121923)
-private val PanelRaised = Color(0xFF192331)
-private val Accent = Color(0xFF9DB4FF)
-private val Muted = Color(0xFF91A0B4)
-private val LiveRed = Color(0xFFFF536B)
+private val Background = Color(0xFF0D0F11)
+private val Panel = Color(0xFF15191D)
+private val PanelRaised = Color(0xFF20262B)
+private val Accent = Color(0xFFFF6A35)
+private val Muted = Color(0xFFA1A8AF)
+private val LiveRed = Color(0xFFFF5263)
 private val Good = Color(0xFF55D6A1)
 
 private fun saveProgramPreviewScreenshot(context: android.content.Context): Boolean {
@@ -156,7 +156,7 @@ fun StreamForgeApp(
         } else elapsedSeconds = 0L
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
+    MaterialTheme(colorScheme = darkColorScheme(primary = Accent, onPrimary = Color(0xFF1B100B), secondary = Color(0xFFFFB27F), background = Background, surface = Panel, onSurface = Color(0xFFF3F1EE))) {
         Surface(Modifier.fillMaxSize(), color = Background) {
             if (compactMode) {
                 Row(
@@ -177,8 +177,8 @@ fun StreamForgeApp(
             Column(Modifier.then(if (compactMode) Modifier.size(0.dp) else Modifier.fillMaxSize())) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().systemBarsPadding().imePadding()
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
                     if (isRecording) RecordingDashboard(
@@ -292,7 +292,7 @@ fun StreamForgeApp(
                                     elapsed = elapsedSeconds, bitrate = bitrate, resolution = liveResolution,
                                     fps = liveFps, networkHealth = networkHealth,
                                     onHide = { showLiveDashboard = false }, onStop = onStopStream
-                                ) else Surface(color = Color(0xFF251720), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                                ) else Surface(color = Color(0xFF2A1B17), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                                     Row(Modifier.fillMaxWidth().clickable { showLiveDashboard = true }.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                         LiveDot()
                                         Text("LIVE  ·  ${formatDuration(elapsedSeconds)}", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -353,7 +353,7 @@ fun StreamForgeApp(
                                         CaptureModeCard("DISPLAY", "Entire screen.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
                                     }
                                     if (captureMode == "GAME" && android.os.Build.VERSION.SDK_INT < 34) {
-                                        Text("This Android version uses full-screen capture; app-only selection needs Android 14 or newer.", color = Color(0xFFFFC46B), fontSize = 10.sp)
+                                        Text("This Android version uses full-screen capture; app-only selection needs Android 14 or newer.", color = Color(0xFFFFB27F), fontSize = 10.sp)
                                     }
                                     StatusLine(isStreaming, status)
                                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -369,7 +369,7 @@ fun StreamForgeApp(
                                             },
                                             modifier = Modifier.weight(1.25f).height(52.dp),
                                             enabled = isStreaming || (!isRecording && streamKey.isNotBlank() && (server.startsWith("rtmp://") || server.startsWith("rtmps://"))),
-                                            colors = ButtonDefaults.buttonColors(containerColor = if (isStreaming) Color(0xFF542332) else Accent, contentColor = if (isStreaming) Color.White else Color(0xFF101827)),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (isStreaming) Color(0xFF57271F) else Accent, contentColor = if (isStreaming) Color.White else Color(0xFF1B100B)),
                                             shape = RoundedCornerShape(14.dp)
                                         ) { Text(if (isStreaming) "■  END LIVE" else "●  GO LIVE", fontWeight = FontWeight.Black, fontSize = 13.sp) }
                                         OutlinedButton(
@@ -569,7 +569,7 @@ fun StudioPreviewSurface(
                     update = { StreamService.previewView = it },
                     modifier = Modifier.fillMaxSize()
                 )
-                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text(if (StreamService.streaming.value) "● LIVE OUTPUT" else "● REC OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
                 TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
@@ -577,7 +577,7 @@ fun StudioPreviewSurface(
                 }
             } else {
                 SceneCompositionPreview(Modifier.fillMaxSize())
-                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text("● AUTO PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
@@ -587,7 +587,7 @@ fun StudioPreviewSurface(
 
 @Composable
 private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> Unit) {
-    Surface(color = Color(0xFF301A20), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Color(0xFF321C1B), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(color = LiveRed, shape = CircleShape, modifier = Modifier.size(9.dp)) {}
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -605,11 +605,12 @@ private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings:
         Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(34.dp).padding(end = 7.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text("STREAMFORGE", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
+            Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.35.sp)
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 if (isStreaming) LiveDot() else Surface(color = Good, shape = CircleShape, modifier = Modifier.size(6.dp)) {}
-                Text(if (isStreaming) "ON AIR" else if (isRecording) "RECORDING" else "STANDBY", color = if (isStreaming) LiveRed else if (isRecording) Color(0xFFFFB86B) else Muted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                Text(if (isStreaming) "ON AIR" else if (isRecording) "RECORDING" else "STANDBY", color = if (isStreaming) LiveRed else if (isRecording) Color(0xFFFFB27F) else Muted, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
             TextButton(onClick = onSettings, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("SETUP  ⚙", color = Accent, fontSize = 9.sp) }
         }
@@ -619,15 +620,15 @@ private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings:
 @Composable
 private fun SectionHeading(kicker: String, title: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(kicker, color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
-        Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text(kicker, color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.35.sp)
+        Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun StatusLine(isStreaming: Boolean, status: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Surface(color = if (isStreaming) Color(0xFF3C1B28) else Color(0xFF202D3B), shape = RoundedCornerShape(50)) {
+        Surface(color = if (isStreaming) Color(0xFF3A2020) else Color(0xFF282D31), shape = RoundedCornerShape(50)) {
             Text(if (isStreaming) "●  ON AIR" else "○  READY", Modifier.padding(horizontal = 11.dp, vertical = 7.dp), color = if (isStreaming) LiveRed else Accent, fontSize = 10.sp, fontWeight = FontWeight.Black)
         }
         Text(status, color = Muted, fontSize = 10.sp, maxLines = 1)
@@ -800,7 +801,7 @@ private fun LiveDashboard(
     elapsed: Long, bitrate: Long, resolution: String, fps: Int, networkHealth: String,
     onHide: () -> Unit, onStop: () -> Unit
 ) {
-    Surface(color = Color(0xFF24151D), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Color(0xFF2A1B17), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = LiveRed, shape = RoundedCornerShape(50)) {
@@ -816,7 +817,7 @@ private fun LiveDashboard(
                 LiveMetric("OUTPUT", resolution, Modifier.weight(1f))
                 LiveMetric("FPS", "$fps", Modifier.weight(1f))
             }
-            Text(networkHealth, color = if (networkHealth.contains("congested", ignoreCase = true)) Color(0xFFFFC46B) else Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text(networkHealth, color = if (networkHealth.contains("congested", ignoreCase = true)) Color(0xFFFFB27F) else Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("END BROADCAST") }
         }
     }
@@ -824,7 +825,7 @@ private fun LiveDashboard(
 
 @Composable
 private fun LiveMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(modifier, color = Color(0xFF351E29), shape = RoundedCornerShape(10.dp)) {
+    Surface(modifier, color = Color(0xFF35201C), shape = RoundedCornerShape(10.dp)) {
         Column(Modifier.padding(9.dp)) {
             Text(label, color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
             Text(value, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
@@ -888,9 +889,9 @@ private fun PrimaryAction(label: String, onClick: () -> Unit) {
 private fun CaptureModeCard(title: String, detail: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        color = if (selected) Color(0xFF1B3150) else Panel,
+        color = if (selected) Color(0xFF35231D) else Panel,
         shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Accent else Color(0xFF2A3748))
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Accent else Color(0xFF3B302A))
     ) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(if (selected) "●  $title" else "○  $title", color = if (selected) Accent else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
