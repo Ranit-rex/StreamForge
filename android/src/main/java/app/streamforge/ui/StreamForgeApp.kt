@@ -159,7 +159,7 @@ fun StreamForgeApp(
                     when (selectedTab) {
                         2 -> SceneStudio(
                             previewReady = studioPreviewReady,
-                            isStreaming = isStreaming,
+                            isStreaming = isStreaming || isRecording,
                             onPreparePreview = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onStopStudioPreview = onStopStudioPreview,
                             onChangeCaptureSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
