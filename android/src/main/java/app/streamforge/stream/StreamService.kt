@@ -679,15 +679,22 @@ class StreamService : Service(), ConnectChecker {
                                 // Decode directly to a bounded bitmap on modern Android. Some
                                 // phone galleries contain 4K/8K clips; decoding a full-size frame
                                 // for a small overlay can otherwise exhaust the app heap.
+                                val timestampUs = positionMs * 1000L
                                 val decoded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                                     retriever.getScaledFrameAtTime(
-                                        positionMs * 1000L,
+                                        timestampUs,
                                         MediaMetadataRetriever.OPTION_CLOSEST,
+                                        1920,
+                                        1080
+                                    ) ?: retriever.getScaledFrameAtTime(
+                                        timestampUs,
+                                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                                         1920,
                                         1080
                                     )
                                 } else {
-                                    retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                    retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                                        ?: retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                                 }
                                 if (decoded != null) {
                                     val maxWidth = 1920
