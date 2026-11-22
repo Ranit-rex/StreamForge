@@ -125,6 +125,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
     LaunchedEffect(videoSources) {
         videoErrors.clear()
         val openErrors = mutableMapOf<Long, String>()
+        // MediaMetadataRetriever may read lazily while extracting frames. Keep
+        // content-provider file descriptors alive until every retriever is released.
+        val videoDescriptors = mutableMapOf<Long, android.os.ParcelFileDescriptor>()
         val sources = withContext(Dispatchers.IO) {
             videoSources.mapNotNull { (id, uriString, settings) ->
                 runCatching {
@@ -133,7 +136,13 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     if (videoUri.scheme == "content") {
                         val descriptor = context.contentResolver.openFileDescriptor(videoUri, "r")
                             ?: throw IllegalStateException("Cannot open selected video file")
-                        descriptor.use { retriever.setDataSource(it.fileDescriptor) }
+                        try {
+                            retriever.setDataSource(descriptor.fileDescriptor)
+                            videoDescriptors[id] = descriptor
+                        } catch (error: Throwable) {
+                            runCatching { descriptor.close() }
+                            throw error
+                        }
                     } else if (videoUri.scheme == "file") {
                         retriever.setDataSource(videoUri.path ?: throw IllegalArgumentException("Invalid video file path"))
                     } else {
@@ -218,6 +227,8 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
+            videoDescriptors.values.forEach { runCatching { it.close() } }
+            videoDescriptors.clear()
             videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
             videoFrames.clear()
         }
