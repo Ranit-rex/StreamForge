@@ -130,19 +130,21 @@ fun StreamForgeApp(
     val recordingStartedAt by StreamService.recordingStartedAt.collectAsState()
 
     LaunchedEffect(recordingStartedAt) {
-        if (recordingStartedAt > 0L && recordingStartedAt != lastRecordingStartedAt) {
+        if (recordingStartedAt > 0L && lastRecordingStartedAt == 0L) {
             lastRecordingStartedAt = recordingStartedAt
             showRecordingStarted = true
+        } else if (recordingStartedAt == 0L) {
+            lastRecordingStartedAt = 0L
         }
     }
 
-    LaunchedEffect(isRecording, recordingStartedAt) {
-        if (isRecording && recordingStartedAt > 0L) {
-            while (isRecording) {
+    LaunchedEffect(isRecording, isRecordingPaused, recordingStartedAt) {
+        if (isRecording && !isRecordingPaused && recordingStartedAt > 0L) {
+            while (isRecording && !isRecordingPaused) {
                 recordingElapsedSeconds = ((System.currentTimeMillis() - recordingStartedAt) / 1000L).coerceAtLeast(0L)
                 delay(1000)
             }
-        } else recordingElapsedSeconds = 0L
+        } else if (!isRecording) recordingElapsedSeconds = 0L
     }
 
     LaunchedEffect(isStreaming, startedAt) {
