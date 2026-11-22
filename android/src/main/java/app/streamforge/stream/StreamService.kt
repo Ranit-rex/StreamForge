@@ -125,9 +125,12 @@ class StreamService : Service(), ConnectChecker {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        val studioPrefs = getSharedPreferences("streamforge_studio", 0)
+        val audioBitrate = studioPrefs.getInt("audio_bitrate_kbps", 128).coerceIn(64, 320) * 1_000
+        val audioEnhancements = studioPrefs.getBoolean("audio_enhancements", true)
         stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
             getGlInterface().setForceRender(true, 15)
-            prepareAudio(44_100, true, 128_000, echoCanceler = true, noiseSuppressor = true)
+            prepareAudio(44_100, true, audioBitrate, echoCanceler = audioEnhancements, noiseSuppressor = audioEnhancements)
             // A smaller queue detects upload congestion sooner on mobile networks.
             getStreamClient().resizeCache(200)
             getStreamClient().setReTries(5)
