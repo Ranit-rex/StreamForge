@@ -319,7 +319,13 @@ fun SceneStudio(
             runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val idx = active.coerceIn(0, scenes.lastIndex)
             val current = scenes[idx]
-            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f, fps = 0)
+            val fallbackName = "Video ${current.layers.count { it.kind == "video" } + 1}"
+            val sourceName = runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0)?.substringBeforeLast('.', cursor.getString(0))?.takeIf { it.isNotBlank() } else null
+                }
+            }.getOrNull() ?: fallbackName
+            val layer = SceneLayer(System.nanoTime(), sourceName, "video", uri.toString(), .12f, .12f, .42f, .32f, fps = 0)
             scenes[idx] = current.copy(layers = current.layers + layer)
             selected = layer.id
         }
@@ -419,24 +425,7 @@ fun SceneStudio(
 
         Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        color = Color(0xFF211A17),
-                        shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFF6A35)),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            "VIDEO / OVERLAYS",
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                            letterSpacing = 1.1.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-                        )
-                    }
-                    Text("16:9 EDIT CANVAS", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.padding(start = 8.dp))
-                }
+                Text("SOURCE LAYERS", color = Color(0xFFA1A8AF), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
                     scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
                         val bitmap = runCatching {
