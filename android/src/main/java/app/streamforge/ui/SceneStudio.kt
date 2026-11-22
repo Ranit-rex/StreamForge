@@ -11,7 +11,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -25,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -229,29 +232,80 @@ fun SceneStudio(
                             }
                         }
                         .pointerInput(index) {
-                            detectTransformGestures { centroid, pan, zoom, rotationChange ->
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
                                 val target = latestScene.value.layers.asReversed().firstOrNull { item ->
                                     !item.locked && item.visible &&
-                                        centroid.x >= item.x * size.width &&
-                                        centroid.x <= (item.x + item.width) * size.width &&
-                                        centroid.y >= item.y * size.height &&
-                                        centroid.y <= (item.y + item.height) * size.height
+                                        down.position.x >= item.x * size.width &&
+                                        down.position.x <= (item.x + item.width) * size.width &&
+                                        down.position.y >= item.y * size.height &&
+                                        down.position.y <= (item.y + item.height) * size.height
                                 }
                                 if (target != null) {
                                     selected = target.id
-                                    latestUpdateLayer.value(target.id) { current ->
-                                        val nextWidth = (current.width * zoom).coerceIn(.06f, 1f)
-                                        val nextHeight = (current.height * zoom).coerceIn(.05f, 1f)
-                                        val centerX = current.x + current.width / 2f + pan.x / size.width
-                                        val centerY = current.y + current.height / 2f + pan.y / size.height
-                                        current.copy(
-                                            width = nextWidth,
-                                            height = nextHeight,
-                                            x = (centerX - nextWidth / 2f).coerceIn(0f, 1f - nextWidth),
-                                            y = (centerY - nextHeight / 2f).coerceIn(0f, 1f - nextHeight),
-                                            rotation = (current.rotation + rotationChange).coerceIn(-180f, 180f)
-                                        )
-                                    }
+                                    val right = (target.x + target.width) * size.width
+                                    val bottom = (target.y + target.height) * size.height
+                                    var resizeWithOneFinger = abs(down.position.x - right) < 54f && abs(down.position.y - bottom) < 54f
+                                    var previousCentroid = down.position
+                                    var previousDistance = 0f
+                                    var previousAngle = 0f
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val activePointers = event.changes.filter { it.pressed }
+                                        if (activePointers.isNotEmpty()) {
+                                            val centroid = androidx.compose.ui.geometry.Offset(
+                                                activePointers.map { it.position.x }.average().toFloat(),
+                                                activePointers.map { it.position.y }.average().toFloat()
+                                            )
+                                            if (activePointers.size == 1) {
+                                                val delta = centroid - previousCentroid
+                                                latestUpdateLayer.value(target.id) { current ->
+                                                    if (resizeWithOneFinger) {
+                                                        current.copy(
+                                                            width = (current.width + delta.x / size.width).coerceIn(.06f, 1f - current.x),
+                                                            height = (current.height + delta.y / size.height).coerceIn(.05f, 1f - current.y)
+                                                        )
+                                                    } else {
+                                                        current.copy(
+                                                            x = (current.x + delta.x / size.width).coerceIn(0f, 1f - current.width),
+                                                            y = (current.y + delta.y / size.height).coerceIn(0f, 1f - current.height)
+                                                        )
+                                                    }
+                                                }
+                                            } else {
+                                                val p1 = activePointers[0].position
+                                                val p2 = activePointers[1].position
+                                                val dx = p2.x - p1.x
+                                                val dy = p2.y - p1.y
+                                                val distance = sqrt(dx * dx + dy * dy)
+                                                val angle = atan2(dy, dx)
+                                                if (previousDistance > 0f) {
+                                                    val zoom = (distance / previousDistance).coerceIn(.85f, 1.15f)
+                                                    val rotationDelta = Math.toDegrees((angle - previousAngle).toDouble()).toFloat()
+                                                    val pan = centroid - previousCentroid
+                                                    latestUpdateLayer.value(target.id) { current ->
+                                                        val width = (current.width * zoom).coerceIn(.06f, 1f)
+                                                        val height = (current.height * zoom).coerceIn(.05f, 1f)
+                                                        val centerX = current.x + current.width / 2f + pan.x / size.width
+                                                        val centerY = current.y + current.height / 2f + pan.y / size.height
+                                                        current.copy(
+                                                            width = width,
+                                                            height = height,
+                                                            x = (centerX - width / 2f).coerceIn(0f, 1f - width),
+                                                            y = (centerY - height / 2f).coerceIn(0f, 1f - height),
+                                                            rotation = (current.rotation + rotationDelta).coerceIn(-180f, 180f)
+                                                        )
+                                                    }
+                                                }
+                                                previousDistance = distance
+                                                previousAngle = angle
+                                            }
+                                            previousCentroid = centroid
+                                            event.changes.forEach { it.consume() }
+                                        } else {
+                                            previousDistance = 0f
+                                        }
+                                    } while (event.changes.any { it.pressed })
                                 }
                             }
                         }
@@ -453,7 +507,7 @@ fun SceneStudio(
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Changes auto-save and appear in Program Preview. Unlock a layer before editing it.", color = Color.Gray, fontSize = 9.sp)
+        Text("Unlock a layer. Drag it to move; drag the bottom-right dot with one finger to resize, or pinch with two fingers. Twist to rotate.", color = Color.Gray, fontSize = 9.sp)
     }
 
     if (addDialog) AlertDialog(
