@@ -41,7 +41,9 @@ private data class SceneLayer(
     val id: Long, val name: String, val kind: String, val text: String = "",
     val x: Float = .08f, val y: Float = .08f, val width: Float = .52f, val height: Float = .22f, val opacity: Float = 1f,
     val visible: Boolean = true, val locked: Boolean = false,
-    val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f
+    val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
+    val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
+    val loop: Boolean = true
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -58,6 +60,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
+                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -76,7 +79,8 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                 SceneLayer(item.optLong("id"), item.optString("name"), item.optString("kind"),
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
-                    item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat())
+                    item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -238,6 +242,16 @@ fun SceneStudio(
             selected = layer.id
         }
     }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            val idx = active.coerceIn(0, scenes.lastIndex)
+            val current = scenes[idx]
+            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f)
+            scenes[idx] = current.copy(layers = current.layers + layer)
+            selected = layer.id
+        }
+    }
 
     LaunchedEffect(scenes.toList()) { prefs.edit().putString("scenes", encodeSceneList(scenes)).apply() }
     val index = active.coerceIn(0, scenes.lastIndex)
@@ -260,6 +274,7 @@ fun SceneStudio(
 
     fun addSource(kind: String) {
         if (kind == "image" || kind == "gif") { imagePicker.launch(arrayOf("image/*")); return }
+        if (kind == "video") { videoPicker.launch(arrayOf("video/*")); return }
         val current = scenes[index]
         if (kind == "screen" && current.layers.any { it.kind == "screen" }) {
             selected = current.layers.first { it.kind == "screen" }.id
@@ -269,13 +284,13 @@ fun SceneStudio(
         val count = current.layers.count { it.kind == kind } + 1
         val item = SceneLayer(
             System.nanoTime(),
-            when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Game Capture" },
+            when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; "timer" -> "Timer ${count}"; else -> "Game Capture" },
             kind,
-            if (kind == "text") "YOUR TEXT" else "",
+            if (kind == "text") "YOUR TEXT" else if (kind == "timer") "00:00" else "",
             if (kind == "screen") 0f else .08f,
             if (kind == "screen") 0f else .08f,
-            when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; else -> .34f },
-            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; else -> .34f },
+            when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; "timer" -> .22f; "video" -> .42f; else -> .34f },
+            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; "timer" -> .12f; "video" -> .32f; else -> .34f },
             locked = kind == "screen"
         )
         sourceMessage = ""
@@ -316,7 +331,7 @@ fun SceneStudio(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("SCENES", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text("SCENES", color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
             Button(onClick = {
                 scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
@@ -331,7 +346,7 @@ fun SceneStudio(
         }
 
         Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("LAYOUT", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
                     Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
@@ -390,6 +405,7 @@ fun SceneStudio(
                                         val event = awaitPointerEvent()
                                         val activePointers = event.changes.filter { it.pressed }
                                         if (activePointers.isNotEmpty()) {
+                                            event.changes.filter { it.pressed }.forEach { it.consume() }
                                             val centroid = androidx.compose.ui.geometry.Offset(
                                                 activePointers.map { it.position.x }.average().toFloat(),
                                                 activePointers.map { it.position.y }.average().toFloat()
@@ -573,7 +589,7 @@ fun SceneStudio(
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("LAYERS", color = Color.White, fontSize = 14.sp)
+                Text("LAYERS", color = Color.White, fontSize = 12.sp)
                 Text("Top layer appears above lower layers.", color = Color.Gray, fontSize = 10.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -605,17 +621,41 @@ fun SceneStudio(
 
         if (layer != null) {
             Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
-                    if (layer.kind == "text") {
+                    if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
-                            value = layer.text, enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
-                            label = { Text("Text shown on screen") }, modifier = Modifier.fillMaxWidth()
+                            value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
+                            label = { Text(if (layer.kind == "timer") "Timer label" else "Text shown on screen") }, modifier = Modifier.fillMaxWidth()
                         )
+                        Text("TEXT COLOR", color = Color(0xFFB8C5D8), fontSize = 9.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("#FFFFFFFF", "#FFFFD166", "#FF68DDFD", "#FFFF6B8A", "#FF9BFFB0", "#FFB99CFF").forEach { hex ->
+                                Surface(
+                                    modifier = Modifier.size(28.dp),
+                                    shape = RoundedCornerShape(50),
+                                    color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.White),
+                                    onClick = { updateLayer(layer.id) { it.copy(textColor = hex) } },
+                                    border = androidx.compose.foundation.BorderStroke(if (layer.textColor == hex) 2.dp else 0.dp, Color.White)
+                                ) {}
+                            }
+                        }
+                        Text("FONT", color = Color(0xFFB8C5D8), fontSize = 9.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            listOf("sans-serif" to "Modern", "serif" to "Serif", "monospace" to "Mono", "casual" to "Casual").forEach { (family, label) ->
+                                FilterChip(selected = layer.fontFamily == family, onClick = { updateLayer(layer.id) { it.copy(fontFamily = family) } }, label = { Text(label, fontSize = 10.sp) })
+                            }
+                        }
+                        Text("FONT SIZE · ${(layer.fontSizeScale * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                        Slider(value = layer.fontSizeScale, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(fontSizeScale = v) } }, valueRange = .5f..2f)
                     }
-                    if (layer.kind == "image" || layer.kind == "gif") {
-                        Text("Image/GIF source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
-                        OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace image / GIF") }
+                    if (layer.kind == "image" || layer.kind == "gif" || layer.kind == "video") {
+                        Text("${layer.kind.uppercase()} source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
+                        OutlinedButton(onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace media") }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Loop playback", color = Color.White, modifier = Modifier.weight(1f), fontSize = 11.sp)
+                            Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
+                        }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.width, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
@@ -674,20 +714,21 @@ fun SceneStudio(
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Unlock a layer. Drag it to move; drag the bottom-right dot with one finger to resize, or pinch with two fingers. Twist to rotate.", color = Color.Gray, fontSize = 9.sp)
+        Text("Drag inside a layer to move it. Use the larger edge handles to resize; pinch and twist for scale and rotation.", color = Color.Gray, fontSize = 9.sp)
     }
 
     if (assetsDialog) AlertDialog(
         onDismissRequest = { assetsDialog = false },
         title = { Text("Free overlay assets") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Built-in 16:9 screens and borders. Add your own PNG, JPG or animated GIF from Add source.", color = Color.Gray, fontSize = 11.sp)
+            Text("Built-in 16:9 screens and borders. Import images, animated GIFs or looping video overlays.", color = Color.Gray, fontSize = 11.sp)
             TextButton(onClick = { addPreset("Starting Soon", "STREAM STARTING SOON", "Thanks for waiting · We will be live shortly") }, modifier = Modifier.fillMaxWidth()) { Text("Starting Soon screen") }
             TextButton(onClick = { addPreset("BRB", "BE RIGHT BACK", "Taking a short break · Stay tuned") }, modifier = Modifier.fillMaxWidth()) { Text("BRB screen") }
             TextButton(onClick = { addPreset("Stream Ending", "THANKS FOR WATCHING", "Like · Follow · See you next time") }, modifier = Modifier.fillMaxWidth()) { Text("Stream Ending screen") }
             TextButton(onClick = { addPreset("Neon Border", "YOUR STREAM", "Customise this title and add your own GIF") }, modifier = Modifier.fillMaxWidth()) { Text("Neon border overlay") }
             TextButton(onClick = { assetsDialog = false; imagePicker.launch(arrayOf("image/gif")) }, modifier = Modifier.fillMaxWidth()) { Text("Import animated GIF overlay") }
             TextButton(onClick = { assetsDialog = false; imagePicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) }, modifier = Modifier.fillMaxWidth()) { Text("Import image / frame") }
+            TextButton(onClick = { assetsDialog = false; videoPicker.launch(arrayOf("video/mp4", "video/webm", "video/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import video overlay") }
         } },
         confirmButton = { TextButton(onClick = { assetsDialog = false }) { Text("Close") } },
         containerColor = Color(0xFF151B25), titleContentColor = Color.White, textContentColor = Color.White
@@ -697,7 +738,7 @@ fun SceneStudio(
         onDismissRequest = { addDialog = false }, title = { Text("Add to this scene") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Choose what you want to place on the canvas.", color = Color.Gray, fontSize = 11.sp)
-            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "image" to "Image or animated GIF", "camera" to "Camera placeholder").forEach { (kind, label) ->
+            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Camera placeholder").forEach { (kind, label) ->
                 TextButton(onClick = { addSource(kind); addDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
         } },
