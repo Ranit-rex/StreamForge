@@ -10,6 +10,7 @@ import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.net.Uri
 import android.media.MediaMetadataRetriever
+import android.os.Build
 import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
