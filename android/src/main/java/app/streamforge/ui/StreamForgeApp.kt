@@ -54,7 +54,8 @@ fun StreamForgeApp(
     onStartRecording: (Int, Int, Int, Int) -> Unit,
     onStopRecording: () -> Unit,
     onPreparePreview: (Int, Int, Int, Int, String) -> Unit,
-    onStopStudioPreview: () -> Unit
+    onStopStudioPreview: () -> Unit,
+    onChangeCaptureSource: (String, Int, Int, Int, Int, String) -> Unit
  ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE) }
@@ -135,6 +136,7 @@ fun StreamForgeApp(
                             isStreaming = isStreaming,
                             onPreparePreview = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onStopStudioPreview = onStopStudioPreview,
+                            onChangeCaptureSource = { onChangeCaptureSource(server.trim() + "/" + streamKey.trim(), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onApplyScene = { sceneIndex ->
                                 if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
                                     context.startService(Intent(context, StreamService::class.java).apply {
@@ -244,7 +246,8 @@ fun StreamForgeApp(
                                 previewReady = studioPreviewReady,
                                 isStreaming = isStreaming,
                                 onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
-                                onStop = onStopStudioPreview
+                                onStop = onStopStudioPreview,
+                                onChangeSource = { onChangeCaptureSource(server.trim() + "/" + streamKey.trim(), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 InfoTile("OUTPUT", if (isStreaming || studioPreviewReady) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
@@ -432,7 +435,8 @@ fun StudioPreviewSurface(
     previewReady: Boolean,
     isStreaming: Boolean,
     onPrepare: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onChangeSource: () -> Unit
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Box {
@@ -442,17 +446,23 @@ fun StudioPreviewSurface(
                         StreamService.previewView = view
                         view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                             override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                val generation = ++StreamService.previewSurfaceGeneration
                                 if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
-                                    viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
+                                    viewContext.startService(Intent(viewContext, StreamService::class.java)
+                                        .setAction(StreamService.ACTION_PREVIEW_SURFACE_READY)
+                                        .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
                                 }
                             }
                             override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
                             override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
                             override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                val generation = ++StreamService.previewSurfaceGeneration
                                 if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
-                                    viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
+                                    viewContext.startService(Intent(viewContext, StreamService::class.java)
+                                        .setAction(StreamService.ACTION_STOP_PREVIEW)
+                                        .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
                                 }
-                                StreamService.previewView = null
+                                if (StreamService.previewView === view) StreamService.previewView = null
                                 return true
                             }
                         }
@@ -474,9 +484,14 @@ fun StudioPreviewSurface(
                 Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text(if (isStreaming) "● LIVE" else "● PREVIEW", color = if (isStreaming) LiveRed else Good, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
-                if (previewReady && !isStreaming) {
-                    TextButton(onClick = onStop, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                        Text("STOP PREVIEW", color = Color.White, fontSize = 9.sp)
+                Row(Modifier.align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TextButton(onClick = onChangeSource, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    }
+                    if (previewReady && !isStreaming) {
+                        TextButton(onClick = onStop, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                            Text("STOP", color = Color.White, fontSize = 8.sp)
+                        }
                     }
                 }
             }
