@@ -428,6 +428,63 @@ fun StreamForgeApp(
 }
 
 @Composable
+fun StudioPreviewSurface(
+    previewReady: Boolean,
+    isStreaming: Boolean,
+    onPrepare: () -> Unit,
+    onStop: () -> Unit
+) {
+    Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Box {
+            AndroidView(
+                factory = { viewContext ->
+                    TextureView(viewContext).also { view ->
+                        StreamService.previewView = view
+                        view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                    viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
+                                }
+                            }
+                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                    viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
+                                }
+                                StreamService.previewView = null
+                                return true
+                            }
+                        }
+                    }
+                },
+                update = { StreamService.previewView = it },
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            )
+            if (!previewReady && !isStreaming) {
+                Surface(color = Color(0xDD101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("NO SOURCE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp), modifier = Modifier.height(34.dp)) {
+                            Text("CHOOSE APP / SCREEN", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            } else {
+                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                    Text(if (isStreaming) "● LIVE" else "● PREVIEW", color = if (isStreaming) LiveRed else Good, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                }
+                if (previewReady && !isStreaming) {
+                    TextButton(onClick = onStop, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                        Text("STOP PREVIEW", color = Color.White, fontSize = 9.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> Unit) {
     Surface(color = Color(0xFF301A20), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
