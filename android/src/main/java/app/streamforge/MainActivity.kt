@@ -78,6 +78,9 @@ class MainActivity : ComponentActivity() {
                 StreamService.status.value = "Could not launch capture service: ${error.message ?: error.javaClass.simpleName}"
             }
         } else {
+            pendingStudioPreview = false
+            pendingChangeCaptureSource = false
+            pendingRecordingOnly = false
             StreamService.status.value = "Screen sharing was cancelled or permission was denied"
         }
     }
