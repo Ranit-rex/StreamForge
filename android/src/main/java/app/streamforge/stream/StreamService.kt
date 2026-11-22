@@ -168,7 +168,7 @@ class StreamService : Service(), ConnectChecker {
         microphoneGain.value = studioPrefs.getFloat("audio_mic_gain", 1f).coerceIn(0f, 2f)
         gameAudioGain.value = studioPrefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)
         stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
-            getGlInterface().setForceRender(true, 15)
+            getGlInterface().setForceRender(true, 5)
             prepareAudio(44_100, true, audioBitrate, echoCanceler = audioEnhancements, noiseSuppressor = audioEnhancements)
             // A smaller queue detects upload congestion sooner on mobile networks.
             getStreamClient().resizeCache(200)
@@ -628,7 +628,7 @@ class StreamService : Service(), ConnectChecker {
                         val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
                         val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
                         val position = if (item.optBoolean("loop", true)) elapsed % durationMs else elapsed.coerceAtMost(durationMs - 1L)
-                        val targetFps = item.optInt("fps", 15).coerceIn(5, 15)
+                        val targetFps = item.optInt("fps", 60).coerceIn(5, 60)
                         val now = SystemClock.uptimeMillis()
                         val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                         if (now - lastFrameAt >= (1000L / targetFps).coerceAtLeast(16L)) {
@@ -662,7 +662,7 @@ class StreamService : Service(), ConnectChecker {
         filter.setSceneOverlayBitmap(bitmap)
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
             layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }
-                ?.optInt("fps", 15)?.coerceIn(5, 15)
+                ?.optInt("fps", 60)?.coerceIn(5, 60)
         }.maxOrNull() ?: 30
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let {
@@ -674,7 +674,8 @@ class StreamService : Service(), ConnectChecker {
             val hasVideo = (0 until layers.length()).any { i ->
                 layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
             }
-            val frameInterval = if (hasVideo) (1000L / requestedVideoFps).coerceAtLeast(16L) else 250L
+            val frameInterval = if (hasVideo) (1000L / requestedVideoFps).coerceAtLeast(16L) else 200L
+            stream?.getGlInterface()?.setForceRender(true, if (hasVideo) requestedVideoFps else 5)
             gifFrameHandler.postDelayed(gifFrameRunnable, frameInterval)
         }
     }
