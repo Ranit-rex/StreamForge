@@ -77,6 +77,88 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
 
+
+@Composable
+fun SceneCompositionPreview(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
+    var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
+    var activeIndex by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
+            if (key == "scenes" || key == "active_scene") {
+                savedScenes = decodeSceneList(shared.getString("scenes", "") ?: "")
+                activeIndex = shared.getInt("active_scene", 0)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val scene = savedScenes.getOrNull(activeIndex) ?: savedScenes.firstOrNull() ?: sceneDefaults().first()
+    val bitmaps = remember(scene.layers.map { it.id to it.text }) {
+        scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
+            runCatching { context.contentResolver.openInputStream(Uri.parse(item.text))?.use { BitmapFactory.decodeStream(it) } }
+                .getOrNull()?.let { item.id to it }
+        }.toMap()
+    }
+    Canvas(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
+        drawRect(Color(0xFF101827))
+        drawIntoCanvas { canvas ->
+            val native = canvas.nativeCanvas
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+            }
+            scene.layers.filter { it.visible }.forEach { item ->
+                val rect = RectF(item.x * size.width, item.y * size.height,
+                    (item.x + item.width) * size.width, (item.y + item.height) * size.height)
+                native.save()
+                native.rotate(item.rotation, rect.centerX(), rect.centerY())
+                paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
+                when (item.kind) {
+                    "screen" -> {
+                        paint.style = Paint.Style.FILL
+                        paint.color = android.graphics.Color.rgb(24, 39, 60)
+                        native.drawRoundRect(rect, 12f, 12f, paint)
+                        paint.color = android.graphics.Color.rgb(105, 157, 255)
+                        paint.textSize = (rect.height() * .15f).coerceIn(20f, 54f)
+                        val title = "GAME CAPTURE"
+                        native.drawText(title, rect.centerX() - paint.measureText(title) / 2f, rect.centerY() - 5f, paint)
+                        paint.color = android.graphics.Color.LTGRAY
+                        paint.textSize = (rect.height() * .065f).coerceIn(12f, 24f)
+                        val hint = "Your screen appears here when capture is active"
+                        native.drawText(hint, rect.centerX() - paint.measureText(hint) / 2f, rect.centerY() + 26f, paint)
+                    }
+                    "text" -> {
+                        paint.style = Paint.Style.FILL
+                        paint.color = android.graphics.Color.WHITE
+                        paint.textSize = (rect.height() * .58f).coerceIn(12f, 48f)
+                        native.drawText(item.text.take(40), rect.left + 5f, rect.centerY(), paint)
+                    }
+                    "image", "gif" -> bitmaps[item.id]?.let { bitmap ->
+                        val src = android.graphics.Rect(
+                            (bitmap.width * item.cropLeft).toInt().coerceIn(0, bitmap.width - 1),
+                            (bitmap.height * item.cropTop).toInt().coerceIn(0, bitmap.height - 1),
+                            (bitmap.width * item.cropRight).toInt().coerceIn(1, bitmap.width),
+                            (bitmap.height * item.cropBottom).toInt().coerceIn(1, bitmap.height)
+                        )
+                        paint.style = Paint.Style.FILL
+                        native.drawBitmap(bitmap, src, rect, paint)
+                    }
+                    "camera" -> {
+                        paint.style = Paint.Style.FILL
+                        paint.color = android.graphics.Color.rgb(35, 48, 65)
+                        native.drawRoundRect(rect, 10f, 10f, paint)
+                        paint.color = android.graphics.Color.WHITE
+                        paint.textSize = (rect.height() * .18f).coerceIn(14f, 28f)
+                        native.drawText("CAMERA SOURCE", rect.left + 10f, rect.centerY(), paint)
+                    }
+                }
+                native.restore()
+            }
+        }
+    }
+}
+
 @Composable
 fun SceneStudio(
     previewReady: Boolean,
