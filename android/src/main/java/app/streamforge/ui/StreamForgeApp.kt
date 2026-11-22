@@ -451,59 +451,49 @@ fun StudioPreviewSurface(
     onChangeSource: () -> Unit
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Box {
-            AndroidView(
-                factory = { viewContext ->
-                    TextureView(viewContext).also { view ->
-                        StreamService.previewView = view
-                        view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                val generation = ++StreamService.previewSurfaceGeneration
-                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
-                                    viewContext.startService(Intent(viewContext, StreamService::class.java)
-                                        .setAction(StreamService.ACTION_PREVIEW_SURFACE_READY)
-                                        .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            if (isStreaming) {
+                AndroidView(
+                    factory = { viewContext ->
+                        TextureView(viewContext).also { view ->
+                            StreamService.previewView = view
+                            view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                    val generation = ++StreamService.previewSurfaceGeneration
+                                    if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                        viewContext.startService(Intent(viewContext, StreamService::class.java)
+                                            .setAction(StreamService.ACTION_PREVIEW_SURFACE_READY)
+                                            .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
+                                    }
                                 }
-                            }
-                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                val generation = ++StreamService.previewSurfaceGeneration
-                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
-                                    viewContext.startService(Intent(viewContext, StreamService::class.java)
-                                        .setAction(StreamService.ACTION_STOP_PREVIEW)
-                                        .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
+                                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                                override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                    val generation = ++StreamService.previewSurfaceGeneration
+                                    if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                        viewContext.startService(Intent(viewContext, StreamService::class.java)
+                                            .setAction(StreamService.ACTION_STOP_PREVIEW)
+                                            .putExtra(StreamService.EXTRA_PREVIEW_GENERATION, generation))
+                                    }
+                                    if (StreamService.previewView === view) StreamService.previewView = null
+                                    return true
                                 }
-                                if (StreamService.previewView === view) StreamService.previewView = null
-                                return true
                             }
                         }
-                    }
-                },
-                update = { StreamService.previewView = it },
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-            )
-            if (!isStreaming && !previewReady) {
-                Surface(color = Color(0xEE101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("SEE YOUR STREAM HERE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
-                        Text("Check your game and scene before going live.", color = Muted, fontSize = 9.sp)
-                        Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) { Text("START PREVIEW", fontSize = 10.sp) }
-                    }
-                }
-            } else if (!isStreaming && previewReady) {
-                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text("● PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                }
-                TextButton(onClick = onStop, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
-                    Text("STOP PREVIEW", color = Muted, fontSize = 8.sp)
-                }
-            } else {
+                    },
+                    update = { StreamService.previewView = it },
+                    modifier = Modifier.fillMaxSize()
+                )
                 Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text("● LIVE OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
                 TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
                     Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                SceneCompositionPreview(Modifier.fillMaxSize())
+                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                    Text("● AUTO PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
