@@ -121,6 +121,7 @@ class StreamService : Service(), ConnectChecker {
     private var activeStreamHeight = 720
     private var activeSceneIndex = 0
     private val gifMovies = mutableMapOf<String, Movie>()
+    private val sceneImages = mutableMapOf<String, Bitmap>()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
     private val gifFrameRunnable = object : Runnable {
@@ -521,10 +522,11 @@ class StreamService : Service(), ConnectChecker {
                 }
                 "image" -> {
                     val uri = runCatching { Uri.parse(item.optString("text")) }.getOrNull()
-                    val image = uri?.let { parsed ->
-                        runCatching { contentResolver.openInputStream(parsed)?.use { BitmapFactory.decodeStream(it) } }.getOrNull()
-                    }
-                    if (image != null) {
+                    val uriString = uri?.toString().orEmpty()
+                    val image = if (uriString.isNotBlank()) sceneImages[uriString] ?: runCatching {
+                        contentResolver.openInputStream(Uri.parse(uriString))?.use { BitmapFactory.decodeStream(it) }
+                    }.getOrNull()?.also { sceneImages[uriString] = it } else null
+                    if (image != null && !image.isRecycled) {
                         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha }
                         val src = RectF(
                             image.width * item.optDouble("cropLeft", 0.0).toFloat(),
@@ -533,7 +535,6 @@ class StreamService : Service(), ConnectChecker {
                             image.height * item.optDouble("cropBottom", 1.0).toFloat()
                         )
                         canvas.drawBitmap(image, android.graphics.Rect(src.left.toInt(), src.top.toInt(), src.right.toInt(), src.bottom.toInt()), rect, paint)
-                        image.recycle()
                     }
                 }
                 "gif" -> {
@@ -550,8 +551,14 @@ class StreamService : Service(), ConnectChecker {
                         movie.setTime((elapsed % duration).toInt())
                         canvas.save()
                         canvas.clipRect(rect)
-                        canvas.translate(rect.left, rect.top)
-                        canvas.scale(rect.width() / movie.width().coerceAtLeast(1), rect.height() / movie.height().coerceAtLeast(1))
+                        val cropL = item.optDouble("cropLeft", 0.0).toFloat()
+                        val cropT = item.optDouble("cropTop", 0.0).toFloat()
+                        val cropR = item.optDouble("cropRight", 1.0).toFloat()
+                        val cropB = item.optDouble("cropBottom", 1.0).toFloat()
+                        val scaleX = rect.width() / (movie.width().coerceAtLeast(1) * (cropR - cropL).coerceAtLeast(.02f))
+                        val scaleY = rect.height() / (movie.height().coerceAtLeast(1) * (cropB - cropT).coerceAtLeast(.02f))
+                        canvas.translate(rect.left - movie.width() * cropL * scaleX, rect.top - movie.height() * cropT * scaleY)
+                        canvas.scale(scaleX, scaleY)
                         movie.draw(canvas, 0f, 0f)
                         canvas.restore()
                     }
@@ -1096,6 +1103,8 @@ class StreamService : Service(), ConnectChecker {
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         gifMovies.clear()
         gifStartedAt.clear()
+        sceneImages.values.forEach { if (!it.isRecycled) it.recycle() }
+        sceneImages.clear()
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
         previewView = null
