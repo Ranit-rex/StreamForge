@@ -26,6 +26,7 @@ class MainActivity : ComponentActivity() {
     private var pendingFps = 30
     private var pendingBitrate = 4_500_000
     private var pendingRecordingOnly = false
+    private var pendingStudioPreview = false
     private var pendingCaptureMode = "GAME"
     private var waitingForOverlayPermission = false
 
@@ -45,9 +46,19 @@ class MainActivity : ComponentActivity() {
         val data = result.data
         if (result.resultCode == RESULT_OK && data != null) {
             val recordingOnly = pendingRecordingOnly
-            StreamService.status.value = if (recordingOnly) "Screen access granted · starting local recording…" else "Screen access granted · starting stream service…"
+            val studioPreview = pendingStudioPreview
+            pendingStudioPreview = false
+            StreamService.status.value = when {
+                studioPreview -> "App selected · preparing Studio preview…"
+                recordingOnly -> "Screen access granted · starting local recording…"
+                else -> "Screen access granted · starting stream service…"
+            }
             val serviceIntent = Intent(this, StreamService::class.java).apply {
-                action = if (recordingOnly) StreamService.ACTION_START_LOCAL_RECORDING else StreamService.ACTION_START_STREAM
+                action = when {
+                    studioPreview -> StreamService.ACTION_START_STUDIO_PREVIEW
+                    recordingOnly -> StreamService.ACTION_START_LOCAL_RECORDING
+                    else -> StreamService.ACTION_START_STREAM
+                }
                 putExtra(StreamService.EXTRA_RESULT_CODE, result.resultCode)
                 putExtra(StreamService.EXTRA_RESULT_DATA, data)
                 putExtra(StreamService.EXTRA_ENDPOINT, pendingEndpoint)
@@ -80,20 +91,46 @@ class MainActivity : ComponentActivity() {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
                     pendingRecordingOnly = false
+                    pendingStudioPreview = false
                     pendingEndpoint = endpoint
                     pendingWidth = width
                     pendingHeight = height
                     pendingFps = fps
                     pendingBitrate = bitrate
                     pendingCaptureMode = captureMode
-                    if (!Settings.canDrawOverlays(this)) {
+                    if (StreamService.studioPreviewReady.value) {
+                        ContextCompat.startForegroundService(this, Intent(this, StreamService::class.java).apply {
+                            action = StreamService.ACTION_START_STREAM
+                            putExtra(StreamService.EXTRA_ENDPOINT, endpoint)
+                            putExtra(StreamService.EXTRA_WIDTH, width)
+                            putExtra(StreamService.EXTRA_HEIGHT, height)
+                            putExtra(StreamService.EXTRA_FPS, fps)
+                            putExtra(StreamService.EXTRA_BITRATE, bitrate)
+                        })
+                    } else if (!Settings.canDrawOverlays(this)) {
                         waitingForOverlayPermission = true
                         startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)), 7402)
                     } else beginBroadcastPermissions()
                 },
+                onPreparePreview = { width, height, fps, bitrate, captureMode ->
+                    if (!StreamService.studioPreviewReady.value) {
+                        pendingRecordingOnly = false
+                        pendingStudioPreview = true
+                        pendingEndpoint = ""
+                        pendingWidth = width
+                        pendingHeight = height
+                        pendingFps = fps
+                        pendingBitrate = bitrate
+                        pendingCaptureMode = captureMode
+                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+                        permissionLauncher.launch(permissions.toTypedArray())
+                    }
+                },
+                onStopStudioPreview = { sendServiceAction(StreamService.ACTION_STOP_STUDIO_PREVIEW) },
                 onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
                 onStartRecording = { width, height, fps, bitrate ->
-                    if (StreamService.streaming.value) {
+                    if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
                         sendServiceAction(StreamService.ACTION_START_RECORDING)
                     } else {
                         beginStandaloneRecording(width, height, fps, bitrate)
@@ -146,7 +183,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestScreenCapture() {
-        StreamService.status.value = if (pendingRecordingOnly) "Choose the screen or app to record, then tap Start now" else "Choose what to share, then tap Start now"
+        StreamService.status.value = when {
+            pendingStudioPreview -> "Choose one app or the full display to preview before going live"
+            pendingRecordingOnly -> "Choose the screen or app to record, then tap Start now"
+            else -> "Choose what to share, then tap Start now"
+        }
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val captureIntent = if (Build.VERSION.SDK_INT >= 34) {
             val config = if (!pendingRecordingOnly && pendingCaptureMode == "FULL") MediaProjectionConfig.createConfigForDefaultDisplay() else MediaProjectionConfig.createConfigForUserChoice()
