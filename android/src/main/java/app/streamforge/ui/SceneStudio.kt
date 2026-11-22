@@ -151,19 +151,20 @@ fun SceneStudio(
         val current = scenes[index]
         if (kind == "screen" && current.layers.any { it.kind == "screen" }) {
             selected = current.layers.first { it.kind == "screen" }.id
-            sourceMessage = "This scene already has its screen capture source. Resize or move that layer."
+            sourceMessage = "This scene already has Game Capture. Unlock it before moving or resizing."
             return
         }
         val count = current.layers.count { it.kind == kind } + 1
         val item = SceneLayer(
             System.nanoTime(),
-            when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Screen capture" },
+            when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; else -> "Game Capture" },
             kind,
             if (kind == "text") "YOUR TEXT" else "",
             if (kind == "screen") 0f else .08f,
             if (kind == "screen") 0f else .08f,
             when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; else -> .34f },
-            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; else -> .34f }
+            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; else -> .34f },
+            locked = kind == "screen"
         )
         sourceMessage = ""
         scenes[index] = current.copy(layers = current.layers + item)
