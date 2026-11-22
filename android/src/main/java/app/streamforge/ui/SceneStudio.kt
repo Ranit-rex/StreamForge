@@ -86,7 +86,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 60 else 5).coerceIn(5, 60))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -273,20 +273,23 @@ fun SceneStudio(
         mutableStateListOf<SceneModel>().apply {
             val loaded = decodeSceneList(prefs.getString("scenes", "") ?: "")
             val needsMigration = prefs.getInt("scene_layout_version", 0) < 2
+            val needsVideoFpsMigration = prefs.getInt("video_fps_mode_version", 0) < 1
             val resetLegacyDefaults = prefs.getInt("scene_layout_version", 0) < 3 && loaded.map { it.name } == listOf("Starting Soon", "Gameplay", "BRB", "Ending")
-            val normalized = if (needsMigration) loaded.map { savedScene ->
+            val normalized = if (needsMigration || needsVideoFpsMigration) loaded.map { savedScene ->
                 savedScene.copy(layers = savedScene.layers.map { savedLayer ->
-                    when (savedLayer.kind) {
-                        "screen" -> savedLayer.copy(x = 0f, y = 0f, width = 1f, height = 1f)
-                        "text" -> savedLayer.copy(width = .42f, height = .16f)
-                        "camera" -> savedLayer.copy(width = .30f, height = .24f)
-                        "image" -> savedLayer.copy(width = .34f, height = .34f)
+                    when {
+                        savedLayer.kind == "video" && needsVideoFpsMigration -> savedLayer.copy(fps = 0)
+                        needsMigration && savedLayer.kind == "screen" -> savedLayer.copy(x = 0f, y = 0f, width = 1f, height = 1f)
+                        needsMigration && savedLayer.kind == "text" -> savedLayer.copy(width = .42f, height = .16f)
+                        needsMigration && savedLayer.kind == "camera" -> savedLayer.copy(width = .30f, height = .24f)
+                        needsMigration && savedLayer.kind == "image" -> savedLayer.copy(width = .34f, height = .34f)
                         else -> savedLayer
                     }
                 })
             } else loaded
             addAll(if (resetLegacyDefaults) sceneDefaults() else normalized)
             if (needsMigration || resetLegacyDefaults) prefs.edit().putInt("scene_layout_version", 3).apply()
+            if (needsVideoFpsMigration) prefs.edit().putInt("video_fps_mode_version", 1).apply()
         }
     }
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
@@ -316,7 +319,7 @@ fun SceneStudio(
             runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val idx = active.coerceIn(0, scenes.lastIndex)
             val current = scenes[idx]
-            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f, fps = 60)
+            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f, fps = 0)
             scenes[idx] = current.copy(layers = current.layers + layer)
             selected = layer.id
         }
@@ -417,8 +420,22 @@ fun SceneStudio(
         Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("LAYOUT", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                    Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
+                    Surface(
+                        color = Color(0xFF211A17),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFF6A35)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            "VIDEO / OVERLAYS",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                            letterSpacing = 1.1.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                        )
+                    }
+                    Text("16:9 EDIT CANVAS", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.padding(start = 8.dp))
                 }
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
                     scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
@@ -626,7 +643,7 @@ fun SceneStudio(
                                     else -> {
                                         paint.color = android.graphics.Color.WHITE
                                         paint.textSize = 12f
-                                        native.drawText("SCREEN CAPTURE", left + 8f, top + 22f, paint)
+                                        native.drawText("GAMEPLAY AREA", left + 8f, top + 22f, paint)
                                     }
                                 }
                             }
@@ -655,21 +672,6 @@ fun SceneStudio(
                         }
                         // Persistent bordered label makes the lower edit canvas
                         // unmistakably the video/overlay composition area.
-                        val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            color = android.graphics.Color.rgb(21, 25, 29)
-                            style = Paint.Style.FILL
-                        }
-                        val badge = RectF(12f, 12f, 174f, 42f)
-                        native.drawRoundRect(badge, 8f, 8f, badgePaint)
-                        badgePaint.style = Paint.Style.STROKE
-                        badgePaint.strokeWidth = 2f
-                        badgePaint.color = android.graphics.Color.rgb(255, 106, 53)
-                        native.drawRoundRect(badge, 8f, 8f, badgePaint)
-                        badgePaint.style = Paint.Style.FILL
-                        badgePaint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-                        badgePaint.textSize = 12f
-                        badgePaint.color = android.graphics.Color.WHITE
-                        native.drawText("VIDEO / OVERLAYS", 23f, 31f, badgePaint)
                     }
                 }
                 Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
@@ -698,7 +700,17 @@ fun SceneStudio(
                     Text(if (item.visible) "◉" else "○", color = Color(0xFFFF8659))
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(item.name + if (item.locked) "  ·  LOCKED" else "", color = Color.White, fontSize = 12.sp)
-                        Text(if (item.kind == "screen") "YOUR PHONE / GAME SCREEN" else item.kind.uppercase(), color = Color.Gray, fontSize = 9.sp)
+                        Text(
+                            when (item.kind) {
+                                "screen" -> "GAMEPLAY"
+                                "video" -> "VIDEO OVERLAY"
+                                "image" -> "IMAGE OVERLAY"
+                                "gif" -> "ANIMATED OVERLAY"
+                                "camera" -> "CAMERA"
+                                else -> item.kind.uppercase()
+                            },
+                            color = Color.Gray, fontSize = 9.sp
+                        )
                     }
                     TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } }) { Text(if (item.visible) "Hide" else "Show") }
                     TextButton(onClick = {
@@ -748,14 +760,39 @@ fun SceneStudio(
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
                         if (layer.kind == "video") {
-                            Text("VIDEO DECODE · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = (value / 5f).toInt().coerceIn(1, 12) * 5) } }, valueRange = 5f..60f, steps = 10)
-                            if (layer.fps > 15) {
-                                Text("⚠ High decode rate: above 15 FPS can increase heat, battery use and dropped frames. Video can use up to 60 FPS when your device can keep up.", color = Color(0xFFFFB27F), fontSize = 10.sp, lineHeight = 14.sp)
-                            } else {
-                                Text("For smooth, efficient video choose the rate your device can sustain. Non-video overlays and animated elements work best at 5 FPS.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
+                            Text(
+                                if (layer.fps == 0) "VIDEO FPS · ORIGINAL SOURCE (AUTO)" else "VIDEO FPS · ${layer.fps}",
+                                color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = layer.fps == 0,
+                                    onClick = { updateLayer(layer.id) { it.copy(fps = 0) } },
+                                    enabled = !layer.locked,
+                                    label = { Text("Original FPS", fontSize = 11.sp) }
+                                )
+                                FilterChip(
+                                    selected = layer.fps != 0,
+                                    onClick = { updateLayer(layer.id) { it.copy(fps = 30) } },
+                                    enabled = !layer.locked,
+                                    label = { Text("Custom FPS", fontSize = 11.sp) }
+                                )
                             }
-                            Text("Other overlays: 5 FPS recommended. Video decode maximum: 60 FPS.", color = Color(0xFFFF8659), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                            if (layer.fps != 0) {
+                                Slider(
+                                    value = layer.fps.toFloat(),
+                                    enabled = !layer.locked,
+                                    onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = (value / 5f).toInt().coerceIn(1, 12) * 5) } },
+                                    valueRange = 5f..60f,
+                                    steps = 10
+                                )
+                                if (layer.fps > 30) {
+                                    Text("⚠ High FPS can increase heat, battery use and dropped frames. Use only if your phone can sustain it.", color = Color(0xFFFFB27F), fontSize = 10.sp, lineHeight = 14.sp)
+                                }
+                            } else {
+                                Text("Uses the video's source frame rate automatically, up to 60 FPS. Device performance may limit playback.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
+                            }
+                            Text("Text, image and other static overlays do not need a video FPS setting.", color = Color(0xFFFF8659), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
