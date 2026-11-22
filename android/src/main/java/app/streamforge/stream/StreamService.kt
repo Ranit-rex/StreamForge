@@ -13,6 +13,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Movie
 import android.graphics.RectF
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.net.Uri
 import android.graphics.PixelFormat
@@ -464,17 +466,22 @@ class StreamService : Service(), ConnectChecker {
         val screenLayer = (0 until layers.length())
             .mapNotNull { layers.optJSONObject(it) }
             .firstOrNull { it.optString("kind") == "screen" && it.optBoolean("visible", true) }
-        if (screenLayer != null) {
+        val hasBackground = (0 until layers.length()).any { i ->
+            layers.optJSONObject(i)?.let { it.optString("kind") == "background" && it.optBoolean("visible", true) } == true
+        }
+        if (screenLayer != null && !hasBackground) {
             filter.setScreenRect(
                 screenLayer.optDouble("x", 0.0).toFloat(),
                 screenLayer.optDouble("y", 0.0).toFloat(),
                 screenLayer.optDouble("width", 1.0).toFloat(),
                 screenLayer.optDouble("height", 1.0).toFloat()
             )
+        } else if (hasBackground) {
+            filter.setScreenRect(0f, 0f, .001f, .001f)
         } else {
             filter.setScreenRect(0f, 0f, 1f, 1f)
         }
-        if (screenLayer != null) {
+        if (screenLayer != null && !hasBackground) {
             filter.setScreenTransform(
                 screenLayer.optDouble("rotation", 0.0).toFloat(),
                 screenLayer.optDouble("cropLeft", 0.0).toFloat(),
@@ -503,6 +510,29 @@ class StreamService : Service(), ConnectChecker {
             canvas.save()
             canvas.rotate(item.optDouble("rotation", 0.0).toFloat(), rect.centerX(), rect.centerY())
             when (kind) {
+                "background" -> {
+                    val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(0f, 0f, outputWidth.toFloat(), outputHeight.toFloat(), AndroidColor.rgb(9, 15, 34), AndroidColor.rgb(35, 18, 62), Shader.TileMode.CLAMP)
+                    }
+                    canvas.drawRect(0f, 0f, outputWidth.toFloat(), outputHeight.toFloat(), backgroundPaint)
+                    val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.argb(55, 95, 135, 255) }
+                    canvas.drawCircle(outputWidth * .82f, outputHeight * .22f, outputHeight * .22f, glow)
+                }
+                "frame" -> {
+                    val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = (outputWidth * .008f).coerceIn(4f, 12f)
+                        color = AndroidColor.rgb(89, 220, 255)
+                    }
+                    canvas.drawRoundRect(rect, 24f, 24f, framePaint)
+                    framePaint.strokeWidth = (outputWidth * .0025f).coerceIn(2f, 5f)
+                    framePaint.color = AndroidColor.rgb(181, 112, 255)
+                    val corner = rect.width() * .10f
+                    canvas.drawLine(rect.left, rect.top + corner, rect.left, rect.top, framePaint)
+                    canvas.drawLine(rect.left, rect.top, rect.left + corner, rect.top, framePaint)
+                    canvas.drawLine(rect.right - corner, rect.bottom, rect.right, rect.bottom, framePaint)
+                    canvas.drawLine(rect.right, rect.bottom, rect.right, rect.bottom - corner, framePaint)
+                }
                 "text" -> {
                     val value = item.optString("text").trim()
                     if (value.isNotEmpty()) {
