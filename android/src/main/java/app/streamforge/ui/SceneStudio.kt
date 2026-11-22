@@ -11,7 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -219,7 +219,7 @@ fun SceneStudio(
                         .pointerInput(index) {
                             detectTapGestures { point ->
                                 val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
-                                    item.visible &&
+                                    !item.locked && item.visible &&
                                         point.x >= item.x * size.width &&
                                         point.x <= (item.x + item.width) * size.width &&
                                         point.y >= item.y * size.height &&
@@ -229,44 +229,31 @@ fun SceneStudio(
                             }
                         }
                         .pointerInput(index) {
-                            var draggingLayerId: Long? = null
-                            var resizingLayer = false
-                            detectDragGestures(
-                                onDragStart = { point ->
-                                    val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
-                                        item.visible && point.x >= item.x * size.width && point.x <= (item.x + item.width) * size.width &&
-                                            point.y >= item.y * size.height && point.y <= (item.y + item.height) * size.height
-                                    }
-                                    draggingLayerId = hit?.id
-                                    if (hit != null) {
-                                        selected = hit.id
-                                        val right = (hit.x + hit.width) * size.width
-                                        val bottom = (hit.y + hit.height) * size.height
-                                        resizingLayer = abs(point.x - right) <= 42f && abs(point.y - bottom) <= 42f
-                                    } else resizingLayer = false
-                                },
-                                onDragEnd = { draggingLayerId = null; resizingLayer = false },
-                                onDragCancel = { draggingLayerId = null; resizingLayer = false },
-                                onDrag = { change, drag ->
-                                    change.consume()
-                                    val chosen = latestScene.value.layers.firstOrNull { it.id == draggingLayerId }
-                                    if (chosen != null && !chosen.locked) {
-                                        latestUpdateLayer.value(chosen.id) { current ->
-                                            if (resizingLayer) {
-                                                current.copy(
-                                                    width = (current.width + drag.x / size.width).coerceIn(.08f, (1f - current.x).coerceAtLeast(.08f)),
-                                                    height = (current.height + drag.y / size.height).coerceIn(.05f, (1f - current.y).coerceAtLeast(.05f))
-                                                )
-                                            } else {
-                                                current.copy(
-                                                    x = (current.x + drag.x / size.width).coerceIn(0f, (1f - current.width).coerceAtLeast(0f)),
-                                                    y = (current.y + drag.y / size.height).coerceIn(0f, (1f - current.height).coerceAtLeast(0f))
-                                                )
-                                            }
-                                        }
+                            detectTransformGestures { centroid, pan, zoom, rotationChange ->
+                                val target = latestScene.value.layers.asReversed().firstOrNull { item ->
+                                    !item.locked && item.visible &&
+                                        centroid.x >= item.x * size.width &&
+                                        centroid.x <= (item.x + item.width) * size.width &&
+                                        centroid.y >= item.y * size.height &&
+                                        centroid.y <= (item.y + item.height) * size.height
+                                }
+                                if (target != null) {
+                                    selected = target.id
+                                    latestUpdateLayer.value(target.id) { current ->
+                                        val nextWidth = (current.width * zoom).coerceIn(.06f, 1f)
+                                        val nextHeight = (current.height * zoom).coerceIn(.05f, 1f)
+                                        val centerX = current.x + current.width / 2f + pan.x / size.width
+                                        val centerY = current.y + current.height / 2f + pan.y / size.height
+                                        current.copy(
+                                            width = nextWidth,
+                                            height = nextHeight,
+                                            x = (centerX - nextWidth / 2f).coerceIn(0f, 1f - nextWidth),
+                                            y = (centerY - nextHeight / 2f).coerceIn(0f, 1f - nextHeight),
+                                            rotation = (current.rotation + rotationChange).coerceIn(-180f, 180f)
+                                        )
                                     }
                                 }
-                            )
+                            }
                         }
                 ) {
                     canvasWidth = size.width; canvasHeight = size.height
@@ -333,7 +320,7 @@ fun SceneStudio(
                             paint.strokeWidth = if (item.id == selected) 3f else 1.5f
                             paint.color = if (item.id == selected) android.graphics.Color.CYAN else android.graphics.Color.argb(175, 210, 224, 245)
                             native.drawRoundRect(rect, 10f, 10f, paint)
-                            if (item.id == selected) {
+                            if (item.id == selected && !item.locked) {
                                 paint.style = Paint.Style.FILL
                                 paint.color = android.graphics.Color.CYAN
                                 val handleRadius = 9f
@@ -366,13 +353,13 @@ fun SceneStudio(
             Surface(
                 color = if (item.id == selected) Color(0xFF253A55) else Color(0xFF151B25),
                 shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth(),
-                onClick = { selected = item.id }
+                onClick = { if (!item.locked) selected = item.id }
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (item.visible) "◉" else "○", color = Color(0xFF8EA5FF))
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                        Text(item.name, color = Color.White, fontSize = 12.sp)
-                        Text(item.kind.uppercase(), color = Color.Gray, fontSize = 9.sp)
+                        Text(item.name + if (item.locked) "  ·  LOCKED" else "", color = Color.White, fontSize = 12.sp)
+                        Text(if (item.kind == "screen") "YOUR PHONE / GAME SCREEN" else item.kind.uppercase(), color = Color.Gray, fontSize = 9.sp)
                     }
                     TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } }) { Text(if (item.visible) "Hide" else "Show") }
                     TextButton(onClick = { updateLayer(item.id) { it.copy(locked = !it.locked) } }) { Text(if (item.locked) "Unlock" else "Lock") }
@@ -390,7 +377,7 @@ fun SceneStudio(
                             label = { Text("Text shown on screen") }, modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    if (layer.kind == "image") {
+                    if (layer.kind == "image" || layer.kind == "gif") {
                         Text("Image/GIF source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
                         OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace image / GIF") }
                     }
@@ -447,7 +434,7 @@ fun SceneStudio(
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Changes auto-save and update the program preview.", color = Color.Gray, fontSize = 9.sp)
+        Text("Changes auto-save and appear in Program Preview. Unlock a layer before editing it.", color = Color.Gray, fontSize = 9.sp)
     }
 
     if (addDialog) AlertDialog(
