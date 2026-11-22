@@ -760,7 +760,7 @@ class StreamService : Service(), ConnectChecker {
 
     private fun toggleRecordingPause() {
         val activeStream = stream ?: return
-        if (!recording.value || !activeStream.isRecording) return
+        if (!recording.value) return
         runCatching {
             if (recordingPaused.value) {
                 activeStream.resumeRecord()
