@@ -285,16 +285,15 @@ fun StreamForgeApp(
                                         Column(Modifier.weight(1f)) {
                                             Text("SCREEN SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                                             Text("Entire screen or one app", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                                            Text("Choose the capture target in Android's system prompt.", color = Muted, fontSize = 11.sp)
-                                        }
+                                                }
                                         Surface(color = PanelRaised, shape = RoundedCornerShape(14.dp)) {
                                             Text("▣", Modifier.padding(15.dp), color = Accent, fontSize = 26.sp)
                                         }
                                     }
                                     Text("CAPTURE SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        CaptureModeCard("GAME / APP", "Capture one selected app. Best for clean floating controls.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
-                                        CaptureModeCard("FULL SCREEN", "Capture everything on your display.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
+                                        CaptureModeCard("APP", "Single app.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
+                                        CaptureModeCard("DISPLAY", "Entire screen.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
                                     }
                                     if (captureMode == "GAME" && android.os.Build.VERSION.SDK_INT < 34) {
                                         Text("This Android version uses full-screen capture; app-only selection needs Android 14 or newer.", color = Color(0xFFFFC46B), fontSize = 10.sp)
