@@ -118,8 +118,8 @@ fun StreamForgeApp(
             Column(Modifier.fillMaxSize()) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().systemBarsPadding().imePadding()
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp)
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
                     if (isRecording) RecordingDashboard(
@@ -462,9 +462,9 @@ fun StudioPreviewSurface(
             if (!previewReady && !isStreaming) {
                 Surface(color = Color(0xDD101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("NO SOURCE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        Text("PREVIEW OFF", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp)
                         Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp), modifier = Modifier.height(34.dp)) {
-                            Text("CHOOSE APP / SCREEN", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("START PREVIEW", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -499,10 +499,9 @@ private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> 
 @Composable
 private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(42.dp).padding(end = 9.dp))
+        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(34.dp).padding(end = 7.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("STREAMFORGE", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
-            Text("CREATOR STUDIO  /  ANDROID", color = Muted, fontSize = 9.sp, letterSpacing = 1.2.sp)
+            Text("STREAMFORGE", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
