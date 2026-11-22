@@ -196,7 +196,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         native.drawRoundRect(rect, 12f, 12f, paint)
                         paint.color = android.graphics.Color.rgb(255, 134, 89)
                         paint.textSize = (rect.height() * .15f).coerceIn(20f, 54f)
-                        val title = "GAME CAPTURE"
+                        val title = "GAMEPLAY"
                         native.drawText(title, rect.centerX() - paint.measureText(title) / 2f, rect.centerY() - 5f, paint)
                         paint.color = android.graphics.Color.LTGRAY
                         paint.textSize = (rect.height() * .065f).coerceIn(12f, 24f)
@@ -670,8 +670,6 @@ fun SceneStudio(
                             paint.style = Paint.Style.FILL
                             native.restore()
                         }
-                        // Persistent bordered label makes the lower edit canvas
-                        // unmistakably the video/overlay composition area.
                     }
                 }
                 Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
