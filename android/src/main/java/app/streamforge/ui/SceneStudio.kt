@@ -283,8 +283,8 @@ fun SceneStudio(
 
     fun addPreset(sceneName: String, title: String, subtitle: String) {
         val stamp = System.nanoTime()
-        val presetLayers = listOf(
-            SceneLayer(stamp, "Gradient background", "background", sceneName, 0f, 0f, 1f, 1f, locked = true),
+        val presetLayers = listOfNotNull(
+            if (sceneName == "Neon Border") null else SceneLayer(stamp, "Gradient background", "background", sceneName, 0f, 0f, 1f, 1f, locked = true),
             SceneLayer(stamp + 1, "Neon frame", "frame", "", .025f, .04f, .95f, .92f),
             SceneLayer(stamp + 2, "Main title", "text", title, .10f, .40f, .80f, .16f),
             SceneLayer(stamp + 3, "Subtitle", "text", subtitle, .14f, .57f, .72f, .10f)
