@@ -179,20 +179,24 @@ fun StreamForgeApp(
                             onMicrophoneGain = {
                                 microphoneGain = it
                                 prefs.edit().putFloat("audio_mic_gain", it).apply()
-                                context.startService(Intent(context, StreamService::class.java).apply {
-                                    action = StreamService.ACTION_UPDATE_AUDIO_MIX
-                                    putExtra(StreamService.EXTRA_MIC_GAIN, it)
-                                    putExtra(StreamService.EXTRA_GAME_GAIN, gameGain)
-                                })
+                                if (isStreaming || isRecording) {
+                                    context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                        putExtra(StreamService.EXTRA_MIC_GAIN, it)
+                                        putExtra(StreamService.EXTRA_GAME_GAIN, gameGain)
+                                    })
+                                }
                             },
                             onGameGain = {
                                 gameGain = it
                                 prefs.edit().putFloat("audio_game_gain", it).apply()
-                                context.startService(Intent(context, StreamService::class.java).apply {
-                                    action = StreamService.ACTION_UPDATE_AUDIO_MIX
-                                    putExtra(StreamService.EXTRA_MIC_GAIN, microphoneGain)
-                                    putExtra(StreamService.EXTRA_GAME_GAIN, it)
-                                })
+                                if (isStreaming || isRecording) {
+                                    context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                        putExtra(StreamService.EXTRA_MIC_GAIN, microphoneGain)
+                                        putExtra(StreamService.EXTRA_GAME_GAIN, it)
+                                    })
+                                }
                             },
                             onNoiseCancellation = {
                                 audioEnhancements = it
