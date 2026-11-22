@@ -239,6 +239,14 @@ fun StreamForgeApp(
                         ProblemReporterPanel()
                         }
                         else -> {
+                            Text("PROGRAM PREVIEW", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            StudioPreviewSurface(
+                                previewReady = studioPreviewReady,
+                                isStreaming = isStreaming,
+                                onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
+                                onStop = onStopStudioPreview,
+                                onChangeSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
+                            )
                             if (isStreaming) {
                                 if (showLiveDashboard) LiveDashboard(
                                     elapsed = elapsedSeconds, bitrate = bitrate, resolution = liveResolution,
@@ -475,12 +483,20 @@ fun StudioPreviewSurface(
                 update = { StreamService.previewView = it },
                 modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
             )
-            if (!isStreaming) {
-                Surface(color = Color(0xDD101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
+            if (!isStreaming && !previewReady) {
+                Surface(color = Color(0xEE101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("PROGRAM PREVIEW", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp)
-                        Text("Go LIVE to see the real output with your scene layers.", color = Muted, fontSize = 9.sp)
+                        Text("SEE YOUR STREAM HERE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                        Text("Check your game and scene before going live.", color = Muted, fontSize = 9.sp)
+                        Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) { Text("START PREVIEW", fontSize = 10.sp) }
                     }
+                }
+            } else if (!isStreaming && previewReady) {
+                Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                    Text("● PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                }
+                TextButton(onClick = onStop, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text("STOP PREVIEW", color = Muted, fontSize = 8.sp)
                 }
             } else {
                 Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
