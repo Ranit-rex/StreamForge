@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
@@ -115,6 +117,28 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                 native.rotate(item.rotation, rect.centerX(), rect.centerY())
                 paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
                 when (item.kind) {
+                    "background" -> {
+                        paint.style = Paint.Style.FILL
+                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(9, 15, 34), android.graphics.Color.rgb(35, 18, 62), Shader.TileMode.CLAMP)
+                        native.drawRect(rect, paint)
+                        paint.shader = null
+                        paint.color = android.graphics.Color.argb(55, 95, 135, 255)
+                        native.drawCircle(rect.right * .82f, rect.top + rect.height() * .22f, rect.height() * .22f, paint)
+                    }
+                    "frame" -> {
+                        paint.style = Paint.Style.STROKE
+                        paint.strokeWidth = (rect.width() * .008f).coerceIn(3f, 10f)
+                        paint.color = android.graphics.Color.rgb(89, 220, 255)
+                        native.drawRoundRect(rect, 24f, 24f, paint)
+                        paint.strokeWidth = (rect.width() * .0025f).coerceIn(1.5f, 4f)
+                        paint.color = android.graphics.Color.rgb(181, 112, 255)
+                        val corner = rect.width() * .10f
+                        native.drawLine(rect.left, rect.top + corner, rect.left, rect.top, paint)
+                        native.drawLine(rect.left, rect.top, rect.left + corner, rect.top, paint)
+                        native.drawLine(rect.right - corner, rect.bottom, rect.right, rect.bottom, paint)
+                        native.drawLine(rect.right, rect.bottom, rect.right, rect.bottom - corner, paint)
+                        paint.style = Paint.Style.FILL
+                    }
                     "screen" -> {
                         paint.style = Paint.Style.FILL
                         paint.color = android.graphics.Color.rgb(24, 39, 60)
@@ -193,6 +217,7 @@ fun SceneStudio(
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
     var selected by remember { mutableLongStateOf(-1L) }
     var addDialog by remember { mutableStateOf(false) }
+    var assetsDialog by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var sourceMessage by remember { mutableStateOf("") }
@@ -254,6 +279,21 @@ fun SceneStudio(
         sourceMessage = ""
         scenes[index] = current.copy(layers = current.layers + item)
         selected = item.id
+    }
+
+    fun addPreset(sceneName: String, title: String, subtitle: String) {
+        val stamp = System.nanoTime()
+        val presetLayers = listOf(
+            SceneLayer(stamp, "Gradient background", "background", sceneName, 0f, 0f, 1f, 1f, locked = true),
+            SceneLayer(stamp + 1, "Neon frame", "frame", "", .025f, .04f, .95f, .92f),
+            SceneLayer(stamp + 2, "Main title", "text", title, .10f, .40f, .80f, .16f),
+            SceneLayer(stamp + 3, "Subtitle", "text", subtitle, .14f, .57f, .72f, .10f)
+        )
+        scenes.add(SceneModel(stamp, sceneName, presetLayers))
+        active = scenes.lastIndex
+        selected = -1L
+        assetsDialog = false
+        sourceMessage = "Free overlay pack added. Import your own background or GIF from Add source."
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -432,6 +472,20 @@ fun SceneStudio(
                             } else {
                                 paint.style = Paint.Style.FILL
                                 when (item.kind) {
+                                    "background" -> {
+                                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(9, 15, 34), android.graphics.Color.rgb(35, 18, 62), Shader.TileMode.CLAMP)
+                                        native.drawRect(rect, paint)
+                                        paint.shader = null
+                                        paint.color = android.graphics.Color.argb(55, 95, 135, 255)
+                                        native.drawCircle(rect.right * .82f, rect.top + rect.height() * .22f, rect.height() * .22f, paint)
+                                    }
+                                    "frame" -> {
+                                        paint.style = Paint.Style.STROKE
+                                        paint.strokeWidth = 5f
+                                        paint.color = android.graphics.Color.rgb(89, 220, 255)
+                                        native.drawRoundRect(rect, 22f, 22f, paint)
+                                        paint.style = Paint.Style.FILL
+                                    }
                                     "screen" -> {
                                         paint.color = android.graphics.Color.rgb(15, 31, 52)
                                         native.drawRoundRect(rect, 12f, 12f, paint)
@@ -509,7 +563,7 @@ fun SceneStudio(
                         }
                     }
                 }
-                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; two fingers to zoom and rotate.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
                 if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFC46B), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
@@ -520,7 +574,10 @@ fun SceneStudio(
                 Text("LAYERS", color = Color.White, fontSize = 14.sp)
                 Text("Top layer appears above lower layers.", color = Color.Gray, fontSize = 10.sp)
             }
-            Button(onClick = { addDialog = true }) { Text("+ Add source") }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { assetsDialog = true }) { Text("FREE ASSETS") }
+                Button(onClick = { addDialog = true }) { Text("+ Add source") }
+            }
         }
         scene.layers.asReversed().forEach { item ->
             Surface(
@@ -617,6 +674,22 @@ fun SceneStudio(
         }
         Text("Unlock a layer. Drag it to move; drag the bottom-right dot with one finger to resize, or pinch with two fingers. Twist to rotate.", color = Color.Gray, fontSize = 9.sp)
     }
+
+    if (assetsDialog) AlertDialog(
+        onDismissRequest = { assetsDialog = false },
+        title = { Text("Free overlay assets") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Built-in 16:9 screens and borders. Add your own PNG, JPG or animated GIF from Add source.", color = Color.Gray, fontSize = 11.sp)
+            TextButton(onClick = { addPreset("Starting Soon", "STREAM STARTING SOON", "Thanks for waiting · We will be live shortly") }, modifier = Modifier.fillMaxWidth()) { Text("Starting Soon screen") }
+            TextButton(onClick = { addPreset("BRB", "BE RIGHT BACK", "Taking a short break · Stay tuned") }, modifier = Modifier.fillMaxWidth()) { Text("BRB screen") }
+            TextButton(onClick = { addPreset("Stream Ending", "THANKS FOR WATCHING", "Like · Follow · See you next time") }, modifier = Modifier.fillMaxWidth()) { Text("Stream Ending screen") }
+            TextButton(onClick = { addPreset("Neon Border", "YOUR STREAM", "Customise this title and add your own GIF") }, modifier = Modifier.fillMaxWidth()) { Text("Neon border overlay") }
+            TextButton(onClick = { assetsDialog = false; imagePicker.launch(arrayOf("image/gif")) }, modifier = Modifier.fillMaxWidth()) { Text("Import animated GIF overlay") }
+            TextButton(onClick = { assetsDialog = false; imagePicker.launch(arrayOf("image/png", "image/jpeg", "image/webp")) }, modifier = Modifier.fillMaxWidth()) { Text("Import image / frame") }
+        } },
+        confirmButton = { TextButton(onClick = { assetsDialog = false }) { Text("Close") } },
+        containerColor = Color(0xFF151B25), titleContentColor = Color.White, textContentColor = Color.White
+    )
 
     if (addDialog) AlertDialog(
         onDismissRequest = { addDialog = false }, title = { Text("Add to this scene") },
