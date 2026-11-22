@@ -136,9 +136,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
                     Triple(id, retriever, Triple(duration, settings, targetFps))
                 }.onFailure { error ->
-                    withContext(Dispatchers.Main) {
-                        videoErrors[id] = error.message?.take(72) ?: "Cannot open this video"
-                    }
+                    videoErrors[id] = error.message?.take(72) ?: "Cannot open this video"
                 }.getOrNull()
             }
         }
@@ -180,9 +178,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                                 }
                             }
                         }.onFailure { error ->
-                            withContext(Dispatchers.Main) {
-                                videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
-                            }
+                            videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
                         }.getOrNull()?.let { id to it }
                     }
                 }
