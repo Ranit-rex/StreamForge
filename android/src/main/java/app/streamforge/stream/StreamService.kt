@@ -660,22 +660,23 @@ class StreamService : Service(), ConnectChecker {
             canvas.restore()
         }
         filter.setSceneOverlayBitmap(bitmap)
+        val hasVideo = (0 until layers.length()).any { i ->
+            layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
+        }
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
             layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }
                 ?.optInt("fps", 60)?.coerceIn(5, 60)
-        }.maxOrNull() ?: 30
+        }.maxOrNull() ?: 5
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let {
                 it.optBoolean("visible", true) && (it.optString("kind") == "gif" || it.optString("kind") == "video" || it.optString("kind") == "timer")
             } == true
         }
+        // Match GL redraw cadence to the selected video decode rate; keep non-video overlays light.
+        stream?.getGlInterface()?.setForceRender(true, if (hasVideo) requestedVideoFps else 5)
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         if (hasAnimatedLayer && (streaming.value || recording.value || studioPreviewReady.value)) {
-            val hasVideo = (0 until layers.length()).any { i ->
-                layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
-            }
             val frameInterval = if (hasVideo) (1000L / requestedVideoFps).coerceAtLeast(16L) else 200L
-            stream?.getGlInterface()?.setForceRender(true, if (hasVideo) requestedVideoFps else 5)
             gifFrameHandler.postDelayed(gifFrameRunnable, frameInterval)
         }
     }
