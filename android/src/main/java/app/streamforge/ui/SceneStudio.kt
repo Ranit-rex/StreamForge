@@ -121,18 +121,26 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
+    val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     LaunchedEffect(videoSources) {
-        val sources = videoSources.mapNotNull { (id, uriString, settings) ->
-            runCatching {
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(context, Uri.parse(uriString))
-                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                val sourceFps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                    ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
-                val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
-                Triple(id, retriever, Triple(duration, settings, targetFps))
-            }.getOrNull()
+        videoErrors.clear()
+        val sources = withContext(Dispatchers.IO) {
+            videoSources.mapNotNull { (id, uriString, settings) ->
+                runCatching {
+                    val retriever = MediaMetadataRetriever()
+                    retriever.setDataSource(context, Uri.parse(uriString))
+                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                    val sourceFps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                        ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
+                    val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
+                    Triple(id, retriever, Triple(duration, settings, targetFps))
+                }.onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                        videoErrors[id] = error.message?.take(72) ?: "Cannot open this video"
+                    }
+                }.getOrNull()
+            }
         }
         val startedAt = SystemClock.elapsedRealtime()
         val lastDecodedAt = mutableMapOf<Long, Long>()
@@ -152,32 +160,34 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         val duration = metadata.first
                         val loop = metadata.second.first
                         val timeMs = if (loop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                        // Preview is rendered at 16:9 HD; decoding larger source frames
-                        // wastes memory bandwidth and creates avoidable GC pressure.
                         runCatching {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                                retriever.getScaledFrameAtTime(
-                                    timeMs * 1000L,
-                                    MediaMetadataRetriever.OPTION_CLOSEST,
-                                    previewWidth,
-                                    previewHeight
-                                )
+                            val timestampUs = timeMs * 1000L
+                            val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST, previewWidth, previewHeight)
+                                    ?: retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, previewWidth, previewHeight)
                             } else {
-                                retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                                    ?.let { full ->
-                                        val scale = minOf(1f, previewWidth.toFloat() / full.width, previewHeight.toFloat() / full.height)
-                                        if (scale < 1f) Bitmap.createScaledBitmap(
-                                            full,
-                                            (full.width * scale).toInt().coerceAtLeast(1),
-                                            (full.height * scale).toInt().coerceAtLeast(1),
-                                            true
-                                        ).also { if (it !== full && !full.isRecycled) full.recycle() } else full
-                                    }
+                                retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST)
+                                    ?: retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            }
+                            frame?.let { decoded ->
+                                if (decoded.width <= previewWidth && decoded.height <= previewHeight) decoded
+                                else {
+                                    val scale = minOf(1f, previewWidth.toFloat() / decoded.width, previewHeight.toFloat() / decoded.height)
+                                    Bitmap.createScaledBitmap(decoded,
+                                        (decoded.width * scale).toInt().coerceAtLeast(1),
+                                        (decoded.height * scale).toInt().coerceAtLeast(1), true
+                                    ).also { if (it !== decoded && !decoded.isRecycled) decoded.recycle() }
+                                }
+                            }
+                        }.onFailure { error ->
+                            withContext(Dispatchers.Main) {
+                                videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
                             }
                         }.getOrNull()?.let { id to it }
                     }
                 }
                 frames.forEach { (id, frame) ->
+                    videoErrors.remove(id)
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
@@ -275,7 +285,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                             native.drawRoundRect(rect, 10f, 10f, paint)
                             paint.color = android.graphics.Color.WHITE
                             paint.textSize = (rect.height() * .12f).coerceIn(12f, 22f)
-                            native.drawText("VIDEO PREVIEW LOADING", rect.left + 8f, rect.centerY(), paint)
+                            native.drawText(if (videoErrors[item.id] != null) "VIDEO SOURCE ERROR" else "VIDEO PREVIEW LOADING", rect.left + 8f, rect.centerY(), paint)
                         }
                     }
                     "camera" -> {
