@@ -676,12 +676,26 @@ class StreamService : Service(), ConnectChecker {
                                     duration
                                 }
                                 val positionMs = if (shouldLoop) elapsedMs % durationMs else elapsedMs.coerceAtMost(durationMs - 1L)
-                                val decoded = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                // Decode directly to a bounded bitmap on modern Android. Some
+                                // phone galleries contain 4K/8K clips; decoding a full-size frame
+                                // for a small overlay can otherwise exhaust the app heap.
+                                val decoded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                    retriever.getScaledFrameAtTime(
+                                        positionMs * 1000L,
+                                        MediaMetadataRetriever.OPTION_CLOSEST,
+                                        480,
+                                        270
+                                    )
+                                } else {
+                                    retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                }
                                 if (decoded != null) {
-                                    val maxWidth = 640
+                                    val maxWidth = 480
                                     val frame = if (decoded.width > maxWidth) {
                                         val scaledHeight = (decoded.height * (maxWidth.toFloat() / decoded.width)).toInt().coerceAtLeast(1)
-                                        Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also { if (it !== decoded) decoded.recycle() }
+                                        Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also {
+                                            if (it !== decoded && !decoded.isRecycled) decoded.recycle()
+                                        }
                                     } else decoded
                                     synchronized(videoFrameLock) {
                                         videoFrameBitmaps.put(uriString, frame)?.let { previous ->
@@ -689,6 +703,13 @@ class StreamService : Service(), ConnectChecker {
                                         }
                                     }
                                 }
+                            } catch (_: OutOfMemoryError) {
+                                // A malformed/oversized source must not take down the whole app.
+                                synchronized(videoFrameLock) {
+                                    videoFrameBitmaps.remove(uriString)?.let { if (!it.isRecycled) it.recycle() }
+                                }
+                                videoDurationMs.remove(uriString)
+                                videoSourceFps.remove(uriString)
                             } catch (_: Exception) {
                                 // Keep displaying the last successfully decoded frame.
                             } finally {
