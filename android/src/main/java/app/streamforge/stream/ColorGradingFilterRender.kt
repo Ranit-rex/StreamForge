@@ -30,6 +30,8 @@ class ColorGradingFilterRender : BaseFilterRender() {
     private var uResolution = -1
     private var uOverlay = -1
     private var uScreenRect = -1
+    private var uScreenRotation = -1
+    private var uScreenCrop = -1
     private var overlayTextureId = -1
     @Volatile private var sceneOverlayBitmap: Bitmap? = null
     @Volatile private var overlayVersion = 0
@@ -44,6 +46,11 @@ class ColorGradingFilterRender : BaseFilterRender() {
     @Volatile private var screenY = 0f
     @Volatile private var screenWidth = 1f
     @Volatile private var screenHeight = 1f
+    @Volatile private var screenRotation = 0f
+    @Volatile private var cropLeft = 0f
+    @Volatile private var cropTop = 0f
+    @Volatile private var cropRight = 1f
+    @Volatile private var cropBottom = 1f
 
     private val vertices = floatArrayOf(
         -1f, -1f, 0f, 0f, 0f,
@@ -70,6 +77,8 @@ class ColorGradingFilterRender : BaseFilterRender() {
             uniform sampler2D uOverlay;
             uniform mat4 uSTMatrix;
             uniform vec4 uScreenRect;
+            uniform float uScreenRotation;
+            uniform vec4 uScreenCrop;
             varying vec2 vTextureCoord;
 
             void main() {
@@ -78,7 +87,11 @@ class ColorGradingFilterRender : BaseFilterRender() {
                 vec2 localTop = (outputTop - uScreenRect.xy) / max(uScreenRect.zw, vec2(0.001));
                 bool insideScreen = outputTop.x >= uScreenRect.x && outputTop.y >= uScreenRect.y &&
                     outputTop.x <= uScreenRect.x + uScreenRect.z && outputTop.y <= uScreenRect.y + uScreenRect.w;
-                vec2 transformedUv = (uSTMatrix * vec4(localTop.x, 1.0 - localTop.y, 0.0, 1.0)).xy;
+                float angle = radians(uScreenRotation);
+                vec2 centered = localTop - vec2(0.5);
+                vec2 rotated = vec2(centered.x * cos(angle) - centered.y * sin(angle), centered.x * sin(angle) + centered.y * cos(angle)) + vec2(0.5);
+                vec2 cropped = mix(uScreenCrop.xy, uScreenCrop.zw, rotated);
+                vec2 transformedUv = (uSTMatrix * vec4(cropped.x, 1.0 - cropped.y, 0.0, 1.0)).xy;
                 vec2 sourceUv = mix(vTextureCoord, transformedUv, 0.99999);
                 vec4 center = insideScreen ? texture2D(uSampler, sourceUv) : vec4(0.025, 0.035, 0.055, 1.0);
                 vec3 up = insideScreen ? texture2D(uSampler, sourceUv + vec2(0.0, texel.y)).rgb : center.rgb;
@@ -110,6 +123,8 @@ class ColorGradingFilterRender : BaseFilterRender() {
         uResolution = GLES20.glGetUniformLocation(program, "uResolution")
         uOverlay = GLES20.glGetUniformLocation(program, "uOverlay")
         uScreenRect = GLES20.glGetUniformLocation(program, "uScreenRect")
+        uScreenRotation = GLES20.glGetUniformLocation(program, "uScreenRotation")
+        uScreenCrop = GLES20.glGetUniformLocation(program, "uScreenCrop")
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         overlayTextureId = textures[0]
@@ -142,6 +157,8 @@ class ColorGradingFilterRender : BaseFilterRender() {
         GLES20.glUniform1f(uSharpness, sharpness)
         GLES20.glUniform2f(uResolution, getWidth().toFloat(), getHeight().toFloat())
         GLES20.glUniform4f(uScreenRect, screenX, screenY, screenWidth, screenHeight)
+        GLES20.glUniform1f(uScreenRotation, screenRotation)
+        GLES20.glUniform4f(uScreenCrop, cropLeft, cropTop, cropRight, cropBottom)
         val requestedOverlayVersion = overlayVersion
         if (requestedOverlayVersion != uploadedOverlayVersion) {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
@@ -189,6 +206,14 @@ class ColorGradingFilterRender : BaseFilterRender() {
         screenY = y.coerceIn(0f, 0.999f)
         screenWidth = width.coerceIn(0.001f, 1f - screenX)
         screenHeight = height.coerceIn(0.001f, 1f - screenY)
+    }
+
+    fun setScreenTransform(rotation: Float, left: Float, top: Float, right: Float, bottom: Float) {
+        screenRotation = rotation
+        cropLeft = left.coerceIn(0f, 0.98f)
+        cropTop = top.coerceIn(0f, 0.98f)
+        cropRight = right.coerceIn(cropLeft + 0.01f, 1f)
+        cropBottom = bottom.coerceIn(cropTop + 0.01f, 1f)
     }
 
     fun setSceneOverlayBitmap(bitmap: Bitmap?) {
