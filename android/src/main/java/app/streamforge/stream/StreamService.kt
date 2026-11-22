@@ -106,6 +106,7 @@ class StreamService : Service(), ConnectChecker {
     private var mixedAudioSource: MixAudioSource? = null
     private var colorGradingFilter: ColorGradingFilterRender? = null
     private var projection: MediaProjection? = null
+    private var activeScreenSource: ScreenSource? = null
     private var recordFile: File? = null
     private var requestedVideoBitrate = 4_500_000
     private var adaptiveBitrateEnabled = true
@@ -201,6 +202,29 @@ class StreamService : Service(), ConnectChecker {
         throw IllegalStateException("This device has no compatible H.264 screen encoder profile")
     }
 
+    /** Keep app-window capture dimensions in sync with Android's selected-content picker. */
+    private fun createScreenSource(activeProjection: MediaProjection): ScreenSource {
+        val callback = object : MediaProjection.Callback() {
+            override fun onCapturedContentResize(width: Int, height: Int) {
+                if (width > 0 && height > 0) {
+                    runCatching { activeScreenSource?.resize(width, height) }
+                    status.value = "Captured app · ${width}×${height}"
+                }
+            }
+
+            override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                status.value = if (isVisible) {
+                    "Selected app visible"
+                } else {
+                    "Selected app is hidden · return to it to restore preview"
+                }
+            }
+        }
+        return ScreenSource(applicationContext, activeProjection, callback).also {
+            activeScreenSource = it
+        }
+    }
+
     private fun startStudioPreview(intent: Intent) {
         if (streaming.value || recording.value || studioPreviewReady.value) return
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
@@ -235,7 +259,7 @@ class StreamService : Service(), ConnectChecker {
             val prepared = stream?.prepareVideo(profile.width, profile.height, 4_500_000.coerceIn(profile.minBitrate, profile.maxBitrate), profile.fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("Could not prepare the preview encoder")
             stream?.getGlInterface()?.setCameraOrientation(0)
-            stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            stream?.changeVideoSource(createScreenSource(projection!!))
             configureAudioMix()
             installColorFilters()
             studioPreviewReady.value = true
@@ -256,6 +280,7 @@ class StreamService : Service(), ConnectChecker {
         runCatching { stream?.let { if (it.isOnPreview) it.stopPreview() } }
         projection?.stop()
         projection = null
+        activeScreenSource = null
         studioPreviewReady.value = false
         colorGradingFilter = null
         status.value = "Preview stopped"
@@ -311,7 +336,7 @@ class StreamService : Service(), ConnectChecker {
                 val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
                 if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} @ ${profile.fps} FPS. Choose a lower preset.")
                 stream?.getGlInterface()?.setCameraOrientation(0)
-                stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+                stream?.changeVideoSource(createScreenSource(projection!!))
                 configureAudioMix()
                 installColorFilters()
             } else {
@@ -510,7 +535,7 @@ class StreamService : Service(), ConnectChecker {
             val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} recording. Choose a lower preset.")
             stream?.getGlInterface()?.setCameraOrientation(0)
-            stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            stream?.changeVideoSource(createScreenSource(projection!!))
             configureAudioMix()
             installColorFilters()
             startRecording()
@@ -579,6 +604,7 @@ class StreamService : Service(), ConnectChecker {
         YouTubeLiveChat.stop()
         projection?.stop()
         projection = null
+        activeScreenSource = null
         status.value = finalStatus
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -966,6 +992,7 @@ class StreamService : Service(), ConnectChecker {
         colorGradingFilter = null
         projection?.stop()
         projection = null
+        activeScreenSource = null
         studioPreviewReady.value = false
         super.onDestroy()
     }
