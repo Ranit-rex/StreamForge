@@ -117,6 +117,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         }.toMap()
     }
     val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
+    val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     val videoSources = remember(scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
