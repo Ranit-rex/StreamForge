@@ -62,6 +62,7 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_START_STUDIO_PREVIEW = "app.streamforge.START_STUDIO_PREVIEW"
         const val ACTION_STOP_STUDIO_PREVIEW = "app.streamforge.STOP_STUDIO_PREVIEW"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
+        const val ACTION_TOGGLE_RECORDING_PAUSE = "app.streamforge.TOGGLE_RECORDING_PAUSE"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
         const val ACTION_APPLY_SCENE = "app.streamforge.APPLY_SCENE"
         const val EXTRA_SCENE_INDEX = "scene_index"
@@ -91,6 +92,7 @@ class StreamService : Service(), ConnectChecker {
         val status = MutableStateFlow("Ready")
         val streaming = MutableStateFlow(false)
         val recording = MutableStateFlow(false)
+        val recordingPaused = MutableStateFlow(false)
         val studioPreviewReady = MutableStateFlow(false)
         val recordingStartedAt = MutableStateFlow(0L)
         val bitrateKbps = MutableStateFlow(0L)
@@ -182,6 +184,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_START_RECORDING -> startRecording()
             ACTION_START_LOCAL_RECORDING -> startLocalRecording(intent)
             ACTION_STOP_RECORDING -> stopRecording()
+            ACTION_TOGGLE_RECORDING_PAUSE -> toggleRecordingPause()
             ACTION_PREVIEW_SURFACE_READY -> attachPreviewSurface(intent)
             ACTION_STOP_PREVIEW -> detachPreviewSurface(intent)
             ACTION_TOGGLE_MIC -> toggleMicrophone()
@@ -755,10 +758,34 @@ class StreamService : Service(), ConnectChecker {
             }
     }
 
+    private fun toggleRecordingPause() {
+        val activeStream = stream ?: return
+        if (!recording.value || !activeStream.isRecording) return
+        runCatching {
+            if (recordingPaused.value) {
+                activeStream.resumeRecord()
+                recordingStartedAt.value += (System.currentTimeMillis() - recordingPauseStartedAt).coerceAtLeast(0L)
+                recordingPauseStartedAt = 0L
+                recordingPaused.value = false
+                status.value = "Recording resumed"
+            } else {
+                activeStream.pauseRecord()
+                recordingPauseStartedAt = System.currentTimeMillis()
+                recordingPaused.value = true
+                status.value = "Recording paused"
+            }
+            updateOngoingNotification(if (recordingPaused.value) "Recording paused" else "Recording resumed")
+        }.onFailure { status.value = "Could not change recording state: ${it.message ?: "recording error"}" }
+    }
+
+    private var recordingPauseStartedAt = 0L
+
     private fun stopRecording() {
         val activeStream = stream
         if (activeStream?.isRecording == true) activeStream.stopRecord()
         recording.value = false
+        recordingPaused.value = false
+        recordingPauseStartedAt = 0L
         recordingStartedAt.value = 0L
         status.value = if (streaming.value) "LIVE" else "Recording saved"
         if (streaming.value) updateOngoingNotification("LIVE · Streaming active")
