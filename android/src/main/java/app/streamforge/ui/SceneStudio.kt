@@ -89,6 +89,7 @@ fun SceneStudio(
         mutableStateListOf<SceneModel>().apply {
             val loaded = decodeSceneList(prefs.getString("scenes", "") ?: "")
             val needsMigration = prefs.getInt("scene_layout_version", 0) < 2
+            val resetLegacyDefaults = prefs.getInt("scene_layout_version", 0) < 3 && loaded.map { it.name } == listOf("Starting Soon", "Gameplay", "BRB", "Ending")
             val normalized = if (needsMigration) loaded.map { savedScene ->
                 savedScene.copy(layers = savedScene.layers.map { savedLayer ->
                     when (savedLayer.kind) {
@@ -100,8 +101,8 @@ fun SceneStudio(
                     }
                 })
             } else loaded
-            addAll(normalized)
-            if (needsMigration) prefs.edit().putInt("scene_layout_version", 2).apply()
+            addAll(if (resetLegacyDefaults) sceneDefaults() else normalized)
+            if (needsMigration || resetLegacyDefaults) prefs.edit().putInt("scene_layout_version", 3).apply()
         }
     }
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
@@ -276,14 +277,28 @@ fun SceneStudio(
                             val left = item.x * size.width
                             val top = item.y * size.height
                             val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
+                            native.save()
+                            native.rotate(item.rotation, rect.centerX(), rect.centerY())
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
                             val importedBitmap = if (item.kind == "image" || item.kind == "gif") imageBitmaps[item.id] else null
                             if (importedBitmap != null) {
                                 paint.style = Paint.Style.FILL
-                                native.drawBitmap(importedBitmap, null, rect, paint)
+                                native.drawBitmap(importedBitmap, android.graphics.Rect((importedBitmap.width * item.cropLeft).toInt(), (importedBitmap.height * item.cropTop).toInt(), (importedBitmap.width * item.cropRight).toInt().coerceAtLeast(1), (importedBitmap.height * item.cropBottom).toInt().coerceAtLeast(1)), rect, paint)
                             } else {
                                 paint.style = Paint.Style.FILL
                                 when (item.kind) {
+                                    "screen" -> {
+                                        paint.color = android.graphics.Color.rgb(15, 31, 52)
+                                        native.drawRoundRect(rect, 12f, 12f, paint)
+                                        paint.color = android.graphics.Color.rgb(63, 106, 167)
+                                        paint.strokeWidth = 3f
+                                        paint.style = Paint.Style.STROKE
+                                        native.drawRoundRect(rect, 12f, 12f, paint)
+                                        paint.style = Paint.Style.FILL
+                                        paint.color = android.graphics.Color.WHITE
+                                        paint.textSize = (rect.height() * .055f).coerceIn(11f, 22f)
+                                        native.drawText("▣  GAME CAPTURE  ·  SCREEN SOURCE", rect.left + 12f, rect.top + 24f, paint)
+                                    }
                                     "text" -> {
                                         paint.color = android.graphics.Color.WHITE
                                         paint.textSize = (rect.height() * .58f).coerceIn(12f, 48f)
@@ -329,6 +344,7 @@ fun SceneStudio(
                                 native.drawCircle(rect.right, rect.bottom, 4f, paint)
                             }
                             paint.style = Paint.Style.FILL
+                            native.restore()
                         }
                     }
                 }
