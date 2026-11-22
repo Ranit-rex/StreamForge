@@ -150,6 +150,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         try {
             while (isActive && sources.isNotEmpty()) {
                 val now = SystemClock.elapsedRealtime()
+                val frameErrors = mutableMapOf<Long, String>()
                 val frames = withContext(Dispatchers.IO) {
                     sources.mapNotNull { (id, retriever, metadata) ->
                         val frameInterval = (1000L / metadata.third.coerceIn(5, 60)).coerceAtLeast(16L)
@@ -185,12 +186,11 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                                 }
                             }
                         }.onFailure { error ->
-                            withContext(Dispatchers.Main.immediate) {
-                                videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
-                            }
+                            frameErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
                         }.getOrNull()?.let { id to it }
                     }
                 }
+                videoErrors.putAll(frameErrors)
                 if (frames.isNotEmpty()) {
                     frames.forEach { (id, frame) ->
                         videoErrors.remove(id)
