@@ -49,7 +49,7 @@ private data class SceneLayer(
     val visible: Boolean = true, val locked: Boolean = false,
     val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
-    val loop: Boolean = true, val fps: Int = 30
+    val loop: Boolean = true, val fps: Int = 5
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -86,7 +86,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", 15).coerceIn(5, 15))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 60 else 5).coerceIn(5, 60))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -316,7 +316,7 @@ fun SceneStudio(
             runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val idx = active.coerceIn(0, scenes.lastIndex)
             val current = scenes[idx]
-            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f)
+            val layer = SceneLayer(System.nanoTime(), "VIDEO ${current.layers.count { it.kind == "video" } + 1}", "video", uri.toString(), .12f, .12f, .42f, .32f, fps = 60)
             scenes[idx] = current.copy(layers = current.layers + layer)
             selected = layer.id
         }
@@ -731,9 +731,14 @@ fun SceneStudio(
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
                         if (layer.kind == "video") {
-                            Text("VIDEO FPS LIMIT · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp)
-                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = value.toInt().coerceIn(5, 15)) } }, valueRange = 5f..15f, steps = 9)
-                            Text("Overlay playback is capped at 15 FPS to reduce heat, lag and crashes. Main screen capture keeps its own FPS.", color = Color.Gray, fontSize = 10.sp)
+                            Text("VIDEO DECODE · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = (value / 5f).toInt().coerceIn(1, 12) * 5) } }, valueRange = 5f..60f, steps = 10)
+                            if (layer.fps > 15) {
+                                Text("⚠ High decode rate: above 15 FPS can increase heat, battery use and dropped frames. Video can use up to 60 FPS when your device can keep up.", color = Color(0xFFFFC46B), fontSize = 10.sp, lineHeight = 14.sp)
+                            } else {
+                                Text("For smooth, efficient video choose the rate your device can sustain. Non-video overlays and animated elements work best at 5 FPS.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
+                            }
+                            Text("Other overlays: 5 FPS recommended. Video decode maximum: 60 FPS.", color = Color(0xFFFF8659), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
