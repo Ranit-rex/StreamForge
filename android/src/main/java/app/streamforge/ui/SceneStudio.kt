@@ -168,9 +168,9 @@ fun SceneStudio(
         selected = item.id
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("PROGRAM PREVIEW", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text("PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
             Text("LIVE OUTPUT", color = Color(0xFF9DB4FF), fontSize = 9.sp)
         }
         StudioPreviewSurface(
@@ -181,8 +181,7 @@ fun SceneStudio(
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("SCENES", color = Color.White, fontSize = 18.sp)
-                Text("Select a scene and edit its layers.", color = Color(0xFF9AA6B8), fontSize = 10.sp)
+                Text("SCENES", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
             Button(onClick = {
                 scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
@@ -197,9 +196,9 @@ fun SceneStudio(
         }
 
         Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("SCENE LAYOUT", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                    Text("LAYOUT", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
                     Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
                 }
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" }.map { it.id to it.text }) {
