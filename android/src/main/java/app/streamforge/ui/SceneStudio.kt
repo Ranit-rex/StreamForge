@@ -653,6 +653,23 @@ fun SceneStudio(
                             paint.style = Paint.Style.FILL
                             native.restore()
                         }
+                        // Persistent bordered label makes the lower edit canvas
+                        // unmistakably the video/overlay composition area.
+                        val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.rgb(21, 25, 29)
+                            style = Paint.Style.FILL
+                        }
+                        val badge = RectF(12f, 12f, 174f, 42f)
+                        native.drawRoundRect(badge, 8f, 8f, badgePaint)
+                        badgePaint.style = Paint.Style.STROKE
+                        badgePaint.strokeWidth = 2f
+                        badgePaint.color = android.graphics.Color.rgb(255, 106, 53)
+                        native.drawRoundRect(badge, 8f, 8f, badgePaint)
+                        badgePaint.style = Paint.Style.FILL
+                        badgePaint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
+                        badgePaint.textSize = 12f
+                        badgePaint.color = android.graphics.Color.WHITE
+                        native.drawText("VIDEO / OVERLAYS", 23f, 31f, badgePaint)
                     }
                 }
                 Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
