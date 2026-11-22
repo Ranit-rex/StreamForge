@@ -9,6 +9,12 @@ import android.graphics.RectF
 import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.net.Uri
+import android.media.MediaMetadataRetriever
+import android.os.SystemClock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -109,6 +115,45 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                 .getOrNull()?.let { item.id to it }
         }.toMap()
     }
+    val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
+    val videoSources = remember(scene.layers.map { Triple(it.id, it.kind, it.text to it.loop) }) {
+        scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
+            .map { Triple(it.id, it.text, it.loop) }
+    }
+    LaunchedEffect(videoSources) {
+        val sources = videoSources.mapNotNull { (id, uriString, loop) ->
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(context, Uri.parse(uriString))
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                Triple(id, retriever, Pair(duration, loop))
+            }.getOrNull()
+        }
+        val startedAt = SystemClock.elapsedRealtime()
+        try {
+            while (isActive && sources.isNotEmpty()) {
+                val frames = withContext(Dispatchers.IO) {
+                    sources.mapNotNull { (id, retriever, settings) ->
+                        val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+                        val duration = settings.first
+                        val timeMs = if (settings.second) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        runCatching {
+                            retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                        }.getOrNull()?.let { id to it }
+                    }
+                }
+                frames.forEach { (id, frame) ->
+                    val previous = videoFrames.put(id, frame)
+                    if (previous !== frame && previous?.isRecycled == false) previous.recycle()
+                }
+                delay(250L)
+            }
+        } finally {
+            sources.forEach { runCatching { it.second.release() } }
+            videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
+            videoFrames.clear()
+        }
+    }
     Canvas(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
         drawRect(Color(0xFF101827))
         drawIntoCanvas { canvas ->
@@ -178,6 +223,25 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         )
                         paint.style = Paint.Style.FILL
                         native.drawBitmap(bitmap, src, rect, paint)
+                    }
+                    "video" -> {
+                        val frame = videoFrames[item.id]
+                        paint.style = Paint.Style.FILL
+                        if (frame != null && !frame.isRecycled) {
+                            val src = android.graphics.Rect(
+                                (frame.width * item.cropLeft).toInt().coerceIn(0, frame.width - 1),
+                                (frame.height * item.cropTop).toInt().coerceIn(0, frame.height - 1),
+                                (frame.width * item.cropRight).toInt().coerceIn(1, frame.width),
+                                (frame.height * item.cropBottom).toInt().coerceIn(1, frame.height)
+                            )
+                            native.drawBitmap(frame, src, rect, paint)
+                        } else {
+                            paint.color = android.graphics.Color.rgb(48, 65, 90)
+                            native.drawRoundRect(rect, 10f, 10f, paint)
+                            paint.color = android.graphics.Color.WHITE
+                            paint.textSize = (rect.height() * .12f).coerceIn(12f, 22f)
+                            native.drawText("VIDEO PREVIEW LOADING", rect.left + 8f, rect.centerY(), paint)
+                        }
                     }
                     "camera" -> {
                         paint.style = Paint.Style.FILL
