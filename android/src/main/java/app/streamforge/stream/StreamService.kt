@@ -63,6 +63,9 @@ class StreamService : Service(), ConnectChecker {
         const val EXTRA_SCENE_INDEX = "scene_index"
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
         const val ACTION_STOP_PREVIEW = "app.streamforge.STOP_PREVIEW"
+        const val ACTION_CHANGE_CAPTURE_SOURCE = "app.streamforge.CHANGE_CAPTURE_SOURCE"
+        const val EXTRA_PREVIEW_GENERATION = "preview_surface_generation"
+        @Volatile var previewSurfaceGeneration = 0
         const val ACTION_TOGGLE_MIC = "app.streamforge.TOGGLE_MIC"
         const val ACTION_UPDATE_AUDIO_MIX = "app.streamforge.UPDATE_AUDIO_MIX"
         const val EXTRA_MIC_GAIN = "audio_mic_gain"
@@ -155,13 +158,14 @@ class StreamService : Service(), ConnectChecker {
         when (intent?.action) {
             ACTION_START_STREAM -> startScreenStream(intent)
             ACTION_START_STUDIO_PREVIEW -> startStudioPreview(intent)
+            ACTION_CHANGE_CAPTURE_SOURCE -> changeCaptureSource(intent)
             ACTION_STOP_STUDIO_PREVIEW -> stopStudioPreview()
             ACTION_STOP_STREAM -> stopStream()
             ACTION_START_RECORDING -> startRecording()
             ACTION_START_LOCAL_RECORDING -> startLocalRecording(intent)
             ACTION_STOP_RECORDING -> stopRecording()
-            ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
-            ACTION_STOP_PREVIEW -> stream?.let { if (it.isOnPreview) it.stopPreview() }
+            ACTION_PREVIEW_SURFACE_READY -> attachPreviewSurface(intent)
+            ACTION_STOP_PREVIEW -> detachPreviewSurface(intent)
             ACTION_TOGGLE_MIC -> toggleMicrophone()
             ACTION_UPDATE_AUDIO_MIX -> updateAudioMix(
                 intent.getFloatExtra(EXTRA_MIC_GAIN, microphoneGain.value),
@@ -352,6 +356,44 @@ class StreamService : Service(), ConnectChecker {
         } catch (error: Exception) {
             stopStream("Could not start: ${error.message ?: error.javaClass.simpleName}")
         }
+    }
+
+    private fun attachPreviewSurface(intent: Intent) {
+        val generation = intent.getIntExtra(EXTRA_PREVIEW_GENERATION, -1)
+        if (generation != previewSurfaceGeneration) return
+        val activeStream = stream ?: return
+        if (activeStream.isOnPreview) runCatching { activeStream.stopPreview() }
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (generation == previewSurfaceGeneration && previewView?.isAvailable == true) startPreviewIfAvailable()
+        }, 120L)
+    }
+
+    private fun detachPreviewSurface(intent: Intent) {
+        val generation = intent.getIntExtra(EXTRA_PREVIEW_GENERATION, -1)
+        if (generation != previewSurfaceGeneration) return
+        runCatching { stream?.let { if (it.isOnPreview) it.stopPreview() } }
+    }
+
+    private fun changeCaptureSource(intent: Intent) {
+        val wasStreaming = streaming.value
+        if (recording.value) {
+            status.value = "Stop local recording before changing capture source"
+            return
+        }
+        if (wasStreaming) {
+            runCatching { stream?.let { if (it.isStreaming) it.stopStream() } }
+            streaming.value = false
+            streamStartedAt.value = 0L
+            hideFloatingControls()
+            YouTubeLiveChat.stop()
+        } else {
+            runCatching { stream?.let { if (it.isOnPreview) it.stopPreview() } }
+        }
+        projection?.stop()
+        projection = null
+        activeScreenSource = null
+        studioPreviewReady.value = false
+        if (wasStreaming) startScreenStream(intent) else startStudioPreview(intent)
     }
 
     private fun startPreviewIfAvailable() {
