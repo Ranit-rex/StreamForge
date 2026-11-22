@@ -52,6 +52,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 
 class StreamService : Service(), ConnectChecker {
     companion object {
@@ -127,10 +129,15 @@ class StreamService : Service(), ConnectChecker {
     private var activeSceneIndex = 0
     private val gifMovies = mutableMapOf<String, Movie>()
     private val sceneImages = mutableMapOf<String, Bitmap>()
-    private val videoRetrievers = mutableMapOf<String, MediaMetadataRetriever>()
-    private val videoStartedAt = mutableMapOf<String, Long>()
-    private val videoFrameBitmaps = mutableMapOf<String, Bitmap>()
-    private val videoLastFrameAt = mutableMapOf<String, Long>()
+    // Decode video frames away from the main/GL scheduling path. Only the newest
+    // decoded frame is retained for each overlay so slow devices can skip frames.
+    private val videoDecodeExecutor = Executors.newSingleThreadExecutor()
+    private val videoDecodePending = ConcurrentHashMap.newKeySet<String>()
+    private val videoRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
+    private val videoStartedAt = ConcurrentHashMap<String, Long>()
+    private val videoFrameBitmaps = ConcurrentHashMap<String, Bitmap>()
+    private val videoLastFrameAt = ConcurrentHashMap<String, Long>()
+    private val videoFrameLock = Any()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
     private val gifFrameRunnable = object : Runnable {
@@ -618,26 +625,44 @@ class StreamService : Service(), ConnectChecker {
                 }
                 "video" -> {
                     val uriString = item.optString("text")
-                    val retriever = videoRetrievers[uriString] ?: runCatching {
-                        MediaMetadataRetriever().apply { setDataSource(this@StreamService, Uri.parse(uriString)) }
-                    }.getOrNull()?.also {
-                        videoRetrievers[uriString] = it
-                        videoStartedAt[uriString] = SystemClock.uptimeMillis()
-                    }
-                    if (retriever != null) {
-                        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                        val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
-                        val position = if (item.optBoolean("loop", true)) elapsed % durationMs else elapsed.coerceAtMost(durationMs - 1L)
-                        val targetFps = item.optInt("fps", 60).coerceIn(5, 60)
-                        val now = SystemClock.uptimeMillis()
-                        val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
-                        if (now - lastFrameAt >= (1000L / targetFps).coerceAtLeast(16L)) {
-                            val decoded = runCatching { retriever.getFrameAtTime(position * 1000L, MediaMetadataRetriever.OPTION_CLOSEST) }.getOrNull()
-                            if (decoded != null) {
-                                videoFrameBitmaps.put(uriString, decoded)?.let { previous -> if (!previous.isRecycled) previous.recycle() }
-                                videoLastFrameAt[uriString] = now
+                    val now = SystemClock.uptimeMillis()
+                    val startedAt = videoStartedAt.putIfAbsent(uriString, now) ?: now
+                    val targetFps = item.optInt("fps", 60).coerceIn(5, 60)
+                    val frameInterval = (1000L / targetFps).coerceAtLeast(16L)
+                    val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
+                    if (now - lastFrameAt >= frameInterval && videoDecodePending.add(uriString)) {
+                        videoLastFrameAt[uriString] = now
+                        val elapsedMs = (now - startedAt).coerceAtLeast(0L)
+                        val shouldLoop = item.optBoolean("loop", true)
+                        videoDecodeExecutor.execute {
+                            try {
+                                val retriever = videoRetrievers[uriString] ?: MediaMetadataRetriever().apply {
+                                    setDataSource(this@StreamService, Uri.parse(uriString))
+                                }.also { videoRetrievers[uriString] = it }
+                                val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                    ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                val positionMs = if (shouldLoop) elapsedMs % durationMs else elapsedMs.coerceAtMost(durationMs - 1L)
+                                val decoded = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                if (decoded != null) {
+                                    val maxWidth = 1280
+                                    val frame = if (decoded.width > maxWidth) {
+                                        val scaledHeight = (decoded.height * (maxWidth.toFloat() / decoded.width)).toInt().coerceAtLeast(1)
+                                        Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also { if (it !== decoded) decoded.recycle() }
+                                    } else decoded
+                                    synchronized(videoFrameLock) {
+                                        videoFrameBitmaps.put(uriString, frame)?.let { previous ->
+                                            if (previous !== frame && !previous.isRecycled) previous.recycle()
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) {
+                                // Keep displaying the last successfully decoded frame.
+                            } finally {
+                                videoDecodePending.remove(uriString)
                             }
                         }
+                    }
+                    synchronized(videoFrameLock) {
                         videoFrameBitmaps[uriString]?.takeIf { !it.isRecycled }?.let { frame ->
                             canvas.drawBitmap(frame, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha })
                         }
@@ -1224,8 +1249,11 @@ class StreamService : Service(), ConnectChecker {
         gifStartedAt.clear()
         videoRetrievers.values.forEach { runCatching { it.release() } }
         videoRetrievers.clear()
-        videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
-        videoFrameBitmaps.clear()
+        videoDecodeExecutor.shutdownNow()
+        synchronized(videoFrameLock) {
+            videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
+            videoFrameBitmaps.clear()
+        }
         videoLastFrameAt.clear()
         videoStartedAt.clear()
         sceneImages.values.forEach { if (!it.isRecycled) it.recycle() }
