@@ -145,16 +145,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                                 retriever.getScaledFrameAtTime(
                                     timeMs * 1000L,
                                     MediaMetadataRetriever.OPTION_CLOSEST,
-                                    480,
-                                    270
+                                    960,
+                                    540
                                 )
                             } else {
                                 retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                     ?.let { full ->
                                         Bitmap.createScaledBitmap(
                                             full,
-                                            480,
-                                            (full.height * (480f / full.width)).toInt().coerceAtLeast(1),
+                                            960,
+                                            (full.height * (960f / full.width)).toInt().coerceAtLeast(1),
                                             true
                                         ).also { if (it !== full && !full.isRecycled) full.recycle() }
                                     }
@@ -166,9 +166,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                // Keep the editor preview lightweight; the live compositor has its
-                // own frame cadence. 8 FPS is sufficient for a small editing thumbnail.
-                delay(125L)
+                // Keep the editor preview responsive without competing with the live compositor.
+                // 15 FPS avoids the visibly choppy 8 FPS thumbnail cadence.
+                delay(66L)
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
