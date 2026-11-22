@@ -155,7 +155,7 @@ class StreamService : Service(), ConnectChecker {
         return START_NOT_STICKY
     }
 
-    private data class EncoderProfile(val width: Int, val height: Int, val fps: Int)
+    private data class EncoderProfile(val width: Int, val height: Int, val fps: Int, val minBitrate: Int, val maxBitrate: Int)
 
     /** Resolve a supported H.264 profile; requested UI qualities are not hardware guarantees. */
     private fun resolveEncoderProfile(requestedWidth: Int, requestedHeight: Int, requestedFps: Int): EncoderProfile {
@@ -167,13 +167,13 @@ class StreamService : Service(), ConnectChecker {
         }
         for ((width, height) in sizes) {
             for (fps in listOf(requestedFps, 30, 24).distinct()) {
-                val supported = encoders.any { info ->
+                val caps = encoders.firstNotNullOfOrNull { info ->
                     runCatching {
-                        info.getCapabilitiesForType("video/avc").videoCapabilities
-                            .areSizeAndRateSupported(width, height, fps.toDouble())
-                    }.getOrDefault(false)
+                        val videoCaps = info.getCapabilitiesForType("video/avc").videoCapabilities
+                        if (videoCaps.areSizeAndRateSupported(width, height, fps.toDouble())) videoCaps else null
+                    }.getOrNull()
                 }
-                if (supported) return EncoderProfile(width, height, fps)
+                if (caps != null) return EncoderProfile(width, height, fps, caps.bitrateRange.lower, caps.bitrateRange.upper)
             }
         }
         throw IllegalStateException("This device has no compatible H.264 screen encoder profile")
@@ -214,13 +214,14 @@ class StreamService : Service(), ConnectChecker {
             projection = manager.getMediaProjection(resultCode, projectionData)
                 ?: throw IllegalStateException("Screen capture permission was not granted")
             val profile = resolveEncoderProfile(width, height, fps)
-            requestedVideoBitrate = bitrate
-            activeVideoBitrate = bitrate
+            val encoderBitrate = bitrate.coerceIn(profile.minBitrate, profile.maxBitrate)
+            requestedVideoBitrate = encoderBitrate
+            activeVideoBitrate = encoderBitrate
             adaptiveBitrateEnabled = getSharedPreferences("streamforge_studio", 0).getBoolean("adaptive_bitrate", true)
             lastBitrateAdjustmentAt = 0L
             stableNetworkSince = 0L
-            networkHealth.value = if (profile.width != width || profile.height != height || profile.fps != fps) {
-                "Device encoder limit · using ${profile.width}×${profile.height} @ ${profile.fps} FPS"
+            networkHealth.value = if (profile.width != width || profile.height != height || profile.fps != fps || encoderBitrate != bitrate) {
+                "Device encoder limit · ${profile.width}×${profile.height} @ ${profile.fps} FPS · ${encoderBitrate / 1_000_000f} Mbps"
             } else "Network monitoring"
             streamResolution.value = "${profile.width} × ${profile.height}"
             streamFps.value = profile.fps
@@ -228,7 +229,7 @@ class StreamService : Service(), ConnectChecker {
             activeStreamHeight = profile.height
             bitrateKbps.value = 0L
             stream?.forceBt709Color(true)
-            val prepared = stream?.prepareVideo(profile.width, profile.height, bitrate, profile.fps, rotation = 0) == true
+            val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} @ ${profile.fps} FPS. Choose a lower preset.")
             // MediaProjection already provides display orientation. RootEncoder otherwise
             // applies its camera orientation transform, which can produce a blank/white
@@ -734,6 +735,9 @@ class StreamService : Service(), ConnectChecker {
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+        if (recording.value && recordingStartedAt.value > 0L) {
+            builder.setWhen(recordingStartedAt.value).setUsesChronometer(true)
+        }
         if (recording.value) {
             val stopRecording = PendingIntent.getService(
                 this, 7402, Intent(this, StreamService::class.java).setAction(ACTION_STOP_RECORDING),
@@ -767,6 +771,7 @@ class StreamService : Service(), ConnectChecker {
         Handler(Looper.getMainLooper()).post { showFloatingControls() }
         YouTubeLiveChat.start(this)
         status.value = "LIVE"
+        updateOngoingNotification(if (recording.value) "LIVE · Local recording active" else "LIVE · Streaming active")
     }
     override fun onConnectionFailed(reason: String) {
         streaming.value = false
