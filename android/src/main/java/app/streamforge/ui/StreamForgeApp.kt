@@ -475,28 +475,19 @@ fun StudioPreviewSurface(
                 update = { StreamService.previewView = it },
                 modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
             )
-            if (!previewReady && !isStreaming) {
+            if (!isStreaming) {
                 Surface(color = Color(0xDD101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("PREVIEW OFF", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp)
-                        Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp), modifier = Modifier.height(34.dp)) {
-                            Text("START PREVIEW", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Text("PROGRAM PREVIEW", color = Color.White, fontWeight = FontWeight.Black, fontSize = 10.sp)
+                        Text("Go LIVE to see the real output with your scene layers.", color = Muted, fontSize = 9.sp)
                     }
                 }
             } else {
                 Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text(if (isStreaming) "● LIVE" else "● PREVIEW", color = if (isStreaming) LiveRed else Good, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text("● LIVE OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
-                Row(Modifier.align(Alignment.TopEnd), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    TextButton(onClick = onChangeSource, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
-                        Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                    }
-                    if (previewReady && !isStreaming) {
-                        TextButton(onClick = onStop, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
-                            Text("STOP", color = Color.White, fontSize = 8.sp)
-                        }
-                    }
+                TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                    Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
