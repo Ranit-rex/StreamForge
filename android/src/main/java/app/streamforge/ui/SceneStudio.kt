@@ -121,114 +121,57 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
-    val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     LaunchedEffect(videoSources) {
-        videoErrors.clear()
-        val openErrors = mutableMapOf<Long, String>()
-        // MediaMetadataRetriever may read lazily while extracting frames. Keep
-        // content-provider file descriptors alive until every retriever is released.
-        val videoDescriptors = mutableMapOf<Long, android.os.ParcelFileDescriptor>()
-        val sources = withContext(Dispatchers.IO) {
-            videoSources.mapNotNull { (id, uriString, settings) ->
-                runCatching {
-                    val retriever = MediaMetadataRetriever()
-                    val videoUri = Uri.parse(uriString)
-                    if (videoUri.scheme == "content") {
-                        val descriptor = context.contentResolver.openFileDescriptor(videoUri, "r")
-                            ?: throw IllegalStateException("Cannot open selected video file")
-                        try {
-                            retriever.setDataSource(descriptor.fileDescriptor)
-                            videoDescriptors[id] = descriptor
-                        } catch (error: Throwable) {
-                            runCatching { descriptor.close() }
-                            throw error
-                        }
-                    } else if (videoUri.scheme == "file") {
-                        retriever.setDataSource(videoUri.path ?: throw IllegalArgumentException("Invalid video file path"))
-                    } else {
-                        retriever.setDataSource(context, videoUri)
-                    }
-                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                    val sourceFps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                        ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
-                    val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
-                    Triple(id, retriever, Triple(duration, settings, targetFps))
-                }.onFailure { error ->
-                    openErrors[id] = error.message?.take(72) ?: "Cannot open this video"
-                }.getOrNull()
-            }
+        val sources = videoSources.mapNotNull { (id, uriString, settings) ->
+            runCatching {
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(context, Uri.parse(uriString))
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                Triple(id, retriever, Pair(duration, settings))
+            }.getOrNull()
         }
-        videoErrors.putAll(openErrors)
         val startedAt = SystemClock.elapsedRealtime()
-        val lastDecodedAt = mutableMapOf<Long, Long>()
-        val previewWidth = 960
-        val previewHeight = 540
-        val refreshDelay = (1000L / (sources.maxOfOrNull { it.third.third } ?: 30)).coerceIn(16L, 200L)
         try {
             while (isActive && sources.isNotEmpty()) {
-                val now = SystemClock.elapsedRealtime()
-                val frameErrors = mutableMapOf<Long, String>()
                 val frames = withContext(Dispatchers.IO) {
-                    sources.mapNotNull { (id, retriever, metadata) ->
-                        val frameInterval = (1000L / metadata.third.coerceIn(5, 60)).coerceAtLeast(16L)
-                        val previousDecode = lastDecodedAt[id] ?: Long.MIN_VALUE
-                        if (now - previousDecode < frameInterval) return@mapNotNull null
-                        lastDecodedAt[id] = now
-                        val elapsed = (now - startedAt).coerceAtLeast(0L)
-                        val duration = metadata.first
-                        val loop = metadata.second.first
-                        val timeMs = if (loop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                    sources.mapNotNull { (id, retriever, settings) ->
+                        val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+                        val duration = settings.first
+                        val timeMs = if (settings.second.first) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        // Program Preview is a small thumbnail surface. Never decode the
+                        // source at its native resolution (large 4K clips can exhaust heap).
                         runCatching {
-                            val timestampUs = timeMs * 1000L
-                            // Some Android vendor retrievers return null from getScaledFrameAtTime
-                            // without throwing. Try independent scaled, regular and first-sync-frame paths.
-                            val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                                runCatching { retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST, previewWidth, previewHeight) }.getOrNull()
-                                    ?: runCatching { retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, previewWidth, previewHeight) }.getOrNull()
-                                    ?: runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
-                                    ?: runCatching { retriever.getFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                retriever.getScaledFrameAtTime(
+                                    timeMs * 1000L,
+                                    MediaMetadataRetriever.OPTION_CLOSEST,
+                                    1920,
+                                    1080
+                                )
                             } else {
-                                runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST) }.getOrNull()
-                                    ?: runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
-                                    ?: runCatching { retriever.getFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                                retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                    ?.let { full ->
+                                        Bitmap.createScaledBitmap(
+                                            full,
+                                            1920,
+                                            (full.height * (1920f / full.width)).toInt().coerceAtLeast(1),
+                                            true
+                                        ).also { if (it !== full && !full.isRecycled) full.recycle() }
+                                    }
                             }
-                            frame?.let { decoded ->
-                                if (decoded.width <= previewWidth && decoded.height <= previewHeight) decoded
-                                else {
-                                    val scale = minOf(1f, previewWidth.toFloat() / decoded.width, previewHeight.toFloat() / decoded.height)
-                                    Bitmap.createScaledBitmap(decoded,
-                                        (decoded.width * scale).toInt().coerceAtLeast(1),
-                                        (decoded.height * scale).toInt().coerceAtLeast(1), true
-                                    ).also { if (it !== decoded && !decoded.isRecycled) decoded.recycle() }
-                                }
-                            }
-                        }.onFailure { error ->
-                            frameErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
                         }.getOrNull()?.let { id to it }
                     }
                 }
-                videoErrors.putAll(frameErrors)
-                if (frames.isNotEmpty()) {
-                    frames.forEach { (id, frame) ->
-                        videoErrors.remove(id)
-                        val previous = videoFrames.put(id, frame)
-                        if (previous !== frame && previous?.isRecycled == false) previous.recycle()
-                    }
-                } else if (sources.isNotEmpty()) {
-                    // A null decoder result is an error too; never leave the preview loading forever.
-                    sources.forEach { (id, _, _) ->
-                        if (videoFrames[id] == null && videoErrors[id] == null) {
-                            videoErrors[id] = "Android decoder returned no video frame"
-                        }
-                    }
+                frames.forEach { (id, frame) ->
+                    val previous = videoFrames.put(id, frame)
+                    if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                delay(refreshDelay)
+                // Target a 60 FPS preview refresh cadence. Actual decode FPS depends on
+                // device decoder throughput and source frame rate.
+                delay(16L)
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
-            videoDescriptors.values.forEach { runCatching { it.close() } }
-            videoDescriptors.clear()
             videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
             videoFrames.clear()
         }
