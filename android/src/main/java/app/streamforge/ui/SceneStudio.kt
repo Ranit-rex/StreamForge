@@ -33,15 +33,13 @@ import androidx.compose.ui.unit.sp
 private data class SceneLayer(
     val id: Long, val name: String, val kind: String, val text: String = "",
     val x: Float = .08f, val y: Float = .08f, val width: Float = .52f, val height: Float = .22f, val opacity: Float = 1f,
-    val visible: Boolean = true, val locked: Boolean = false
+    val visible: Boolean = true, val locked: Boolean = false,
+    val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
 private fun sceneDefaults() = listOf(
-    SceneModel(1, "Starting Soon", listOf(SceneLayer(11, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(12, "Main title", "text", "STREAM STARTING SOON", .12f, .4f, .48f, .16f))),
-    SceneModel(2, "Gameplay", listOf(SceneLayer(21, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(22, "Channel label", "text", "PLAYING LIVE • STREAMFORGE", .04f, .05f, .42f, .12f))),
-    SceneModel(3, "BRB", listOf(SceneLayer(31, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(32, "BRB title", "text", "BE RIGHT BACK", .2f, .42f, .45f, .16f))),
-    SceneModel(4, "Ending", listOf(SceneLayer(41, "Screen Capture", "screen", x=0f, y=0f, width=1f, height=1f), SceneLayer(42, "Ending title", "text", "THANKS FOR WATCHING", .12f, .4f, .52f, .16f)))
+    SceneModel(1, "Default", listOf(SceneLayer(11, "Game Capture", "screen", x=0f, y=0f, width=1f, height=1f, locked=true)))
 )
 
 private fun encodeSceneList(items: List<SceneModel>): String {
@@ -52,7 +50,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
             layers.put(JSONObject().apply {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
-                put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked)
+                put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -71,7 +69,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                 SceneLayer(item.optLong("id"), item.optString("name"), item.optString("kind"),
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
-                    item.optBoolean("visible", true), item.optBoolean("locked", false))
+                    item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat())
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -389,6 +387,20 @@ fun SceneStudio(
                         Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                         Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
                     } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFC46B) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
+                        OutlinedButton(onClick = { updateLayer(layer.id) { it.copy(locked = !it.locked) } }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
+                    }
+                    Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
+                    Slider(value = layer.rotation, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
+                    Text("Crop left · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropLeft, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropLeft = v.coerceIn(0f, it.cropRight - .02f)) } }, valueRange = 0f..0.95f)
+                    Text("Crop top · ${(layer.cropTop * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropTop, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropTop = v.coerceIn(0f, it.cropBottom - .02f)) } }, valueRange = 0f..0.95f)
+                    Text("Crop right · ${(layer.cropRight * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropRight, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropRight = v.coerceIn(it.cropLeft + .02f, 1f)) } }, valueRange = .05f..1f)
+                    Text("Crop bottom · ${(layer.cropBottom * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropBottom, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
