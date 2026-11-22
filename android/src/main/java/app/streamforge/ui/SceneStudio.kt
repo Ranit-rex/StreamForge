@@ -155,7 +155,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         }
     }
     Canvas(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
-        drawRect(Color(0xFF101827))
+        drawRect(Color(0xFF101316))
         drawIntoCanvas { canvas ->
             val native = canvas.nativeCanvas
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -170,19 +170,19 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                 when (item.kind) {
                     "background" -> {
                         paint.style = Paint.Style.FILL
-                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(9, 15, 34), android.graphics.Color.rgb(35, 18, 62), Shader.TileMode.CLAMP)
+                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(13, 15, 17), android.graphics.Color.rgb(53, 29, 21), Shader.TileMode.CLAMP)
                         native.drawRect(rect, paint)
                         paint.shader = null
-                        paint.color = android.graphics.Color.argb(55, 95, 135, 255)
+                        paint.color = android.graphics.Color.argb(55, 255, 106, 53)
                         native.drawCircle(rect.right * .82f, rect.top + rect.height() * .22f, rect.height() * .22f, paint)
                     }
                     "frame" -> {
                         paint.style = Paint.Style.STROKE
                         paint.strokeWidth = (rect.width() * .008f).coerceIn(3f, 10f)
-                        paint.color = android.graphics.Color.rgb(89, 220, 255)
+                        paint.color = android.graphics.Color.rgb(255, 106, 53)
                         native.drawRoundRect(rect, 24f, 24f, paint)
                         paint.strokeWidth = (rect.width() * .0025f).coerceIn(1.5f, 4f)
-                        paint.color = android.graphics.Color.rgb(181, 112, 255)
+                        paint.color = android.graphics.Color.rgb(255, 190, 145)
                         val corner = rect.width() * .10f
                         native.drawLine(rect.left, rect.top + corner, rect.left, rect.top, paint)
                         native.drawLine(rect.left, rect.top, rect.left + corner, rect.top, paint)
@@ -192,9 +192,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     }
                     "screen" -> {
                         paint.style = Paint.Style.FILL
-                        paint.color = android.graphics.Color.rgb(24, 39, 60)
+                        paint.color = android.graphics.Color.rgb(30, 37, 41)
                         native.drawRoundRect(rect, 12f, 12f, paint)
-                        paint.color = android.graphics.Color.rgb(105, 157, 255)
+                        paint.color = android.graphics.Color.rgb(255, 134, 89)
                         paint.textSize = (rect.height() * .15f).coerceIn(20f, 54f)
                         val title = "GAME CAPTURE"
                         native.drawText(title, rect.centerX() - paint.measureText(title) / 2f, rect.centerY() - 5f, paint)
@@ -385,7 +385,7 @@ fun SceneStudio(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
+            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO · UPDATES LIVE", color = Color(0xFFFF6A35), fontSize = 9.sp)
         }
         if (isStreaming) {
             StudioPreviewSurface(
@@ -414,7 +414,7 @@ fun SceneStudio(
             }
         }
 
-        Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("LAYOUT", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
@@ -430,7 +430,7 @@ fun SceneStudio(
                 }
                 Canvas(
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                        .background(Color(0xFF0B1220), RoundedCornerShape(9.dp))
+                        .background(Color(0xFF111518), RoundedCornerShape(9.dp))
                         .pointerInput(index) {
                             detectTapGestures { point ->
                                 val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
@@ -541,7 +541,7 @@ fun SceneStudio(
                         }
                 ) {
                     canvasWidth = size.width; canvasHeight = size.height
-                    drawRect(Color(0xFF111D30))
+                    drawRect(Color(0xFF20262B))
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
                         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) }
@@ -560,16 +560,16 @@ fun SceneStudio(
                                 paint.style = Paint.Style.FILL
                                 when (item.kind) {
                                     "background" -> {
-                                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(9, 15, 34), android.graphics.Color.rgb(35, 18, 62), Shader.TileMode.CLAMP)
+                                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(13, 15, 17), android.graphics.Color.rgb(53, 29, 21), Shader.TileMode.CLAMP)
                                         native.drawRect(rect, paint)
                                         paint.shader = null
-                                        paint.color = android.graphics.Color.argb(55, 95, 135, 255)
+                                        paint.color = android.graphics.Color.argb(55, 255, 106, 53)
                                         native.drawCircle(rect.right * .82f, rect.top + rect.height() * .22f, rect.height() * .22f, paint)
                                     }
                                     "frame" -> {
                                         paint.style = Paint.Style.STROKE
                                         paint.strokeWidth = 5f
-                                        paint.color = android.graphics.Color.rgb(89, 220, 255)
+                                        paint.color = android.graphics.Color.rgb(255, 106, 53)
                                         native.drawRoundRect(rect, 22f, 22f, paint)
                                         paint.style = Paint.Style.FILL
                                     }
@@ -655,9 +655,9 @@ fun SceneStudio(
                         }
                     }
                 }
-                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
-                if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFC46B), fontSize = 10.sp)
-                if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
+                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
+                if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFB27F), fontSize = 10.sp)
+                if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
             }
         }
 
@@ -673,12 +673,12 @@ fun SceneStudio(
         }
         scene.layers.asReversed().forEach { item ->
             Surface(
-                color = if (item.id == selected) Color(0xFF253A55) else Color(0xFF151B25),
+                color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF15191D),
                 shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth(),
                 onClick = { if (!item.locked) selected = item.id }
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (item.visible) "◉" else "○", color = Color(0xFF8EA5FF))
+                    Text(if (item.visible) "◉" else "○", color = Color(0xFFFF8659))
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(item.name + if (item.locked) "  ·  LOCKED" else "", color = Color.White, fontSize = 12.sp)
                         Text(if (item.kind == "screen") "YOUR PHONE / GAME SCREEN" else item.kind.uppercase(), color = Color.Gray, fontSize = 9.sp)
@@ -694,7 +694,7 @@ fun SceneStudio(
         }
 
         if (layer != null) {
-            Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
                     if (layer.kind == "text" || layer.kind == "timer") {
@@ -702,7 +702,7 @@ fun SceneStudio(
                             value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
                             label = { Text(if (layer.kind == "timer") "Timer label" else "Text shown on screen") }, modifier = Modifier.fillMaxWidth()
                         )
-                        Text("TEXT COLOR", color = Color(0xFFB8C5D8), fontSize = 9.sp)
+                        Text("TEXT COLOR", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("#FFFFFFFF", "#FFFFD166", "#FF68DDFD", "#FFFF6B8A", "#FF9BFFB0", "#FFB99CFF").forEach { hex ->
                                 Surface(
@@ -714,7 +714,7 @@ fun SceneStudio(
                                 ) {}
                             }
                         }
-                        Text("FONT", color = Color(0xFFB8C5D8), fontSize = 9.sp)
+                        Text("FONT", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             listOf("sans-serif" to "Modern", "serif" to "Serif", "monospace" to "Mono", "casual" to "Casual").forEach { (family, label) ->
                                 FilterChip(selected = layer.fontFamily == family, onClick = { updateLayer(layer.id) { it.copy(fontFamily = family) } }, label = { Text(label, fontSize = 10.sp) })
@@ -724,7 +724,7 @@ fun SceneStudio(
                         Slider(value = layer.fontSizeScale, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(fontSizeScale = v) } }, valueRange = .5f..2f)
                     }
                     if (layer.kind == "image" || layer.kind == "gif" || layer.kind == "video") {
-                        Text("${layer.kind.uppercase()} source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
+                        Text("${layer.kind.uppercase()} source added. Replace to choose another visual.", color = Color(0xFFA1A8AF), fontSize = 11.sp)
                         OutlinedButton(onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace media") }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Loop playback", color = Color.White, modifier = Modifier.weight(1f), fontSize = 11.sp)
@@ -734,7 +734,7 @@ fun SceneStudio(
                             Text("VIDEO DECODE · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                             Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = (value / 5f).toInt().coerceIn(1, 12) * 5) } }, valueRange = 5f..60f, steps = 10)
                             if (layer.fps > 15) {
-                                Text("⚠ High decode rate: above 15 FPS can increase heat, battery use and dropped frames. Video can use up to 60 FPS when your device can keep up.", color = Color(0xFFFFC46B), fontSize = 10.sp, lineHeight = 14.sp)
+                                Text("⚠ High decode rate: above 15 FPS can increase heat, battery use and dropped frames. Video can use up to 60 FPS when your device can keep up.", color = Color(0xFFFFB27F), fontSize = 10.sp, lineHeight = 14.sp)
                             } else {
                                 Text("For smooth, efficient video choose the rate your device can sustain. Non-video overlays and animated elements work best at 5 FPS.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
                             }
@@ -754,7 +754,7 @@ fun SceneStudio(
                         Slider(value = layer.y, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
                     } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFC46B) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
+                        Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFB27F) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
                         OutlinedButton(onClick = {
                             val locking = !layer.locked
                             updateLayer(layer.id) { it.copy(locked = locking) }
@@ -815,7 +815,7 @@ fun SceneStudio(
             TextButton(onClick = { assetsDialog = false; videoPicker.launch(arrayOf("video/mp4", "video/webm", "video/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Import video overlay") }
         } },
         confirmButton = { TextButton(onClick = { assetsDialog = false }) { Text("Close") } },
-        containerColor = Color(0xFF151B25), titleContentColor = Color.White, textContentColor = Color.White
+        containerColor = Color(0xFF15191D), titleContentColor = Color.White, textContentColor = Color.White
     )
 
     if (addDialog) AlertDialog(
