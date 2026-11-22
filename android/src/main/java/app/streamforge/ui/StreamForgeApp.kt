@@ -336,7 +336,6 @@ fun StreamForgeApp(
                                 }
                             }
 
-                            SectionHeading("AUDIO MIXER", "Sound")
                             SoundPanel(
                                 microphoneGain = microphoneGain,
                                 gameGain = gameGain,
