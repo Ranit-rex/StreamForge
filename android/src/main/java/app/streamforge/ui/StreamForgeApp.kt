@@ -53,30 +53,30 @@ fun StreamForgeApp(
     onStopStream: () -> Unit,
     onStartRecording: (Int, Int, Int, Int) -> Unit,
     onStopRecording: () -> Unit
-) {
+ ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE) }
     var platform by remember { mutableStateOf("YouTube") }
     var server by remember { mutableStateOf("rtmps://a.rtmp.youtube.com/live2") }
     var streamKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
-    var selectedQuality by remember { mutableStateOf(qualityOptions[5]) }
+    var selectedQuality by remember { mutableStateOf(qualityOptions.getOrElse(prefs.getInt("quality_index", 5)) { qualityOptions[5] }) }
     var captureMode by remember { mutableStateOf("GAME") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
-    var colorBrightness by remember { mutableFloatStateOf(1f) }
-    var colorContrast by remember { mutableFloatStateOf(1f) }
-    var colorSaturation by remember { mutableFloatStateOf(1f) }
-    var colorSharpness by remember { mutableFloatStateOf(0f) }
-    var targetBitrateMbps by remember { mutableFloatStateOf(qualityOptions[5].bitrate / 1_000_000f) }
-    var adaptiveBitrate by remember { mutableStateOf(true) }
-    var keepScreenAwake by remember { mutableStateOf(true) }
+    var colorBrightness by remember { mutableFloatStateOf(prefs.getFloat("color_brightness", 1f)) }
+    var colorContrast by remember { mutableFloatStateOf(prefs.getFloat("color_contrast", 1f)) }
+    var colorSaturation by remember { mutableFloatStateOf(prefs.getFloat("color_saturation", 1f)) }
+    var colorSharpness by remember { mutableFloatStateOf(prefs.getFloat("color_sharpness", 0f)) }
+    var targetBitrateMbps by remember { mutableFloatStateOf(prefs.getFloat("video_bitrate_mbps", qualityOptions[5].bitrate / 1_000_000f).coerceIn(0.8f, 35f)) }
+    var adaptiveBitrate by remember { mutableStateOf(prefs.getBoolean("adaptive_bitrate", true)) }
+    var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("keep_screen_awake", true)) }
     var showRecordingConfirm by remember { mutableStateOf(false) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
     var destinationExpanded by remember { mutableStateOf(true) }
     var qualityExpanded by remember { mutableStateOf(false) }
     var colorExpanded by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-
     val status by StreamService.status.collectAsState()
     val isStreaming by StreamService.streaming.collectAsState()
     val isRecording by StreamService.recording.collectAsState()
