@@ -427,12 +427,13 @@ class StreamService : Service(), ConnectChecker {
             activeStreamWidth = width
             activeStreamHeight = height
             val profile = resolveEncoderProfile(width, height, fps)
+            val encoderBitrate = bitrate.coerceIn(profile.minBitrate, profile.maxBitrate)
             activeStreamWidth = profile.width
             activeStreamHeight = profile.height
             streamResolution.value = "${profile.width} × ${profile.height}"
             streamFps.value = profile.fps
             stream?.forceBt709Color(true)
-            val prepared = stream?.prepareVideo(profile.width, profile.height, bitrate, profile.fps, rotation = 0) == true
+            val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} recording. Choose a lower preset.")
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
