@@ -118,7 +118,7 @@ fun StreamForgeApp(
                         .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(15.dp)
                 ) {
-                    StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 8 })
+                    StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
                     if (isRecording) RecordingDashboard(
                         elapsed = recordingElapsedSeconds,
                         resolution = liveResolution,
