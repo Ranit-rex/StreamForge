@@ -9,8 +9,6 @@ import android.os.Bundle
 import android.net.Uri
 import android.provider.Settings
 import android.view.WindowManager
-import android.app.PictureInPictureParams
-import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
@@ -23,7 +21,6 @@ import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 
 class MainActivity : ComponentActivity() {
-    private val pictureInPictureMode = mutableStateOf(false)
     private var pendingEndpoint = ""
     private var pendingWidth = 1280
     private var pendingHeight = 720
@@ -167,31 +164,8 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) },
-                compactMode = pictureInPictureMode.value
+                compactMode = false
             )
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        pictureInPictureMode.value = isInPictureInPictureMode
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        // Keep the selected game window at least partially visible underneath
-        // StreamForge's PiP window. Android hides app-window capture when its
-        // selected app is completely covered or the user navigates away.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            (StreamService.streaming.value || StreamService.studioPreviewReady.value || StreamService.recording.value)) {
-            runCatching {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-                enterPictureInPictureMode(params)
-            }.onFailure {
-                StreamService.status.value = "PiP unavailable · use Full Display capture or split-screen"
-            }
         }
     }
 
