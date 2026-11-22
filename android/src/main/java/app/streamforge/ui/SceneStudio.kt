@@ -77,7 +77,13 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
 
 @Composable
-fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
+fun SceneStudio(
+    previewReady: Boolean,
+    isStreaming: Boolean,
+    onPreparePreview: () -> Unit,
+    onStopStudioPreview: () -> Unit,
+    onApplyScene: (Int) -> Unit = {}
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     val scenes = remember {
@@ -162,11 +168,21 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
         selected = item.id
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("PROGRAM PREVIEW", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text("LIVE OUTPUT", color = Color(0xFF9DB4FF), fontSize = 9.sp)
+        }
+        StudioPreviewSurface(
+            previewReady = previewReady,
+            isStreaming = isStreaming,
+            onPrepare = onPreparePreview,
+            onStop = onStopStudioPreview
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("SCENES", color = Color.White, fontSize = 18.sp)
-                Text("Choose a scene, then tap or drag items on the canvas.", color = Color(0xFF9AA6B8), fontSize = 11.sp)
+                Text("Select a scene and edit its layers.", color = Color(0xFF9AA6B8), fontSize = 10.sp)
             }
             Button(onClick = {
                 scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
@@ -183,7 +199,7 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
         Surface(color = Color(0xFF151B25), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("LIVE LAYOUT EDITOR", color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("SCENE LAYOUT", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
                     Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
                 }
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" }.map { it.id to it.text }) {
@@ -399,7 +415,7 @@ fun SceneStudio(onApplyScene: (Int) -> Unit = {}) {
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Selected scene auto-saves and auto-applies to the live output. Drag any layer to move; drag its bottom-right handle or use Width / Height to resize.", color = Color.Gray, fontSize = 10.sp)
+        Text("Changes auto-save and update the program preview.", color = Color.Gray, fontSize = 9.sp)
     }
 
     if (addDialog) AlertDialog(
