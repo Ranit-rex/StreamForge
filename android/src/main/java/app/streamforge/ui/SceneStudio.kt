@@ -373,7 +373,11 @@ fun SceneStudio(
                         Text(if (item.kind == "screen") "YOUR PHONE / GAME SCREEN" else item.kind.uppercase(), color = Color.Gray, fontSize = 9.sp)
                     }
                     TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } }) { Text(if (item.visible) "Hide" else "Show") }
-                    TextButton(onClick = { updateLayer(item.id) { it.copy(locked = !it.locked) } }) { Text(if (item.locked) "Unlock" else "Lock") }
+                    TextButton(onClick = {
+                        val locking = !item.locked
+                        updateLayer(item.id) { it.copy(locked = locking) }
+                        if (locking && selected == item.id) selected = -1L
+                    }) { Text(if (item.locked) "Unlock" else "Lock") }
                 }
             }
         }
@@ -406,7 +410,11 @@ fun SceneStudio(
                     } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFC46B) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
-                        OutlinedButton(onClick = { updateLayer(layer.id) { it.copy(locked = !it.locked) } }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
+                        OutlinedButton(onClick = {
+                            val locking = !layer.locked
+                            updateLayer(layer.id) { it.copy(locked = locking) }
+                            if (locking) selected = -1L
+                        }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
                     }
                     Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.rotation, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
