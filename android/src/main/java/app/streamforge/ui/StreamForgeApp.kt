@@ -164,7 +164,7 @@ fun StreamForgeApp(
                             onStopStudioPreview = onStopStudioPreview,
                             onChangeCaptureSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                             onApplyScene = { sceneIndex ->
-                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value || StreamService.recording.value) {
                                     context.startService(Intent(context, StreamService::class.java).apply {
                                         action = StreamService.ACTION_APPLY_SCENE
                                         putExtra(StreamService.EXTRA_SCENE_INDEX, sceneIndex)
