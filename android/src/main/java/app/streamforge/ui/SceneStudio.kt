@@ -1,5 +1,7 @@
 package app.streamforge.ui
 
+import app.streamforge.stream.StreamService
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Paint
