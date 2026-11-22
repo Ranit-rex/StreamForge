@@ -81,6 +81,7 @@ fun StreamForgeApp(
     var showRecordingConfirm by remember { mutableStateOf(false) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
     var destinationExpanded by remember { mutableStateOf(false) }
+    var audioExpanded by remember { mutableStateOf(false) }
     var qualityExpanded by remember { mutableStateOf(false) }
     var colorExpanded by remember { mutableStateOf(false) }
     val status by StreamService.status.collectAsState()
@@ -253,6 +254,8 @@ fun StreamForgeApp(
                             SoundPanel(
                                 microphoneGain = microphoneGain,
                                 gameGain = gameGain,
+                                expanded = audioExpanded,
+                                onToggle = { audioExpanded = !audioExpanded },
                                 noiseCancellation = audioEnhancements,
                                 onMicrophoneGain = {
                                     microphoneGain = it
@@ -283,14 +286,13 @@ fun StreamForgeApp(
                                 Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text("SCREEN SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                                            Text("Entire screen or one app", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                            Text("SOURCE & LIVE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                                 }
                                         Surface(color = PanelRaised, shape = RoundedCornerShape(14.dp)) {
                                             Text("▣", Modifier.padding(15.dp), color = Accent, fontSize = 26.sp)
                                         }
                                     }
-                                    Text("CAPTURE SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                                    Text("SOURCE", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         CaptureModeCard("APP", "Single app.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
                                         CaptureModeCard("DISPLAY", "Entire screen.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
@@ -654,16 +656,19 @@ private fun SoundPanel(
     microphoneGain: Float,
     gameGain: Float,
     noiseCancellation: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit,
     onMicrophoneGain: (Float) -> Unit,
     onGameGain: (Float) -> Unit,
     onNoiseCancellation: (Boolean) -> Unit,
     isStreaming: Boolean
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("AUDIO MIXER", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(if (isStreaming) "LIVE" else "READY", color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+        Text("AUDIO", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(if (isStreaming) "LIVE" else "MIX", color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(if (expanded) "−" else "+", color = Accent, fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
     }
-    Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+    if (expanded) Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("MIC", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
