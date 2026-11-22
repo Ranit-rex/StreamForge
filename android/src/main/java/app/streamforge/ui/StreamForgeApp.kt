@@ -148,7 +148,6 @@ fun StreamForgeApp(
                         3 -> RecordingLibrary()
                         5 -> AiAssistantPanel()
                         6 -> ChatIntegrationPanel()
-                        7 -> ProblemReporterPanel()
                         4 -> {
                         SettingsPanel(
                             quality = selectedQuality,
@@ -178,6 +177,7 @@ fun StreamForgeApp(
                             }
                         )
                         RewardedAdsPanel()
+                        ProblemReporterPanel()
                         }
                         else -> {
                             if (isStreaming) {
@@ -297,8 +297,8 @@ fun StreamForgeApp(
                     }
                 }
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
-                    val labels = listOf("Studio", "Preview", "Scenes", "Records", "Settings", "AI", "Chat", "Help")
-                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦", "☷", "?")
+                    val labels = listOf("Studio", "Preview", "Scenes", "Recordings", "Settings", "AI", "Chat")
+                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦", "☷")
                     labels.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = selectedTab == index, onClick = { selectedTab = index },
