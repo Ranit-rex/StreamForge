@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Movie
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
@@ -118,6 +119,17 @@ class StreamService : Service(), ConnectChecker {
     private var stableNetworkSince = 0L
     private var activeStreamWidth = 1280
     private var activeStreamHeight = 720
+    private var activeSceneIndex = 0
+    private val gifMovies = mutableMapOf<String, Movie>()
+    private val gifStartedAt = mutableMapOf<String, Long>()
+    private val gifFrameHandler = Handler(Looper.getMainLooper())
+    private val gifFrameRunnable = object : Runnable {
+        override fun run() {
+            if (streaming.value || studioPreviewReady.value) {
+                applyScene(activeSceneIndex)
+            }
+        }
+    }
     private var overlayRoot: LinearLayout? = null
     private var overlayExpanded = false
     private var overlayMicLabel: TextView? = null
@@ -443,6 +455,7 @@ class StreamService : Service(), ConnectChecker {
             return
         }
         val safeIndex = sceneIndex.coerceIn(0, scenes.length() - 1)
+        activeSceneIndex = safeIndex
         val scene = scenes.optJSONObject(safeIndex) ?: return
         val layers = scene.optJSONArray("layers") ?: org.json.JSONArray()
         val screenLayer = (0 until layers.length())
@@ -458,6 +471,15 @@ class StreamService : Service(), ConnectChecker {
         } else {
             filter.setScreenRect(0f, 0f, 1f, 1f)
         }
+        if (screenLayer != null) {
+            filter.setScreenTransform(
+                screenLayer.optDouble("rotation", 0.0).toFloat(),
+                screenLayer.optDouble("cropLeft", 0.0).toFloat(),
+                screenLayer.optDouble("cropTop", 0.0).toFloat(),
+                screenLayer.optDouble("cropRight", 1.0).toFloat(),
+                screenLayer.optDouble("cropBottom", 1.0).toFloat()
+            )
+        } else filter.setScreenTransform(0f, 0f, 0f, 1f, 1f)
         val outputWidth = activeStreamWidth.coerceAtMost(1920).coerceAtLeast(640)
         val outputHeight = activeStreamHeight.coerceAtMost(1080).coerceAtLeast(360)
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
@@ -475,6 +497,8 @@ class StreamService : Service(), ConnectChecker {
             val rect = RectF(left, top, (left + width).coerceAtMost(outputWidth.toFloat()), (top + height).coerceAtMost(outputHeight.toFloat()))
             val alpha = (item.optDouble("opacity", 1.0).toFloat().coerceIn(0f, 1f) * 255).toInt()
 
+            canvas.save()
+            canvas.rotate(item.optDouble("rotation", 0.0).toFloat(), rect.centerX(), rect.centerY())
             when (kind) {
                 "text" -> {
                     val value = item.optString("text").trim()
@@ -500,8 +524,34 @@ class StreamService : Service(), ConnectChecker {
                     }
                     if (image != null) {
                         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha }
-                        canvas.drawBitmap(image, null, rect, paint)
+                        val src = RectF(
+                            image.width * item.optDouble("cropLeft", 0.0).toFloat(),
+                            image.height * item.optDouble("cropTop", 0.0).toFloat(),
+                            image.width * item.optDouble("cropRight", 1.0).toFloat(),
+                            image.height * item.optDouble("cropBottom", 1.0).toFloat()
+                        )
+                        canvas.drawBitmap(image, android.graphics.Rect(src.left.toInt(), src.top.toInt(), src.right.toInt(), src.bottom.toInt()), rect, paint)
                         image.recycle()
+                    }
+                }
+                "gif" -> {
+                    val uriString = item.optString("text")
+                    val movie = gifMovies[uriString] ?: runCatching {
+                        contentResolver.openInputStream(Uri.parse(uriString))?.use { Movie.decodeStream(it) }
+                    }.getOrNull()?.also {
+                        gifMovies[uriString] = it
+                        gifStartedAt[uriString] = SystemClock.uptimeMillis()
+                    }
+                    if (movie != null) {
+                        val duration = movie.duration().coerceAtLeast(100)
+                        val elapsed = SystemClock.uptimeMillis() - (gifStartedAt[uriString] ?: SystemClock.uptimeMillis())
+                        movie.setTime((elapsed % duration).toInt())
+                        canvas.save()
+                        canvas.clipRect(rect)
+                        canvas.translate(rect.left, rect.top)
+                        canvas.scale(rect.width() / movie.width().coerceAtLeast(1), rect.height() / movie.height().coerceAtLeast(1))
+                        movie.draw(canvas, 0f, 0f)
+                        canvas.restore()
                     }
                 }
                 "camera" -> {
@@ -518,8 +568,14 @@ class StreamService : Service(), ConnectChecker {
                     canvas.drawText("CAMERA SOURCE", rect.left + 12f, rect.centerY(), label)
                 }
             }
+            canvas.restore()
         }
         filter.setSceneOverlayBitmap(bitmap)
+        val hasGif = (0 until layers.length()).any { i ->
+            layers.optJSONObject(i)?.let { it.optString("kind") == "gif" && it.optBoolean("visible", true) } == true
+        }
+        gifFrameHandler.removeCallbacks(gifFrameRunnable)
+        if (hasGif && (streaming.value || studioPreviewReady.value)) gifFrameHandler.postDelayed(gifFrameRunnable, 66L)
     }
 
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
