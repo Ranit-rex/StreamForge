@@ -292,28 +292,80 @@ fun StreamForgeApp(
                                 }
                             }
 
-                            SectionHeading("MONITOR", "Output at a glance")
-                            Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text(if (isStreaming) "LIVE OUTPUT" else "OUTPUT MONITOR", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.3.sp)
-                                            Text(if (isStreaming) "Encoder is broadcasting" else "Preview becomes available after capture starts", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            SectionHeading("LIVE MONITOR", "Preview")
+                            Surface(color = Color.Black, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                                Box {
+                                    AndroidView(
+                                        factory = { viewContext ->
+                                            TextureView(viewContext).also { view ->
+                                                StreamService.previewView = view
+                                                view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                                        if (StreamService.streaming.value) {
+                                                            viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
+                                                        }
+                                                    }
+                                                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
+                                                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                                                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                                        if (StreamService.streaming.value) viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
+                                                        StreamService.previewView = null
+                                                        return true
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        update = { StreamService.previewView = it },
+                                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                                    )
+                                    if (!isStreaming) {
+                                        Surface(color = Color(0xCC101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
+                                            Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text("PREVIEW STANDBY", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
+                                                Text("Start streaming or recording to see capture", color = Muted, fontSize = 9.sp)
+                                            }
                                         }
-                                        Surface(color = if (isStreaming) Color(0xFF3C1B28) else PanelRaised, shape = RoundedCornerShape(50)) {
-                                            Text(if (isStreaming) "● LIVE" else "READY", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                        }
-                                    }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                        InfoTile("OUTPUT", if (isStreaming) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
-                                        InfoTile("FPS", if (isStreaming) "$liveFps" else "${selectedQuality.fps} target", Modifier.weight(1f))
-                                        InfoTile("BITRATE", if (isStreaming && bitrate > 0) "$bitrate kbps" else "Not live", Modifier.weight(1f))
-                                    }
-                                    OutlinedButton(onClick = { selectedTab = 1 }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(11.dp)) {
-                                        Text("OPEN PREVIEW  ↗", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                                     }
                                 }
                             }
+                            Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(11.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    InfoTile("OUTPUT", if (isStreaming) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
+                                    InfoTile("FPS", if (isStreaming) "$liveFps" else "${selectedQuality.fps} target", Modifier.weight(1f))
+                                    InfoTile("BITRATE", if (isStreaming && bitrate > 0) "$bitrate kbps" else "Not live", Modifier.weight(1f))
+                                }
+                            }
+
+                            SectionHeading("AUDIO MIXER", "Sound")
+                            SoundPanel(
+                                microphoneGain = microphoneGain,
+                                gameGain = gameGain,
+                                noiseCancellation = audioEnhancements,
+                                onMicrophoneGain = {
+                                    microphoneGain = it
+                                    prefs.edit().putFloat("audio_mic_gain", it).apply()
+                                    if (isStreaming || isRecording) context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                        putExtra(StreamService.EXTRA_MIC_GAIN, it)
+                                        putExtra(StreamService.EXTRA_GAME_GAIN, gameGain)
+                                    })
+                                },
+                                onGameGain = {
+                                    gameGain = it
+                                    prefs.edit().putFloat("audio_game_gain", it).apply()
+                                    if (isStreaming || isRecording) context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                        putExtra(StreamService.EXTRA_MIC_GAIN, microphoneGain)
+                                        putExtra(StreamService.EXTRA_GAME_GAIN, it)
+                                    })
+                                },
+                                onNoiseCancellation = {
+                                    audioEnhancements = it
+                                    prefs.edit().putBoolean("audio_enhancements", it).apply()
+                                },
+                                isStreaming = isStreaming,
+                                status = status
+                            )
 
                             SectionHeading("BROADCAST", "Your control room")
                             Surface(color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
@@ -415,10 +467,9 @@ fun StreamForgeApp(
                             }
                             SectionHeading("QUICK ACCESS", "Your production workspace")
                             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                                QuickTile("♫", "Sound", "Mic & game mix", Modifier.weight(1f)) { selectedTab = 7 }
-                                QuickTile("▣", "Preview", "Monitor output", Modifier.weight(1f)) { selectedTab = 1 }
                                 QuickTile("▦", "Scenes", "Arrange layers", Modifier.weight(1f)) { selectedTab = 2 }
                                 QuickTile("▤", "Recordings", "Review MP4s", Modifier.weight(1f)) { selectedTab = 3 }
+                                QuickTile("⚙", "Settings", "Stream quality", Modifier.weight(1f)) { selectedTab = 4 }
                             }
                             Text("StreamForge · Direct-to-platform streaming · No relay server", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
                         }
@@ -427,9 +478,7 @@ fun StreamForgeApp(
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
                     val destinations = listOf(
                         Triple(0, "Studio", "●"),
-                        Triple(1, "Preview", "▣"),
                         Triple(2, "Scenes", "▦"),
-                        Triple(7, "Sound", "♫"),
                         Triple(8, "More", "•••")
                     )
                     destinations.forEach { (tab, label, icon) ->
