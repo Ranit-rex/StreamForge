@@ -281,6 +281,7 @@ class StreamService : Service(), ConnectChecker {
             studioPreviewReady.value = true
             status.value = "Studio preview ready · not live"
             startPreviewIfAvailable()
+            applyScene(getSharedPreferences("streamforge_studio", 0).getInt("active_scene", 0))
         } catch (error: Exception) {
             studioPreviewReady.value = false
             projection?.stop()
@@ -298,6 +299,7 @@ class StreamService : Service(), ConnectChecker {
         projection = null
         activeScreenSource = null
         studioPreviewReady.value = false
+        gifFrameHandler.removeCallbacks(gifFrameRunnable)
         colorGradingFilter = null
         status.value = "Preview stopped"
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -703,6 +705,7 @@ class StreamService : Service(), ConnectChecker {
         streaming.value = false
         studioPreviewReady.value = false
         streamStartedAt.value = 0L
+        gifFrameHandler.removeCallbacks(gifFrameRunnable)
         hideFloatingControls()
         YouTubeLiveChat.stop()
         projection?.stop()
@@ -1026,6 +1029,7 @@ class StreamService : Service(), ConnectChecker {
     override fun onConnectionSuccess() {
         streaming.value = true
         streamStartedAt.value = System.currentTimeMillis()
+        applyScene(activeSceneIndex)
         microphoneMuted.value = false
         Handler(Looper.getMainLooper()).post { showFloatingControls() }
         YouTubeLiveChat.start(this)
@@ -1089,6 +1093,9 @@ class StreamService : Service(), ConnectChecker {
         stopRecording()
         YouTubeLiveChat.stop()
         hideFloatingControls()
+        gifFrameHandler.removeCallbacks(gifFrameRunnable)
+        gifMovies.clear()
+        gifStartedAt.clear()
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
         stream = null
         previewView = null
