@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.net.Uri
 import android.provider.Settings
 import android.view.WindowManager
+import android.app.PictureInPictureParams
+import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -130,9 +132,14 @@ class MainActivity : ComponentActivity() {
                         pendingFps = fps
                         pendingBitrate = bitrate
                         pendingCaptureMode = captureMode
-                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-                        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
-                        permissionLauncher.launch(permissions.toTypedArray())
+                        if (!Settings.canDrawOverlays(this)) {
+                            waitingForOverlayPermission = true
+                            startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)), 7402)
+                        } else {
+                            val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                            if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+                            permissionLauncher.launch(permissions.toTypedArray())
+                        }
                     }
                 },
                 onStopStudioPreview = { sendServiceAction(StreamService.ACTION_STOP_STUDIO_PREVIEW) },
@@ -159,6 +166,24 @@ class MainActivity : ComponentActivity() {
                 },
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) }
             )
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Keep the selected game window at least partially visible underneath
+        // StreamForge's PiP window. Android hides app-window capture when its
+        // selected app is completely covered or the user navigates away.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            (StreamService.streaming.value || StreamService.studioPreviewReady.value || StreamService.recording.value)) {
+            runCatching {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
+            }.onFailure {
+                StreamService.status.value = "PiP unavailable · use Full Display capture or split-screen"
+            }
         }
     }
 
