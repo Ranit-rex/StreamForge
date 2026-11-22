@@ -27,6 +27,7 @@ class MainActivity : ComponentActivity() {
     private var pendingBitrate = 4_500_000
     private var pendingRecordingOnly = false
     private var pendingStudioPreview = false
+    private var pendingChangeCaptureSource = false
     private var pendingCaptureMode = "GAME"
     private var waitingForOverlayPermission = false
 
@@ -47,14 +48,18 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == RESULT_OK && data != null) {
             val recordingOnly = pendingRecordingOnly
             val studioPreview = pendingStudioPreview
+            val changeCaptureSource = pendingChangeCaptureSource
             pendingStudioPreview = false
+            pendingChangeCaptureSource = false
             StreamService.status.value = when {
+                changeCaptureSource -> "Switching capture source…"
                 studioPreview -> "App selected · preparing Studio preview…"
                 recordingOnly -> "Screen access granted · starting local recording…"
                 else -> "Screen access granted · starting stream service…"
             }
             val serviceIntent = Intent(this, StreamService::class.java).apply {
                 action = when {
+                    changeCaptureSource -> StreamService.ACTION_CHANGE_CAPTURE_SOURCE
                     studioPreview -> StreamService.ACTION_START_STUDIO_PREVIEW
                     recordingOnly -> StreamService.ACTION_START_LOCAL_RECORDING
                     else -> StreamService.ACTION_START_STREAM
@@ -128,6 +133,19 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 onStopStudioPreview = { sendServiceAction(StreamService.ACTION_STOP_STUDIO_PREVIEW) },
+                onChangeCaptureSource = { endpoint, width, height, fps, bitrate, captureMode ->
+                    pendingRecordingOnly = false
+                    pendingStudioPreview = false
+                    pendingChangeCaptureSource = true
+                    pendingEndpoint = endpoint
+                    pendingWidth = width
+                    pendingHeight = height
+                    pendingFps = fps
+                    pendingBitrate = bitrate
+                    pendingCaptureMode = captureMode
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) requestScreenCapture()
+                    else permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                },
                 onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
                 onStartRecording = { width, height, fps, bitrate ->
                     if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
