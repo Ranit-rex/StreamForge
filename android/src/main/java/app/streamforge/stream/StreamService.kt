@@ -133,7 +133,7 @@ class StreamService : Service(), ConnectChecker {
     private val gifFrameHandler = Handler(Looper.getMainLooper())
     private val gifFrameRunnable = object : Runnable {
         override fun run() {
-            if (streaming.value || studioPreviewReady.value) {
+            if (streaming.value || recording.value || studioPreviewReady.value) {
                 applyScene(activeSceneIndex)
             }
         }
@@ -585,7 +585,8 @@ class StreamService : Service(), ConnectChecker {
                     if (movie != null) {
                         val duration = movie.duration().coerceAtLeast(100)
                         val elapsed = SystemClock.uptimeMillis() - (gifStartedAt[uriString] ?: SystemClock.uptimeMillis())
-                        movie.setTime((elapsed % duration).toInt())
+                        val movieTime = if (item.optBoolean("loop", true)) elapsed % duration else elapsed.coerceAtMost((duration - 1).toLong())
+                        movie.setTime(movieTime.toInt())
                         canvas.save()
                         canvas.clipRect(rect)
                         val cropL = item.optDouble("cropLeft", 0.0).toFloat()
@@ -782,7 +783,7 @@ class StreamService : Service(), ConnectChecker {
 
     private fun stopRecording() {
         val activeStream = stream
-        if (activeStream?.isRecording == true) activeStream.stopRecord()
+        if (recording.value) activeStream?.stopRecord()
         recording.value = false
         recordingPaused.value = false
         recordingPauseStartedAt = 0L
