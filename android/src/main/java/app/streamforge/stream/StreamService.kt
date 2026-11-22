@@ -393,7 +393,12 @@ class StreamService : Service(), ConnectChecker {
         projection = null
         activeScreenSource = null
         studioPreviewReady.value = false
-        if (wasStreaming) startScreenStream(intent) else startStudioPreview(intent)
+        if (wasStreaming) {
+            status.value = "Capture source changed · reconnecting stream…"
+            Handler(Looper.getMainLooper()).postDelayed({ startScreenStream(intent) }, 500L)
+        } else {
+            startStudioPreview(intent)
+        }
     }
 
     private fun startPreviewIfAvailable() {
