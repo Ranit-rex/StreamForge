@@ -124,6 +124,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     LaunchedEffect(videoSources) {
         videoErrors.clear()
+        val openErrors = mutableMapOf<Long, String>()
         val sources = withContext(Dispatchers.IO) {
             videoSources.mapNotNull { (id, uriString, settings) ->
                 runCatching {
@@ -136,10 +137,11 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
                     Triple(id, retriever, Triple(duration, settings, targetFps))
                 }.onFailure { error ->
-                    videoErrors[id] = error.message?.take(72) ?: "Cannot open this video"
+                    openErrors[id] = error.message?.take(72) ?: "Cannot open this video"
                 }.getOrNull()
             }
         }
+        videoErrors.putAll(openErrors)
         val startedAt = SystemClock.elapsedRealtime()
         val lastDecodedAt = mutableMapOf<Long, Long>()
         val previewWidth = 960
@@ -160,12 +162,17 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         val timeMs = if (loop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
                         runCatching {
                             val timestampUs = timeMs * 1000L
+                            // Some Android vendor retrievers return null from getScaledFrameAtTime
+                            // without throwing. Try independent scaled, regular and first-sync-frame paths.
                             val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                                retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST, previewWidth, previewHeight)
-                                    ?: retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, previewWidth, previewHeight)
+                                runCatching { retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST, previewWidth, previewHeight) }.getOrNull()
+                                    ?: runCatching { retriever.getScaledFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, previewWidth, previewHeight) }.getOrNull()
+                                    ?: runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                                    ?: runCatching { retriever.getFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
                             } else {
-                                retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                                    ?: retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                                runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST) }.getOrNull()
+                                    ?: runCatching { retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                                    ?: runCatching { retriever.getFrameAtTime(-1L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
                             }
                             frame?.let { decoded ->
                                 if (decoded.width <= previewWidth && decoded.height <= previewHeight) decoded
@@ -178,14 +185,25 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                                 }
                             }
                         }.onFailure { error ->
-                            videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
+                            withContext(Dispatchers.Main.immediate) {
+                                videoErrors[id] = error.message?.take(72) ?: "Video frame decode failed"
+                            }
                         }.getOrNull()?.let { id to it }
                     }
                 }
-                frames.forEach { (id, frame) ->
-                    videoErrors.remove(id)
-                    val previous = videoFrames.put(id, frame)
-                    if (previous !== frame && previous?.isRecycled == false) previous.recycle()
+                if (frames.isNotEmpty()) {
+                    frames.forEach { (id, frame) ->
+                        videoErrors.remove(id)
+                        val previous = videoFrames.put(id, frame)
+                        if (previous !== frame && previous?.isRecycled == false) previous.recycle()
+                    }
+                } else if (sources.isNotEmpty()) {
+                    // A null decoder result is an error too; never leave the preview loading forever.
+                    sources.forEach { (id, _, _) ->
+                        if (videoFrames[id] == null && videoErrors[id] == null) {
+                            videoErrors[id] = "Android decoder returned no video frame"
+                        }
+                    }
                 }
                 delay(refreshDelay)
             }
