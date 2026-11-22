@@ -386,52 +386,52 @@ fun SceneStudio(
                     Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
                     if (layer.kind == "text") {
                         OutlinedTextField(
-                            value = layer.text, onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
+                            value = layer.text, enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
                             label = { Text("Text shown on screen") }, modifier = Modifier.fillMaxWidth()
                         )
                     }
                     if (layer.kind == "image") {
                         Text("Image/GIF source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
-                        OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Replace image / GIF") }
+                        OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace image / GIF") }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
+                    Slider(value = layer.width, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
                     Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
+                    Slider(value = layer.height, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
                     if (layer.width < .999f) {
                         Text("Position X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                        Slider(value = layer.x, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
+                        Slider(value = layer.x, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
                     } else Text("Position X · Full width", color = Color.Gray, fontSize = 11.sp)
                     if (layer.height < .999f) {
                         Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                        Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
+                        Slider(value = layer.y, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
                     } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFC46B) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
                         OutlinedButton(onClick = { updateLayer(layer.id) { it.copy(locked = !it.locked) } }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
                     }
                     Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.rotation, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
+                    Slider(value = layer.rotation, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
                     Text("Crop left · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropLeft, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropLeft = v.coerceIn(0f, it.cropRight - .02f)) } }, valueRange = 0f..0.95f)
+                    Slider(value = layer.cropLeft, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropLeft = v.coerceIn(0f, it.cropRight - .02f)) } }, valueRange = 0f..0.95f)
                     Text("Crop top · ${(layer.cropTop * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropTop, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropTop = v.coerceIn(0f, it.cropBottom - .02f)) } }, valueRange = 0f..0.95f)
+                    Slider(value = layer.cropTop, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropTop = v.coerceIn(0f, it.cropBottom - .02f)) } }, valueRange = 0f..0.95f)
                     Text("Crop right · ${(layer.cropRight * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropRight, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropRight = v.coerceIn(it.cropLeft + .02f, 1f)) } }, valueRange = .05f..1f)
+                    Slider(value = layer.cropRight, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropRight = v.coerceIn(it.cropLeft + .02f, 1f)) } }, valueRange = .05f..1f)
                     Text("Crop bottom · ${(layer.cropBottom * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropBottom, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
+                    Slider(value = layer.cropBottom, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
+                    Slider(value = layer.opacity, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         OutlinedButton(onClick = {
                             val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
                             if (i > 0) { val moving = items.removeAt(i); items.add(i - 1, moving); scenes[index] = scene.copy(layers = items) }
-                        }, modifier = Modifier.weight(1f)) { Text("Move up") }
+                        }, enabled = !layer.locked, modifier = Modifier.weight(1f)) { Text("Move up") }
                         OutlinedButton(onClick = {
                             val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
                             if (i >= 0 && i < items.lastIndex) { val moving = items.removeAt(i); items.add(i + 1, moving); scenes[index] = scene.copy(layers = items) }
-                        }, modifier = Modifier.weight(1f)) { Text("Move down") }
-                        OutlinedButton(onClick = { scenes[index] = scene.copy(layers = scene.layers.filterNot { it.id == layer.id }); selected = -1L }) { Text("Delete") }
+                        }, enabled = !layer.locked, modifier = Modifier.weight(1f)) { Text("Move down") }
+                        OutlinedButton(onClick = { scenes[index] = scene.copy(layers = scene.layers.filterNot { it.id == layer.id }); selected = -1L }, enabled = !layer.locked) { Text("Delete") }
                     }
                 }
             }
