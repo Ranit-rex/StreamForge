@@ -118,7 +118,9 @@ fun SceneStudio(
             runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             val idx = active.coerceIn(0, scenes.lastIndex)
             val current = scenes[idx]
-            val layer = SceneLayer(System.nanoTime(), "Image ${current.layers.count { it.kind == "image" } + 1}", "image", uri.toString(), .12f, .12f, .34f, .34f)
+            val mime = context.contentResolver.getType(uri).orEmpty()
+            val kind = if (mime.equals("image/gif", true)) "gif" else "image"
+            val layer = SceneLayer(System.nanoTime(), "${kind.uppercase()} ${current.layers.count { it.kind == kind } + 1}", kind, uri.toString(), .12f, .12f, .34f, .34f)
             scenes[idx] = current.copy(layers = current.layers + layer)
             selected = layer.id
         }
@@ -144,7 +146,7 @@ fun SceneStudio(
     val latestUpdateLayer = rememberUpdatedState<(Long, (SceneLayer) -> SceneLayer) -> Unit>({ id, transform -> updateLayer(id, transform) })
 
     fun addSource(kind: String) {
-        if (kind == "image") { imagePicker.launch(arrayOf("image/*")); return }
+        if (kind == "image" || kind == "gif") { imagePicker.launch(arrayOf("image/*")); return }
         val current = scenes[index]
         if (kind == "screen" && current.layers.any { it.kind == "screen" }) {
             selected = current.layers.first { it.kind == "screen" }.id
@@ -201,8 +203,8 @@ fun SceneStudio(
                     Text("LAYOUT", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
                     Text("16:9 · full-frame sources", color = Color.Gray, fontSize = 10.sp)
                 }
-                val imageBitmaps = remember(scene.layers.filter { it.kind == "image" }.map { it.id to it.text }) {
-                    scene.layers.filter { it.kind == "image" && it.text.isNotBlank() }.mapNotNull { item ->
+                val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
+                    scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
                         val bitmap = runCatching {
                             context.contentResolver.openInputStream(Uri.parse(item.text))?.use { BitmapFactory.decodeStream(it) }
                         }.getOrNull()
@@ -275,7 +277,7 @@ fun SceneStudio(
                             val top = item.y * size.height
                             val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
                             paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
-                            val importedBitmap = if (item.kind == "image") imageBitmaps[item.id] else null
+                            val importedBitmap = if (item.kind == "image" || item.kind == "gif") imageBitmaps[item.id] else null
                             if (importedBitmap != null) {
                                 paint.style = Paint.Style.FILL
                                 native.drawBitmap(importedBitmap, null, rect, paint)
@@ -297,12 +299,12 @@ fun SceneStudio(
                                         paint.textSize = (rect.height() * .16f).coerceIn(10f, 24f)
                                         native.drawText("CAMERA SOURCE", left + 8f, rect.centerY(), paint)
                                     }
-                                    "image" -> {
+                                    "image", "gif" -> {
                                         paint.color = android.graphics.Color.rgb(80, 66, 116)
                                         native.drawRoundRect(rect, 10f, 10f, paint)
                                         paint.color = android.graphics.Color.WHITE
                                         paint.textSize = 12f
-                                        native.drawText("IMAGE · " + item.name, left + 8f, rect.centerY(), paint)
+                                        native.drawText(item.kind.uppercase() + " · " + item.name, left + 8f, rect.centerY(), paint)
                                     }
                                     else -> {
                                         paint.color = android.graphics.Color.WHITE
@@ -372,8 +374,8 @@ fun SceneStudio(
                         )
                     }
                     if (layer.kind == "image") {
-                        Text("Custom image added. Use Replace to choose another image.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
-                        OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Replace image") }
+                        Text("Image/GIF source added. Replace to choose another visual.", color = Color(0xFFB8C5D8), fontSize = 11.sp)
+                        OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Replace image / GIF") }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
@@ -435,7 +437,7 @@ fun SceneStudio(
         onDismissRequest = { addDialog = false }, title = { Text("Add to this scene") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Choose what you want to place on the canvas.", color = Color.Gray, fontSize = 11.sp)
-            listOf("screen" to "Screen capture", "text" to "Text overlay", "image" to "Choose image from phone", "camera" to "Camera placeholder").forEach { (kind, label) ->
+            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "image" to "Image or animated GIF", "camera" to "Camera placeholder").forEach { (kind, label) ->
                 TextButton(onClick = { addSource(kind); addDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
         } },
