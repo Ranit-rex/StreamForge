@@ -126,41 +126,6 @@ fun StreamForgeApp(
                     )
 
                     when (selectedTab) {
-                        1 -> {
-                            SectionHeading("MONITOR", "Live output preview")
-                            Surface(color = Color.Black, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                                AndroidView(
-                                    factory = { viewContext ->
-                                        TextureView(viewContext).also { view ->
-                                            StreamService.previewView = view
-                                            view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                                override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                                    if (StreamService.streaming.value) {
-                                                        viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
-                                                    }
-                                                }
-                                                override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-                                                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                                override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                                    if (StreamService.streaming.value) viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
-                                                    StreamService.previewView = null
-                                                    return true
-                                                }
-                                            }
-                                        }
-                                    },
-                                    update = { StreamService.previewView = it },
-                                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                                )
-                            }
-                            Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    StatusLine(isStreaming, status)
-                                    Text(if (isStreaming) "Preview is connected to the active encoder output." else "Start a broadcast from Studio. Your captured screen preview will appear here.", color = Muted, fontSize = 12.sp)
-                                    PrimaryAction("Back to Studio") { selectedTab = 0 }
-                                }
-                            }
-                        }
                         2 -> SceneStudio(onApplyScene = { sceneIndex ->
                             if (StreamService.streaming.value) {
                                 context.startService(Intent(context, StreamService::class.java).apply {
@@ -173,39 +138,6 @@ fun StreamForgeApp(
                         5 -> AiAssistantPanel()
                         6 -> ChatIntegrationPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
-                        7 -> SoundPanel(
-                            microphoneGain = microphoneGain,
-                            gameGain = gameGain,
-                            noiseCancellation = audioEnhancements,
-                            onMicrophoneGain = {
-                                microphoneGain = it
-                                prefs.edit().putFloat("audio_mic_gain", it).apply()
-                                if (isStreaming || isRecording) {
-                                    context.startService(Intent(context, StreamService::class.java).apply {
-                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
-                                        putExtra(StreamService.EXTRA_MIC_GAIN, it)
-                                        putExtra(StreamService.EXTRA_GAME_GAIN, gameGain)
-                                    })
-                                }
-                            },
-                            onGameGain = {
-                                gameGain = it
-                                prefs.edit().putFloat("audio_game_gain", it).apply()
-                                if (isStreaming || isRecording) {
-                                    context.startService(Intent(context, StreamService::class.java).apply {
-                                        action = StreamService.ACTION_UPDATE_AUDIO_MIX
-                                        putExtra(StreamService.EXTRA_MIC_GAIN, microphoneGain)
-                                        putExtra(StreamService.EXTRA_GAME_GAIN, it)
-                                    })
-                                }
-                            },
-                            onNoiseCancellation = {
-                                audioEnhancements = it
-                                prefs.edit().putBoolean("audio_enhancements", it).apply()
-                            },
-                            isStreaming = isStreaming,
-                            status = status
-                        )
                         4 -> {
                         SettingsPanel(
                             quality = selectedQuality,
