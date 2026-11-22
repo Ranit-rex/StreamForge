@@ -158,11 +158,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                         val hint = "Your screen appears here when capture is active"
                         native.drawText(hint, rect.centerX() - paint.measureText(hint) / 2f, rect.centerY() + 26f, paint)
                     }
-                    "text" -> {
+                    "text", "timer" -> {
                         paint.style = Paint.Style.FILL
-                        paint.color = android.graphics.Color.WHITE
-                        paint.textSize = (rect.height() * .58f).coerceIn(12f, 48f)
-                        native.drawText(item.text.take(40), rect.left + 5f, rect.centerY(), paint)
+                        paint.color = runCatching { android.graphics.Color.parseColor(item.textColor) }.getOrDefault(android.graphics.Color.WHITE)
+                        paint.typeface = android.graphics.Typeface.create(item.fontFamily, android.graphics.Typeface.BOLD)
+                        paint.textSize = ((rect.height() * .58f).coerceIn(12f, 48f) * item.fontSizeScale.coerceIn(.5f, 2f))
+                        val shown = if (item.kind == "timer") {
+                            val seconds = (System.currentTimeMillis() / 1000L) % 3600L
+                            String.format(java.util.Locale.US, "%02d:%02d", seconds / 60L, seconds % 60L)
+                        } else item.text.take(40)
+                        native.drawText(shown, rect.left + 5f, rect.centerY(), paint)
                     }
                     "image", "gif" -> bitmaps[item.id]?.let { bitmap ->
                         val src = android.graphics.Rect(
@@ -527,12 +532,17 @@ fun SceneStudio(
                                         val help = "Your game or phone screen appears here"
                                         native.drawText(help, rect.centerX() - paint.measureText(help) / 2f, rect.centerY() + iconSize * .85f, paint)
                                     }
-                                    "text" -> {
-                                        paint.color = android.graphics.Color.WHITE
-                                        paint.textSize = (rect.height() * .58f).coerceIn(12f, 48f)
+                                    "text", "timer" -> {
+                                        paint.color = runCatching { android.graphics.Color.parseColor(item.textColor) }.getOrDefault(android.graphics.Color.WHITE)
+                                        paint.typeface = android.graphics.Typeface.create(item.fontFamily, android.graphics.Typeface.BOLD)
+                                        paint.textSize = ((rect.height() * .58f).coerceIn(12f, 48f) * item.fontSizeScale.coerceIn(.5f, 2f))
                                         paint.setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
                                         val baseline = rect.top + (rect.height() - (paint.descent() + paint.ascent())) / 2f
-                                        native.drawText(item.text.take(36), rect.left + 4f, baseline, paint)
+                                        val shown = if (item.kind == "timer") {
+                                            val seconds = (System.currentTimeMillis() / 1000L) % 3600L
+                                            String.format(java.util.Locale.US, "%02d:%02d", seconds / 60L, seconds % 60L)
+                                        } else item.text.take(36)
+                                        native.drawText(shown, rect.left + 4f, baseline, paint)
                                         paint.clearShadowLayer()
                                     }
                                     "camera" -> {
