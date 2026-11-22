@@ -232,7 +232,7 @@ class StreamService : Service(), ConnectChecker {
             streamResolution.value = "${profile.width} × ${profile.height}"
             streamFps.value = profile.fps
             stream?.forceBt709Color(true)
-            val prepared = stream?.prepareVideo(profile.width, profile.height, profile.maxBitrate.coerceAtMost(4_500_000), profile.fps, rotation = 0) == true
+            val prepared = stream?.prepareVideo(profile.width, profile.height, 4_500_000.coerceIn(profile.minBitrate, profile.maxBitrate), profile.fps, rotation = 0) == true
             if (!prepared) throw IllegalStateException("Could not prepare the preview encoder")
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
@@ -560,6 +560,8 @@ class StreamService : Service(), ConnectChecker {
             runCatching { activeStream?.let { if (it.isOnPreview) it.stopPreview() } }
             projection?.stop()
             projection = null
+            studioPreviewReady.value = false
+            colorGradingFilter = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
