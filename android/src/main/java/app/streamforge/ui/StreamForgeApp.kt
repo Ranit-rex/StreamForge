@@ -276,8 +276,7 @@ fun StreamForgeApp(
                                     audioEnhancements = it
                                     prefs.edit().putBoolean("audio_enhancements", it).apply()
                                 },
-                                isStreaming = isStreaming,
-                                status = status
+                                isStreaming = isStreaming
                             )
 
                             Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
@@ -544,8 +543,8 @@ private fun StudioAccordion(
     number: String, title: String, summary: String, expanded: Boolean, onToggle: () -> Unit,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Surface(color = Panel, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+    Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
                 Text(number, color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.width(10.dp))
@@ -660,56 +659,28 @@ private fun SoundPanel(
     onMicrophoneGain: (Float) -> Unit,
     onGameGain: (Float) -> Unit,
     onNoiseCancellation: (Boolean) -> Unit,
-    isStreaming: Boolean,
-    status: String
+    isStreaming: Boolean
 ) {
-    SectionHeading("AUDIO MIXER", "Sound control")
-    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("AUDIO MIXER", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(if (isStreaming) "LIVE" else "READY", color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    }
+    Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("MICROPHONE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
-                    Text("Your voice · independent volume", color = Muted, fontSize = 10.sp)
-                }
-                Text("${(microphoneGain * 100).toInt()}%", color = Accent, fontWeight = FontWeight.Bold)
+                Text("MIC", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${(microphoneGain * 100).toInt()}%", color = Accent, fontSize = 10.sp)
             }
             Slider(value = microphoneGain, onValueChange = onMicrophoneGain, valueRange = 0f..2f)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0f, 0.5f, 1f, 1.5f, 2f).forEach { gain ->
-                    FilterChip(selected = microphoneGain == gain, onClick = { onMicrophoneGain(gain) }, label = { Text("${(gain * 100).toInt()}%") })
-                }
-            }
-            Divider(color = Color(0xFF293648))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("IN-APP / GAME AUDIO", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
-                    Text("Game music, effects and supported app playback", color = Muted, fontSize = 10.sp)
-                }
-                Text("${(gameGain * 100).toInt()}%", color = Accent, fontWeight = FontWeight.Bold)
+                Text("GAME / APP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("${(gameGain * 100).toInt()}%", color = Accent, fontSize = 10.sp)
             }
             Slider(value = gameGain, onValueChange = onGameGain, valueRange = 0f..2f)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0f, 0.5f, 1f, 1.5f, 2f).forEach { gain ->
-                    FilterChip(selected = gameGain == gain, onClick = { onGameGain(gain) }, label = { Text("${(gain * 100).toInt()}%") })
-                }
-            }
-            Divider(color = Color(0xFF293648))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("ADVANCED NOISE CANCELLATION", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Text("Device noise suppression + echo cancellation for the mic. Applies when the next capture starts.", color = Muted, fontSize = 10.sp)
-                }
+                Text("Noise cancellation", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 Switch(checked = noiseCancellation, onCheckedChange = onNoiseCancellation)
             }
-        }
-    }
-    SectionHeading("SOURCE STATUS", "Capture compatibility")
-    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(if (isStreaming) "● STREAM AUDIO MIX ACTIVE" else "○ READY · MIX STARTS WITH CAPTURE", color = if (isStreaming) Good else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
-            Text(if (android.os.Build.VERSION.SDK_INT >= 29) "Android 10+ internal playback capture works with apps that allow audio capture. Some games/apps block it by policy." else "Internal game audio capture needs Android 10 or newer. Microphone capture remains available.", color = Muted, fontSize = 10.sp)
-            Text(status, color = Muted, fontSize = 10.sp, maxLines = 2)
-            Text("Tip: start with game audio 100% and mic 70–100%. Headphones help prevent speaker echo.", color = Muted, fontSize = 10.sp)
         }
     }
 }
