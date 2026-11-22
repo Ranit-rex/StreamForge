@@ -8,7 +8,7 @@
  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
  <application android:allowBackup="false" android:label="StreamForge" android:icon="@drawable/ic_streamforge" android:roundIcon="@drawable/ic_streamforge" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false">
   <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-3940256099942544~3347511713"/>
-  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="true" android:resizeableActivity="true" android:supportsPictureInPicture="true">
+  <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="true" android:resizeableActivity="true">
    <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
    <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="streamforge" android:host="studio"/></intent-filter>
   </activity>
