@@ -76,7 +76,6 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
@@ -93,16 +92,24 @@ class MainActivity : ComponentActivity() {
                     } else beginBroadcastPermissions()
                 },
                 onStopStream = { sendServiceAction(StreamService.ACTION_STOP_STREAM) },
-                onStartRecording = {
+                onStartRecording = { width, height, fps, bitrate ->
                     if (StreamService.streaming.value) {
                         sendServiceAction(StreamService.ACTION_START_RECORDING)
                     } else {
-                        beginStandaloneRecording()
+                        beginStandaloneRecording(width, height, fps, bitrate)
                     }
                 },
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) }
             )
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val keepAwake = getSharedPreferences("streamforge_studio", MODE_PRIVATE)
+            .getBoolean("keep_screen_awake", true)
+        if (keepAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     private fun beginBroadcastPermissions() {
@@ -126,13 +133,13 @@ class MainActivity : ComponentActivity() {
         else startService(intent)
     }
 
-    private fun beginStandaloneRecording() {
+    private fun beginStandaloneRecording(width: Int, height: Int, fps: Int, bitrate: Int) {
         pendingRecordingOnly = true
         pendingEndpoint = ""
-        pendingWidth = 1280
-        pendingHeight = 720
-        pendingFps = 30
-        pendingBitrate = 4_500_000
+        pendingWidth = width
+        pendingHeight = height
+        pendingFps = fps
+        pendingBitrate = bitrate
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
         permissionLauncher.launch(permissions.toTypedArray())
