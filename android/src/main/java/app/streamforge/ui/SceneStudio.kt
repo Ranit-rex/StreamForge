@@ -129,7 +129,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             videoSources.mapNotNull { (id, uriString, settings) ->
                 runCatching {
                     val retriever = MediaMetadataRetriever()
-                    retriever.setDataSource(context, Uri.parse(uriString))
+                    val videoUri = Uri.parse(uriString)
+                    if (videoUri.scheme == "content") {
+                        val descriptor = context.contentResolver.openFileDescriptor(videoUri, "r")
+                            ?: throw IllegalStateException("Cannot open selected video file")
+                        descriptor.use { retriever.setDataSource(it.fileDescriptor) }
+                    } else if (videoUri.scheme == "file") {
+                        retriever.setDataSource(videoUri.path ?: throw IllegalArgumentException("Invalid video file path"))
+                    } else {
+                        retriever.setDataSource(context, videoUri)
+                    }
                     val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
                     val sourceFps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
@@ -299,7 +308,10 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                             native.drawRoundRect(rect, 10f, 10f, paint)
                             paint.color = android.graphics.Color.WHITE
                             paint.textSize = (rect.height() * .12f).coerceIn(12f, 22f)
-                            native.drawText(if (videoErrors[item.id] != null) "VIDEO SOURCE ERROR" else "VIDEO PREVIEW LOADING", rect.left + 8f, rect.centerY(), paint)
+                            val sourceError = videoErrors[item.id]
+                            val statusText = if (sourceError != null) "VIDEO ERROR: ${sourceError.take(46)}" else "VIDEO PREVIEW LOADING"
+                            paint.textSize = (rect.height() * .075f).coerceIn(9f, 16f)
+                            native.drawText(statusText, rect.left + 8f, rect.centerY(), paint)
                         }
                     }
                     "camera" -> {
