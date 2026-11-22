@@ -73,6 +73,8 @@ fun StreamForgeApp(
     var adaptiveBitrate by remember { mutableStateOf(prefs.getBoolean("adaptive_bitrate", true)) }
     var audioBitrateKbps by remember { mutableFloatStateOf(prefs.getInt("audio_bitrate_kbps", 128).toFloat()) }
     var audioEnhancements by remember { mutableStateOf(prefs.getBoolean("audio_enhancements", true)) }
+    var microphoneGain by remember { mutableFloatStateOf(prefs.getFloat("audio_mic_gain", 1f).coerceIn(0f, 2f)) }
+    var gameGain by remember { mutableFloatStateOf(prefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)) }
     var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("keep_screen_awake", true)) }
     var showRecordingConfirm by remember { mutableStateOf(false) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
@@ -170,6 +172,35 @@ fun StreamForgeApp(
                         3 -> RecordingLibrary()
                         5 -> AiAssistantPanel()
                         6 -> ChatIntegrationPanel()
+                        7 -> SoundPanel(
+                            microphoneGain = microphoneGain,
+                            gameGain = gameGain,
+                            noiseCancellation = audioEnhancements,
+                            onMicrophoneGain = {
+                                microphoneGain = it
+                                prefs.edit().putFloat("audio_mic_gain", it).apply()
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                    putExtra(StreamService.EXTRA_MIC_GAIN, it)
+                                    putExtra(StreamService.EXTRA_GAME_GAIN, gameGain)
+                                })
+                            },
+                            onGameGain = {
+                                gameGain = it
+                                prefs.edit().putFloat("audio_game_gain", it).apply()
+                                context.startService(Intent(context, StreamService::class.java).apply {
+                                    action = StreamService.ACTION_UPDATE_AUDIO_MIX
+                                    putExtra(StreamService.EXTRA_MIC_GAIN, microphoneGain)
+                                    putExtra(StreamService.EXTRA_GAME_GAIN, it)
+                                })
+                            },
+                            onNoiseCancellation = {
+                                audioEnhancements = it
+                                prefs.edit().putBoolean("audio_enhancements", it).apply()
+                            },
+                            isStreaming = isStreaming,
+                            status = status
+                        )
                         4 -> {
                         SettingsPanel(
                             quality = selectedQuality,
@@ -356,6 +387,7 @@ fun StreamForgeApp(
                             }
                             SectionHeading("QUICK ACCESS", "Your production workspace")
                             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                QuickTile("♫", "Sound", "Mic & game mix", Modifier.weight(1f)) { selectedTab = 7 }
                                 QuickTile("▣", "Preview", "Monitor output", Modifier.weight(1f)) { selectedTab = 1 }
                                 QuickTile("▦", "Scenes", "Arrange layers", Modifier.weight(1f)) { selectedTab = 2 }
                                 QuickTile("▤", "Recordings", "Review MP4s", Modifier.weight(1f)) { selectedTab = 3 }
@@ -365,8 +397,8 @@ fun StreamForgeApp(
                     }
                 }
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
-                    val labels = listOf("Studio", "Preview", "Scenes", "Recordings", "Settings", "AI", "Chat")
-                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦", "☷")
+                    val labels = listOf("Studio", "Preview", "Scenes", "Records", "Settings", "AI", "Chat", "Sound")
+                    val icons = listOf("●", "▣", "▦", "▤", "⚙", "✦", "☷", "♫")
                     labels.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = selectedTab == index, onClick = { selectedTab = index },
@@ -563,6 +595,69 @@ private fun SettingsPanel(
             }
             Text("Recording saves MP4 files to StreamForge's Movies folder. A persistent notification includes a Stop recording action while capture is active.", color = Muted, fontSize = 10.sp)
             Text("Stream key stays in the current app session and is not included in diagnostic reports.", color = Muted, fontSize = 10.sp)
+        }
+    }
+}
+
+
+@Composable
+private fun SoundPanel(
+    microphoneGain: Float,
+    gameGain: Float,
+    noiseCancellation: Boolean,
+    onMicrophoneGain: (Float) -> Unit,
+    onGameGain: (Float) -> Unit,
+    onNoiseCancellation: (Boolean) -> Unit,
+    isStreaming: Boolean,
+    status: String
+) {
+    SectionHeading("AUDIO MIXER", "Sound control")
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("MICROPHONE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Text("Your voice · independent volume", color = Muted, fontSize = 10.sp)
+                }
+                Text("${(microphoneGain * 100).toInt()}%", color = Accent, fontWeight = FontWeight.Bold)
+            }
+            Slider(value = microphoneGain, onValueChange = onMicrophoneGain, valueRange = 0f..2f)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0f, 0.5f, 1f, 1.5f, 2f).forEach { gain ->
+                    FilterChip(selected = microphoneGain == gain, onClick = { onMicrophoneGain(gain) }, label = { Text("${(gain * 100).toInt()}%") })
+                }
+            }
+            Divider(color = Color(0xFF293648))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("IN-APP / GAME AUDIO", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Text("Game music, effects and supported app playback", color = Muted, fontSize = 10.sp)
+                }
+                Text("${(gameGain * 100).toInt()}%", color = Accent, fontWeight = FontWeight.Bold)
+            }
+            Slider(value = gameGain, onValueChange = onGameGain, valueRange = 0f..2f)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0f, 0.5f, 1f, 1.5f, 2f).forEach { gain ->
+                    FilterChip(selected = gameGain == gain, onClick = { onGameGain(gain) }, label = { Text("${(gain * 100).toInt()}%") })
+                }
+            }
+            Divider(color = Color(0xFF293648))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("ADVANCED NOISE CANCELLATION", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Device noise suppression + echo cancellation for the mic. Applies when the next capture starts.", color = Muted, fontSize = 10.sp)
+                }
+                Switch(checked = noiseCancellation, onCheckedChange = onNoiseCancellation)
+            }
+        }
+    }
+    SectionHeading("SOURCE STATUS", "Capture compatibility")
+    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(if (isStreaming) "● STREAM AUDIO MIX ACTIVE" else "○ READY · MIX STARTS WITH CAPTURE", color = if (isStreaming) Good else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text(if (android.os.Build.VERSION.SDK_INT >= 29) "Android 10+ internal playback capture works with apps that allow audio capture. Some games/apps block it by policy." else "Internal game audio capture needs Android 10 or newer. Microphone capture remains available.", color = Muted, fontSize = 10.sp)
+            Text(status, color = Muted, fontSize = 10.sp, maxLines = 2)
+            Text("Tip: start with game audio 100% and mic 70–100%. Headphones help prevent speaker echo.", color = Muted, fontSize = 10.sp)
         }
     }
 }
