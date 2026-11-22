@@ -233,50 +233,23 @@ fun StreamForgeApp(
                                 }
                             }
 
-                            SectionHeading("LIVE MONITOR", "Preview")
-                            Surface(color = Color.Black, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                                Box {
-                                    AndroidView(
-                                        factory = { viewContext ->
-                                            TextureView(viewContext).also { view ->
-                                                StreamService.previewView = view
-                                                view.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                                        if (StreamService.streaming.value) {
-                                                            viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_PREVIEW_SURFACE_READY))
-                                                        }
-                                                    }
-                                                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {}
-                                                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                                        if (StreamService.streaming.value) viewContext.startService(Intent(viewContext, StreamService::class.java).setAction(StreamService.ACTION_STOP_PREVIEW))
-                                                        StreamService.previewView = null
-                                                        return true
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        update = { StreamService.previewView = it },
-                                        modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                                    )
-                                    if (!isStreaming) {
-                                        Surface(color = Color(0xCC101722), shape = RoundedCornerShape(12.dp), modifier = Modifier.align(Alignment.Center)) {
-                                            Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text("PREVIEW STANDBY", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp)
-                                                Text("Start streaming or recording to see capture", color = Muted, fontSize = 9.sp)
-                                            }
-                                        }
-                                    }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("PREVIEW", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { selectedTab = 2 }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                                    Text("SCENES  ↗", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                                Row(Modifier.padding(11.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                    InfoTile("OUTPUT", if (isStreaming) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
-                                    InfoTile("FPS", if (isStreaming) "$liveFps" else "${selectedQuality.fps} target", Modifier.weight(1f))
-                                    InfoTile("BITRATE", if (isStreaming && bitrate > 0) "$bitrate kbps" else "Not live", Modifier.weight(1f))
-                                }
+                            StudioPreviewSurface(
+                                previewReady = studioPreviewReady,
+                                isStreaming = isStreaming,
+                                onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
+                                onStop = onStopStudioPreview
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                InfoTile("OUTPUT", if (isStreaming || studioPreviewReady) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
+                                InfoTile("FPS", if (isStreaming || studioPreviewReady) "$liveFps" else "${selectedQuality.fps}", Modifier.weight(1f))
+                                InfoTile("BITRATE", if (isStreaming && bitrate > 0) "$bitrate kbps" else if (studioPreviewReady) "Standby" else "—", Modifier.weight(1f))
                             }
-
                             SoundPanel(
                                 microphoneGain = microphoneGain,
                                 gameGain = gameGain,
@@ -307,9 +280,8 @@ fun StreamForgeApp(
                                 status = status
                             )
 
-                            SectionHeading("BROADCAST", "Your control room")
-                            Surface(color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                            Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text("SCREEN SOURCE", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -368,7 +340,7 @@ fun StreamForgeApp(
                                 }
                             }
 
-                            SectionHeading("STREAM SETUP", "Destination & output")
+                            Text("STREAM SETUP", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             StudioAccordion("01", "Destination", platform, destinationExpanded, { destinationExpanded = !destinationExpanded }) {
                                 PlatformPicker(platform) { selected ->
                                     platform = selected
@@ -405,13 +377,13 @@ fun StreamForgeApp(
                                 }
                                 Text("4K requires a capable encoder and strong, stable upload speed. Adaptive bitrate responds to network congestion.", color = Muted, fontSize = 10.sp)
                             }
-                            SectionHeading("QUICK ACCESS", "Your production workspace")
+                            Text("TOOLS", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                                QuickTile("▦", "Scenes", "Arrange layers", Modifier.weight(1f)) { selectedTab = 2 }
-                                QuickTile("▤", "Recordings", "Review MP4s", Modifier.weight(1f)) { selectedTab = 3 }
-                                QuickTile("⚙", "Settings", "Stream quality", Modifier.weight(1f)) { selectedTab = 4 }
+                                QuickTile("▦", "Scenes", "", Modifier.weight(1f)) { selectedTab = 2 }
+                                QuickTile("▤", "Recordings", "", Modifier.weight(1f)) { selectedTab = 3 }
+                                QuickTile("⚙", "Settings", "", Modifier.weight(1f)) { selectedTab = 4 }
                             }
-                            Text("StreamForge · Direct-to-platform streaming · No relay server", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 5.dp))
+
                         }
                     }
                 }
@@ -490,8 +462,8 @@ private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings:
 @Composable
 private fun SectionHeading(kicker: String, title: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(kicker, color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
-        Text(title, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Text(kicker, color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+        Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -534,10 +506,10 @@ private fun StudioAccordion(
 @Composable
 private fun QuickTile(icon: String, title: String, subtitle: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = modifier.clickable(onClick = onClick)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(icon, color = Accent, fontSize = 21.sp)
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text(subtitle, color = Muted, fontSize = 9.sp)
+        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(icon, color = Accent, fontSize = 17.sp)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 8.sp, maxLines = 1)
         }
     }
 }
