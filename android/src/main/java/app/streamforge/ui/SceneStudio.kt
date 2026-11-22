@@ -259,7 +259,7 @@ fun SceneStudio(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text(if (isStreaming) "LIVE OUTPUT" else "AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
+            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
         }
         if (isStreaming) {
             StudioPreviewSurface(
@@ -333,7 +333,7 @@ fun SceneStudio(
                                     val top = target.y * size.height
                                     val right = (target.x + target.width) * size.width
                                     val bottom = (target.y + target.height) * size.height
-                                    val edgeTouch = 48f
+                                    val edgeTouch = 96f
                                     val resizeLeft = abs(down.position.x - left) < edgeTouch
                                     val resizeRight = abs(down.position.x - right) < edgeTouch
                                     val resizeTop = abs(down.position.y - top) < edgeTouch
@@ -490,7 +490,7 @@ fun SceneStudio(
                             native.drawRoundRect(rect, 10f, 10f, paint)
                             if (item.id == selected && !item.locked) {
                                 paint.style = Paint.Style.FILL
-                                val handleSize = 12f
+                                val handleSize = 28f
                                 paint.color = android.graphics.Color.WHITE
                                 val handles = listOf(
                                     rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
@@ -509,7 +509,7 @@ fun SceneStudio(
                         }
                     }
                 }
-                Text("OBS-style handles: drag any corner or side dot to resize. Drag inside the layer to move; two fingers to zoom and rotate.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; two fingers to zoom and rotate.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
                 if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFC46B), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
