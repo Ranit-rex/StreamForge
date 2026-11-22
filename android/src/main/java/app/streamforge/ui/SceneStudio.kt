@@ -258,16 +258,10 @@ fun SceneStudio(
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text("LIVE OUTPUT", color = Color(0xFF9DB4FF), fontSize = 9.sp)
+            Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            Text("AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
         }
-        StudioPreviewSurface(
-            previewReady = previewReady,
-            isStreaming = isStreaming,
-            onPrepare = onPreparePreview,
-            onStop = onStopStudioPreview,
-            onChangeSource = onChangeCaptureSource
-        )
+        SceneCompositionPreview()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("SCENES", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -325,9 +319,18 @@ fun SceneStudio(
                                 }
                                 if (target != null) {
                                     selected = target.id
+                                    val left = target.x * size.width
+                                    val top = target.y * size.height
                                     val right = (target.x + target.width) * size.width
                                     val bottom = (target.y + target.height) * size.height
-                                    var resizeWithOneFinger = abs(down.position.x - right) < 54f && abs(down.position.y - bottom) < 54f
+                                    val edgeTouch = 48f
+                                    val resizeLeft = abs(down.position.x - left) < edgeTouch
+                                    val resizeRight = abs(down.position.x - right) < edgeTouch
+                                    val resizeTop = abs(down.position.y - top) < edgeTouch
+                                    val resizeBottom = abs(down.position.y - bottom) < edgeTouch
+                                    val resizeX = resizeLeft || resizeRight
+                                    val resizeY = resizeTop || resizeBottom
+                                    val resizeWithOneFinger = resizeX || resizeY
                                     var previousCentroid = down.position
                                     var previousDistance = 0f
                                     var previousAngle = 0f
@@ -343,10 +346,17 @@ fun SceneStudio(
                                                 val delta = centroid - previousCentroid
                                                 latestUpdateLayer.value(target.id) { current ->
                                                     if (resizeWithOneFinger) {
-                                                        current.copy(
-                                                            width = (current.width + delta.x / size.width).coerceIn(.06f, 1f - current.x),
-                                                            height = (current.height + delta.y / size.height).coerceIn(.05f, 1f - current.y)
-                                                        )
+                                                        val dx = if (resizeX) delta.x / size.width else 0f
+                                                        val dy = if (resizeY) delta.y / size.height else 0f
+                                                        var newLeft = current.x + if (resizeLeft) dx else 0f
+                                                        var newRight = current.x + current.width + if (resizeRight) dx else 0f
+                                                        var newTop = current.y + if (resizeTop) dy else 0f
+                                                        var newBottom = current.y + current.height + if (resizeBottom) dy else 0f
+                                                        newLeft = newLeft.coerceIn(0f, (newRight - .06f).coerceAtLeast(0f))
+                                                        newRight = newRight.coerceIn((newLeft + .06f).coerceAtMost(1f), 1f)
+                                                        newTop = newTop.coerceIn(0f, (newBottom - .05f).coerceAtLeast(0f))
+                                                        newBottom = newBottom.coerceIn((newTop + .05f).coerceAtMost(1f), 1f)
+                                                        current.copy(x = newLeft, y = newTop, width = newRight - newLeft, height = newBottom - newTop)
                                                     } else {
                                                         current.copy(
                                                             x = (current.x + delta.x / size.width).coerceIn(0f, 1f - current.width),
@@ -470,18 +480,26 @@ fun SceneStudio(
                             native.drawRoundRect(rect, 10f, 10f, paint)
                             if (item.id == selected && !item.locked) {
                                 paint.style = Paint.Style.FILL
-                                paint.color = android.graphics.Color.CYAN
-                                val handleRadius = 9f
-                                native.drawCircle(rect.right, rect.bottom, handleRadius + 4f, paint)
-                                paint.color = android.graphics.Color.rgb(11, 18, 32)
-                                native.drawCircle(rect.right, rect.bottom, 4f, paint)
+                                val handleSize = 12f
+                                paint.color = android.graphics.Color.WHITE
+                                val handles = listOf(
+                                    rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
+                                    rect.left to rect.centerY(), rect.right to rect.centerY(),
+                                    rect.left to rect.bottom, rect.centerX() to rect.bottom, rect.right to rect.bottom
+                                )
+                                handles.forEach { (hx, hy) ->
+                                    native.drawRect(hx - handleSize / 2f, hy - handleSize / 2f, hx + handleSize / 2f, hy + handleSize / 2f, paint)
+                                    paint.color = android.graphics.Color.rgb(20, 35, 55)
+                                    native.drawRect(hx - 3f, hy - 3f, hx + 3f, hy + 3f, paint)
+                                    paint.color = android.graphics.Color.WHITE
+                                }
                             }
                             paint.style = Paint.Style.FILL
                             native.restore()
                         }
                     }
                 }
-                Text("Select a layer to resize it. Dragging now uses that layer's real bounds; each source has its own starting size.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
+                Text("OBS-style handles: drag any corner or side dot to resize. Drag inside the layer to move; two fingers to zoom and rotate.", color = Color(0xFFB8C5D8), fontSize = 10.sp)
                 if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFC46B), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
