@@ -498,8 +498,8 @@ class StreamService : Service(), ConnectChecker {
                 screenLayer.optDouble("cropBottom", 1.0).toFloat()
             )
         } else filter.setScreenTransform(0f, 0f, 0f, 1f, 1f)
-        val outputWidth = activeStreamWidth.coerceAtMost(1920).coerceAtLeast(640)
-        val outputHeight = activeStreamHeight.coerceAtMost(1080).coerceAtLeast(360)
+        val outputWidth = activeStreamWidth.coerceAtMost(1280).coerceAtLeast(640)
+        val outputHeight = activeStreamHeight.coerceAtMost(720).coerceAtLeast(360)
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -628,7 +628,7 @@ class StreamService : Service(), ConnectChecker {
                         val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
                         val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
                         val position = if (item.optBoolean("loop", true)) elapsed % durationMs else elapsed.coerceAtMost(durationMs - 1L)
-                        val targetFps = item.optInt("fps", 30).coerceIn(5, 60)
+                        val targetFps = item.optInt("fps", 15).coerceIn(5, 15)
                         val now = SystemClock.uptimeMillis()
                         val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                         if (now - lastFrameAt >= (1000L / targetFps).coerceAtLeast(16L)) {
@@ -662,7 +662,7 @@ class StreamService : Service(), ConnectChecker {
         filter.setSceneOverlayBitmap(bitmap)
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
             layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }
-                ?.optInt("fps", 30)?.coerceIn(5, 60)
+                ?.optInt("fps", 15)?.coerceIn(5, 15)
         }.maxOrNull() ?: 30
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let {
