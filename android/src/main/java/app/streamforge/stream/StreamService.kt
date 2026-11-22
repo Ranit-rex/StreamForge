@@ -23,6 +23,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.MediaMetadataRetriever
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Environment
@@ -135,6 +137,8 @@ class StreamService : Service(), ConnectChecker {
     private val videoDecodePending = ConcurrentHashMap.newKeySet<String>()
     private val videoRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
     private val videoStartedAt = ConcurrentHashMap<String, Long>()
+    private val videoDurationMs = ConcurrentHashMap<String, Long>()
+    private val videoSourceFps = ConcurrentHashMap<String, Int>()
     private val videoFrameBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val videoLastFrameAt = ConcurrentHashMap<String, Long>()
     private val videoFrameLock = Any()
@@ -505,8 +509,12 @@ class StreamService : Service(), ConnectChecker {
                 screenLayer.optDouble("cropBottom", 1.0).toFloat()
             )
         } else filter.setScreenTransform(0f, 0f, 0f, 1f, 1f)
-        val outputWidth = activeStreamWidth.coerceAtMost(1280).coerceAtLeast(640)
-        val outputHeight = activeStreamHeight.coerceAtMost(720).coerceAtLeast(360)
+        // Overlay textures are composited separately from the gameplay texture.
+        // 640x360 is sufficient for mobile overlay UI and cuts per-frame CPU/GL upload
+        // bandwidth by 4x compared with rebuilding a 1280x720 bitmap every tick.
+        val overlayScale = minOf(1f, 640f / activeStreamWidth.coerceAtLeast(1), 360f / activeStreamHeight.coerceAtLeast(1))
+        val outputWidth = (activeStreamWidth * overlayScale).toInt().coerceAtLeast(320)
+        val outputHeight = (activeStreamHeight * overlayScale).toInt().coerceAtLeast(180)
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -627,8 +635,10 @@ class StreamService : Service(), ConnectChecker {
                     val uriString = item.optString("text")
                     val now = SystemClock.uptimeMillis()
                     val startedAt = videoStartedAt.putIfAbsent(uriString, now) ?: now
-                    val targetFps = item.optInt("fps", 60).coerceIn(5, 60)
-                    val frameInterval = (1000L / targetFps).coerceAtLeast(16L)
+                    val manualFps = item.optInt("fps", 0).coerceIn(0, 60)
+                    val sourceFps = videoSourceFps[uriString] ?: 30
+                    val targetFps = if (manualFps == 0) sourceFps else manualFps
+                    val frameInterval = (1000L / targetFps.coerceIn(5, 60)).coerceAtLeast(16L)
                     val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                     if (now - lastFrameAt >= frameInterval && videoDecodePending.add(uriString)) {
                         videoLastFrameAt[uriString] = now
@@ -639,12 +649,36 @@ class StreamService : Service(), ConnectChecker {
                                 val retriever = videoRetrievers[uriString] ?: MediaMetadataRetriever().apply {
                                     setDataSource(this@StreamService, Uri.parse(uriString))
                                 }.also { videoRetrievers[uriString] = it }
-                                val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                    ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                val durationMs = videoDurationMs[uriString] ?: run {
+                                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                        ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                    val extractor = MediaExtractor()
+                                    val detectedFps = try {
+                                        extractor.setDataSource(this@StreamService, Uri.parse(uriString), null)
+                                        (0 until extractor.trackCount).firstNotNullOfOrNull { track ->
+                                            val format = extractor.getTrackFormat(track)
+                                            if (format.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true &&
+                                                format.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                                                format.getInteger(MediaFormat.KEY_FRAME_RATE).coerceIn(5, 60)
+                                            } else null
+                                        }
+                                    } catch (_: Exception) {
+                                        null
+                                    } finally {
+                                        runCatching { extractor.release() }
+                                    }
+                                    val fps = detectedFps
+                                        ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                                            ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60)
+                                        ?: 30
+                                    videoSourceFps[uriString] = fps
+                                    videoDurationMs[uriString] = duration
+                                    duration
+                                }
                                 val positionMs = if (shouldLoop) elapsedMs % durationMs else elapsedMs.coerceAtMost(durationMs - 1L)
                                 val decoded = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                 if (decoded != null) {
-                                    val maxWidth = 1280
+                                    val maxWidth = 640
                                     val frame = if (decoded.width > maxWidth) {
                                         val scaledHeight = (decoded.height * (maxWidth.toFloat() / decoded.width)).toInt().coerceAtLeast(1)
                                         Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also { if (it !== decoded) decoded.recycle() }
@@ -689,8 +723,10 @@ class StreamService : Service(), ConnectChecker {
             layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
         }
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
-            layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }
-                ?.optInt("fps", 60)?.coerceIn(5, 60)
+            layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }?.let { item ->
+                val manual = item.optInt("fps", 0)
+                if (manual == 0) videoSourceFps[item.optString("text")] ?: 30 else manual.coerceIn(5, 60)
+            }
         }.maxOrNull() ?: 5
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let {
@@ -1256,6 +1292,8 @@ class StreamService : Service(), ConnectChecker {
         }
         videoLastFrameAt.clear()
         videoStartedAt.clear()
+        videoDurationMs.clear()
+        videoSourceFps.clear()
         sceneImages.values.forEach { if (!it.isRecycled) it.recycle() }
         sceneImages.clear()
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
