@@ -259,9 +259,19 @@ fun SceneStudio(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text("AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
+            Text(if (isStreaming) "LIVE OUTPUT" else "AUTO · UPDATES LIVE", color = Color(0xFF9DB4FF), fontSize = 9.sp)
         }
-        SceneCompositionPreview()
+        if (isStreaming) {
+            StudioPreviewSurface(
+                previewReady = previewReady,
+                isStreaming = true,
+                onPrepare = onPreparePreview,
+                onStop = onStopStudioPreview,
+                onChangeSource = onChangeCaptureSource
+            )
+        } else {
+            SceneCompositionPreview()
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("SCENES", color = Color.White, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
