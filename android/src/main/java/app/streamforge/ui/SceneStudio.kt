@@ -86,7 +86,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", 30).coerceIn(5, 60))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", 15).coerceIn(5, 15))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -731,9 +731,9 @@ fun SceneStudio(
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
                         if (layer.kind == "video") {
-                            Text("TARGET VIDEO FPS · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp)
-                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = value.toInt().coerceIn(5, 60)) } }, valueRange = 5f..60f, steps = 10)
-                            Text("Higher FPS is smoother but uses more CPU. Actual FPS depends on device decoding speed.", color = Color.Gray, fontSize = 10.sp)
+                            Text("VIDEO FPS LIMIT · ${layer.fps} FPS", color = Color.White, fontSize = 11.sp)
+                            Slider(value = layer.fps.toFloat(), enabled = !layer.locked, onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = value.toInt().coerceIn(5, 15)) } }, valueRange = 5f..15f, steps = 9)
+                            Text("Overlay playback is capped at 15 FPS to reduce heat, lag and crashes. Main screen capture keeps its own FPS.", color = Color.Gray, fontSize = 10.sp)
                         }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
