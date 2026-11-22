@@ -272,6 +272,7 @@ fun SceneStudio(
                                                         )
                                                     }
                                                 }
+                                                previousDistance = 0f
                                             } else {
                                                 val p1 = activePointers[0].position
                                                 val p2 = activePointers[1].position
