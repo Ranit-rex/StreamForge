@@ -22,6 +22,7 @@ import android.graphics.drawable.GradientDrawable
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
+import android.media.MediaMetadataRetriever
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Environment
@@ -124,6 +125,8 @@ class StreamService : Service(), ConnectChecker {
     private var activeSceneIndex = 0
     private val gifMovies = mutableMapOf<String, Movie>()
     private val sceneImages = mutableMapOf<String, Bitmap>()
+    private val videoRetrievers = mutableMapOf<String, MediaMetadataRetriever>()
+    private val videoStartedAt = mutableMapOf<String, Long>()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
     private val gifFrameRunnable = object : Runnable {
@@ -539,8 +542,9 @@ class StreamService : Service(), ConnectChecker {
                         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             color = AndroidColor.WHITE
                             this.alpha = alpha
-                            typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                            textSize = (rect.height() * .58f).coerceIn(20f, 112f)
+                            color = runCatching { AndroidColor.parseColor(item.optString("textColor", "#FFFFFFFF")) }.getOrDefault(AndroidColor.WHITE)
+                            typeface = Typeface.create(item.optString("fontFamily", "sans-serif"), Typeface.BOLD)
+                            textSize = ((rect.height() * .58f).coerceIn(20f, 112f) * item.optDouble("fontSizeScale", 1.0).toFloat().coerceIn(.5f, 2f))
                             setShadowLayer(5f, 2f, 2f, AndroidColor.BLACK)
                         }
                         val baseline = rect.top + (rect.height() - (paint.descent() + paint.ascent())) / 2f
@@ -593,6 +597,38 @@ class StreamService : Service(), ConnectChecker {
                         canvas.restore()
                     }
                 }
+                "timer" -> {
+                    val elapsed = if (recordingStartedAt.value > 0L) System.currentTimeMillis() - recordingStartedAt.value
+                        else if (streamStartedAt.value > 0L) System.currentTimeMillis() - streamStartedAt.value else 0L
+                    val seconds = (elapsed / 1000L).coerceAtLeast(0L)
+                    val label = String.format(Locale.US, "%02d:%02d", (seconds / 60L) % 100L, seconds % 60L)
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = runCatching { AndroidColor.parseColor(item.optString("textColor", "#FFFFFFFF")) }.getOrDefault(AndroidColor.WHITE)
+                        this.alpha = alpha
+                        typeface = Typeface.create(item.optString("fontFamily", "sans-serif"), Typeface.BOLD)
+                        textSize = (rect.height() * .62f).coerceIn(22f, 100f) * item.optDouble("fontSizeScale", 1.0).toFloat().coerceIn(.5f, 2f)
+                    }
+                    canvas.drawText(label, rect.left + rect.width() * .03f, rect.centerY() - (paint.ascent() + paint.descent()) / 2f, paint)
+                }
+                "video" -> {
+                    val uriString = item.optString("text")
+                    val retriever = videoRetrievers[uriString] ?: runCatching {
+                        MediaMetadataRetriever().apply { setDataSource(this@StreamService, Uri.parse(uriString)) }
+                    }.getOrNull()?.also {
+                        videoRetrievers[uriString] = it
+                        videoStartedAt[uriString] = SystemClock.uptimeMillis()
+                    }
+                    if (retriever != null) {
+                        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                        val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
+                        val position = if (item.optBoolean("loop", true)) elapsed % durationMs else elapsed.coerceAtMost(durationMs - 1L)
+                        val frame = runCatching { retriever.getFrameAtTime(position * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                        if (frame != null) {
+                            canvas.drawBitmap(frame, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha })
+                            frame.recycle()
+                        }
+                    }
+                }
                 "camera" -> {
                     val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         color = AndroidColor.argb((alpha * .72f).toInt(), 28, 42, 58)
@@ -610,11 +646,13 @@ class StreamService : Service(), ConnectChecker {
             canvas.restore()
         }
         filter.setSceneOverlayBitmap(bitmap)
-        val hasGif = (0 until layers.length()).any { i ->
-            layers.optJSONObject(i)?.let { it.optString("kind") == "gif" && it.optBoolean("visible", true) } == true
+        val hasAnimatedLayer = (0 until layers.length()).any { i ->
+            layers.optJSONObject(i)?.let {
+                it.optBoolean("visible", true) && (it.optString("kind") == "gif" || it.optString("kind") == "video" || it.optString("kind") == "timer")
+            } == true
         }
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
-        if (hasGif && (streaming.value || studioPreviewReady.value)) gifFrameHandler.postDelayed(gifFrameRunnable, 66L)
+        if (hasAnimatedLayer && (streaming.value || recording.value || studioPreviewReady.value)) gifFrameHandler.postDelayed(gifFrameRunnable, 250L)
     }
 
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
@@ -1134,6 +1172,9 @@ class StreamService : Service(), ConnectChecker {
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         gifMovies.clear()
         gifStartedAt.clear()
+        videoRetrievers.values.forEach { runCatching { it.release() } }
+        videoRetrievers.clear()
+        videoStartedAt.clear()
         sceneImages.values.forEach { if (!it.isRecycled) it.recycle() }
         sceneImages.clear()
         stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
