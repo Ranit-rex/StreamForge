@@ -35,6 +35,34 @@ private val Muted = Color(0xFF91A0B4)
 private val LiveRed = Color(0xFFFF536B)
 private val Good = Color(0xFF55D6A1)
 
+private fun saveProgramPreviewScreenshot(context: android.content.Context): Boolean {
+    val bitmap = runCatching { StreamService.previewView?.bitmap }.getOrNull() ?: return false
+    return runCatching {
+        val name = "StreamForge_Screenshot_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())}.jpg"
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StreamForge")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val uri = context.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create screenshot file")
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 94, output)) {
+                throw IllegalStateException("Could not save screenshot")
+            }
+        } ?: throw IllegalStateException("Could not write screenshot")
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            values.clear()
+            values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, values, null, null)
+        }
+        true
+    }.getOrDefault(false).also { if (!bitmap.isRecycled) bitmap.recycle() }
+}
+
 private data class StreamQuality(val label: String, val width: Int, val height: Int, val fps: Int, val bitrate: Int)
 
 private val qualityOptions = listOf(
@@ -431,10 +459,38 @@ fun StreamForgeApp(
             if (showRecordingStarted) {
                 AlertDialog(
                     onDismissRequest = { showRecordingStarted = false },
-                    title = { Text("Recording started") },
-                    text = { Text("Your screen is being recorded to an MP4 file. You can continue using StreamForge; the recording indicator stays active until you stop it.") },
-                    confirmButton = { TextButton(onClick = { showRecordingStarted = false }) { Text("GOT IT") } },
-                    dismissButton = { TextButton(onClick = { showRecordingStarted = false; onStopRecording() }) { Text("STOP RECORDING") } },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LiveDot()
+                            Text("Recording started", color = Color.White)
+                        }
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Your MP4 recording is active.", color = Muted)
+                            Text("REC  ·  ${formatDuration(recordingElapsedSeconds)}  ·  ${liveResolution}", color = LiveRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val saved = saveProgramPreviewScreenshot(context)
+                                        status.let { }
+                                        android.widget.Toast.makeText(context, if (saved) "Screenshot saved to Pictures/StreamForge" else "Preview screenshot unavailable", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("TAKE SS", fontSize = 10.sp) }
+                                OutlinedButton(
+                                    onClick = { showRecordingStarted = false; selectedTab = 2 },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("SCENE", fontSize = 10.sp) }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showRecordingStarted = false; onStopRecording() }) {
+                            Text("STOP RECORDING", color = LiveRed)
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { showRecordingStarted = false }) { Text("CONTINUE") } },
                     containerColor = Panel,
                     titleContentColor = Color.White,
                     textContentColor = Muted
