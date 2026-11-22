@@ -419,7 +419,7 @@ class StreamService : Service(), ConnectChecker {
     private fun startPreviewIfAvailable() {
         val activeStream = stream ?: return
         val view = previewView ?: return
-        if ((!activeStream.isStreaming && !studioPreviewReady.value) || projection == null || activeStream.isOnPreview) return
+        if ((!activeStream.isStreaming && !studioPreviewReady.value && !recording.value) || projection == null || activeStream.isOnPreview) return
         if (!view.isAvailable || view.width <= 0 || view.height <= 0) return
         runCatching { activeStream.startPreview(view) }
             .onFailure { status.value = "Preview unavailable: ${it.message ?: "surface error"}" }
@@ -673,6 +673,7 @@ class StreamService : Service(), ConnectChecker {
                 recordingStartedAt.value = System.currentTimeMillis()
                 status.value = if (streaming.value) "Recording locally" else "Recording screen locally"
                 updateOngoingNotification(if (streaming.value) "LIVE · Local recording active" else "Local screen recording active")
+                startPreviewIfAvailable()
             }
             .onFailure { error ->
                 recording.value = false
