@@ -253,19 +253,6 @@ fun StreamForgeApp(
                                 }
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("PREVIEW", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { selectedTab = 2 }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
-                                    Text("SCENES  ↗", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            StudioPreviewSurface(
-                                previewReady = studioPreviewReady,
-                                isStreaming = isStreaming,
-                                onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
-                                onStop = onStopStudioPreview,
-                                onChangeSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
-                            )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 InfoTile("OUTPUT", if (isStreaming || studioPreviewReady) liveResolution else selectedQuality.label.substringBefore(" · "), Modifier.weight(1f))
                                 InfoTile("FPS", if (isStreaming || studioPreviewReady) "$liveFps" else "${selectedQuality.fps}", Modifier.weight(1f))
