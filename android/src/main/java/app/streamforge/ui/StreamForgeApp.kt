@@ -81,6 +81,8 @@ fun StreamForgeApp(
     var gameGain by remember { mutableFloatStateOf(prefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)) }
     var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("keep_screen_awake", true)) }
     var showRecordingConfirm by remember { mutableStateOf(false) }
+    var showRecordingStarted by remember { mutableStateOf(false) }
+    var lastRecordingStartedAt by remember { mutableLongStateOf(0L) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
     var destinationExpanded by remember { mutableStateOf(false) }
     var audioExpanded by remember { mutableStateOf(false) }
@@ -97,6 +99,13 @@ fun StreamForgeApp(
     val networkHealth by StreamService.networkHealth.collectAsState()
     val microphoneMuted by StreamService.microphoneMuted.collectAsState()
     val recordingStartedAt by StreamService.recordingStartedAt.collectAsState()
+
+    LaunchedEffect(recordingStartedAt) {
+        if (recordingStartedAt > 0L && recordingStartedAt != lastRecordingStartedAt) {
+            lastRecordingStartedAt = recordingStartedAt
+            showRecordingStarted = true
+        }
+    }
 
     LaunchedEffect(isRecording, recordingStartedAt) {
         if (isRecording && recordingStartedAt > 0L) {
@@ -242,7 +251,7 @@ fun StreamForgeApp(
                             Text("PROGRAM PREVIEW", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
                             StudioPreviewSurface(
                                 previewReady = studioPreviewReady,
-                                isStreaming = isStreaming,
+                                isStreaming = isStreaming || isRecording,
                                 onPrepare = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
                                 onStop = onStopStudioPreview,
                                 onChangeSource = { onChangeCaptureSource(server.trim().trimEnd('/') + "/" + streamKey.trim().trimStart('/'), selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) }
@@ -419,6 +428,18 @@ fun StreamForgeApp(
                     }
                 }
             }
+            if (showRecordingStarted) {
+                AlertDialog(
+                    onDismissRequest = { showRecordingStarted = false },
+                    title = { Text("Recording started") },
+                    text = { Text("Your screen is being recorded to an MP4 file. You can continue using StreamForge; the recording indicator stays active until you stop it.") },
+                    confirmButton = { TextButton(onClick = { showRecordingStarted = false }) { Text("GOT IT") } },
+                    dismissButton = { TextButton(onClick = { showRecordingStarted = false; onStopRecording() }) { Text("STOP RECORDING") } },
+                    containerColor = Panel,
+                    titleContentColor = Color.White,
+                    textContentColor = Muted
+                )
+            }
             if (showRecordingConfirm) {
                 AlertDialog(
                     onDismissRequest = { showRecordingConfirm = false },
@@ -485,7 +506,7 @@ fun StudioPreviewSurface(
                     modifier = Modifier.fillMaxSize()
                 )
                 Surface(color = Color(0xCC111923), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text("● LIVE OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text(if (StreamService.streaming.value) "● LIVE OUTPUT" else "● REC OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
                 TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
                     Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
