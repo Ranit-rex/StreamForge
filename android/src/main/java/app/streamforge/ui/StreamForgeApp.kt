@@ -527,14 +527,14 @@ private fun SettingsPanel(
                 TextButton(onClick = { onColor(1f, 1f, 1f, 0f) }) { Text("RESET") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = false, onClick = { onColor(1f, 1f, 1f, 0f) }) { Text("Natural") }
-                FilterChip(selected = false, onClick = { onColor(1.02f, 1.18f, 1.35f, 0.18f) }) { Text("Vivid") }
-                FilterChip(selected = false, onClick = { onColor(0.96f, 1.22f, 0.82f, 0.12f) }) { Text("Cinema") }
+                FilterChip(selected = false, onClick = { onColor(1f, 1f, 1f, 0f) }, label = { Text("Natural") })
+                FilterChip(selected = false, onClick = { onColor(1.02f, 1.18f, 1.35f, 0.18f) }, label = { Text("Vivid") })
+                FilterChip(selected = false, onClick = { onColor(0.96f, 1.22f, 0.82f, 0.12f) }, label = { Text("Cinema") })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = false, onClick = { onColor(1.02f, 1.3f, 1.05f, 0.08f) }) { Text("Crisp") }
-                FilterChip(selected = false, onClick = { onColor(1f, 0.95f, 0.72f, 0f) }) { Text("Soft") }
-                FilterChip(selected = false, onClick = { onColor(1f, 1.1f, 0f, 0f) }) { Text("B&W") }
+                FilterChip(selected = false, onClick = { onColor(1.02f, 1.3f, 1.05f, 0.08f) }, label = { Text("Crisp") })
+                FilterChip(selected = false, onClick = { onColor(1f, 0.95f, 0.72f, 0f) }, label = { Text("Soft") })
+                FilterChip(selected = false, onClick = { onColor(1f, 1.1f, 0f, 0f) }, label = { Text("B&W") })
             }
             ColourSlider("Brightness", brightness, 0.8f..1.35f) { onColor(it, contrast, saturation, sharpness) }
             ColourSlider("Contrast", contrast, 0.8f..1.4f) { onColor(brightness, it, saturation, sharpness) }
