@@ -389,10 +389,7 @@ fun SceneStudio(
                                 paint.style = Paint.Style.FILL
                                 paint.color = android.graphics.Color.CYAN
                                 val handleRadius = 9f
-                                native.drawCircle(rect.left, rect.top, handleRadius, paint)
-                                native.drawCircle(rect.right, rect.top, handleRadius, paint)
-                                native.drawCircle(rect.left, rect.bottom, handleRadius, paint)
-                                native.drawCircle(rect.right, rect.bottom, handleRadius + 2f, paint)
+                                native.drawCircle(rect.right, rect.bottom, handleRadius + 4f, paint)
                                 paint.color = android.graphics.Color.rgb(11, 18, 32)
                                 native.drawCircle(rect.right, rect.bottom, 4f, paint)
                             }
