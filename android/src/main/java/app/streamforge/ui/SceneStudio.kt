@@ -126,37 +126,52 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             runCatching {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(context, Uri.parse(uriString))
-                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                Triple(id, retriever, Pair(duration, settings))
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                val sourceFps = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                    ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
+                val targetFps = if (settings.second == 0) sourceFps else settings.second.coerceIn(5, 60)
+                Triple(id, retriever, Triple(duration, settings, targetFps))
             }.getOrNull()
         }
         val startedAt = SystemClock.elapsedRealtime()
+        val lastDecodedAt = mutableMapOf<Long, Long>()
+        val previewWidth = 960
+        val previewHeight = 540
+        val refreshDelay = (1000L / (sources.maxOfOrNull { it.third.third } ?: 30)).coerceIn(16L, 200L)
         try {
             while (isActive && sources.isNotEmpty()) {
+                val now = SystemClock.elapsedRealtime()
                 val frames = withContext(Dispatchers.IO) {
-                    sources.mapNotNull { (id, retriever, settings) ->
-                        val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
-                        val duration = settings.first
-                        val timeMs = if (settings.second.first) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                        // Program Preview is a small thumbnail surface. Never decode the
-                        // source at its native resolution (large 4K clips can exhaust heap).
+                    sources.mapNotNull { (id, retriever, metadata) ->
+                        val frameInterval = (1000L / metadata.third.coerceIn(5, 60)).coerceAtLeast(16L)
+                        val previousDecode = lastDecodedAt[id] ?: Long.MIN_VALUE
+                        if (now - previousDecode < frameInterval) return@mapNotNull null
+                        lastDecodedAt[id] = now
+                        val elapsed = (now - startedAt).coerceAtLeast(0L)
+                        val duration = metadata.first
+                        val loop = metadata.second.first
+                        val timeMs = if (loop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        // Preview is rendered at 16:9 HD; decoding larger source frames
+                        // wastes memory bandwidth and creates avoidable GC pressure.
                         runCatching {
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                                 retriever.getScaledFrameAtTime(
                                     timeMs * 1000L,
                                     MediaMetadataRetriever.OPTION_CLOSEST,
-                                    1920,
-                                    1080
+                                    previewWidth,
+                                    previewHeight
                                 )
                             } else {
                                 retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                     ?.let { full ->
-                                        Bitmap.createScaledBitmap(
+                                        val scale = minOf(1f, previewWidth.toFloat() / full.width, previewHeight.toFloat() / full.height)
+                                        if (scale < 1f) Bitmap.createScaledBitmap(
                                             full,
-                                            1920,
-                                            (full.height * (1920f / full.width)).toInt().coerceAtLeast(1),
+                                            (full.width * scale).toInt().coerceAtLeast(1),
+                                            (full.height * scale).toInt().coerceAtLeast(1),
                                             true
-                                        ).also { if (it !== full && !full.isRecycled) full.recycle() }
+                                        ).also { if (it !== full && !full.isRecycled) full.recycle() } else full
                                     }
                             }
                         }.getOrNull()?.let { id to it }
@@ -166,9 +181,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                // Target a 60 FPS preview refresh cadence. Actual decode FPS depends on
-                // device decoder throughput and source frame rate.
-                delay(16L)
+                delay(refreshDelay)
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
