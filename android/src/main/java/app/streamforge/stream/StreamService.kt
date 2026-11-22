@@ -626,7 +626,7 @@ class StreamService : Service(), ConnectChecker {
                         val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
                         val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
                         val position = if (item.optBoolean("loop", true)) elapsed % durationMs else elapsed.coerceAtMost(durationMs - 1L)
-                        val frame = runCatching { retriever.getFrameAtTime(position * 1000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) }.getOrNull()
+                        val frame = runCatching { retriever.getFrameAtTime(position * 1000L, MediaMetadataRetriever.OPTION_CLOSEST) }.getOrNull()
                         if (frame != null) {
                             canvas.drawBitmap(frame, null, rect, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha })
                             frame.recycle()
@@ -650,13 +650,23 @@ class StreamService : Service(), ConnectChecker {
             canvas.restore()
         }
         filter.setSceneOverlayBitmap(bitmap)
+        val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
+            layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }
+                ?.optInt("fps", 30)?.coerceIn(5, 60)
+        }.maxOrNull() ?: 30
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let {
                 it.optBoolean("visible", true) && (it.optString("kind") == "gif" || it.optString("kind") == "video" || it.optString("kind") == "timer")
             } == true
         }
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
-        if (hasAnimatedLayer && (streaming.value || recording.value || studioPreviewReady.value)) gifFrameHandler.postDelayed(gifFrameRunnable, 250L)
+        if (hasAnimatedLayer && (streaming.value || recording.value || studioPreviewReady.value)) {
+            val hasVideo = (0 until layers.length()).any { i ->
+                layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
+            }
+            val frameInterval = if (hasVideo) (1000L / requestedVideoFps).coerceAtLeast(16L) else 250L
+            gifFrameHandler.postDelayed(gifFrameRunnable, frameInterval)
+        }
     }
 
     private fun updateColorTuning(brightness: Float, contrast: Float, saturation: Float, sharpness: Float) {
