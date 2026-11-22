@@ -220,16 +220,16 @@ class StreamService : Service(), ConnectChecker {
             lastBitrateAdjustmentAt = 0L
             stableNetworkSince = 0L
             networkHealth.value = if (profile.width != width || profile.height != height || profile.fps != fps) {
-                "Device encoder limit · using \${profile.width}×\${profile.height} @ \${profile.fps} FPS"
+                "Device encoder limit · using ${profile.width}×${profile.height} @ ${profile.fps} FPS"
             } else "Network monitoring"
-            streamResolution.value = "\${profile.width} × \${profile.height}"
+            streamResolution.value = "${profile.width} × ${profile.height}"
             streamFps.value = profile.fps
             activeStreamWidth = profile.width
             activeStreamHeight = profile.height
             bitrateKbps.value = 0L
             stream?.forceBt709Color(true)
             val prepared = stream?.prepareVideo(profile.width, profile.height, bitrate, profile.fps, rotation = 0) == true
-            if (!prepared) throw IllegalStateException("The device rejected \${profile.width}×\${profile.height} @ \${profile.fps} FPS. Choose a lower preset.")
+            if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} @ ${profile.fps} FPS. Choose a lower preset.")
             // MediaProjection already provides display orientation. RootEncoder otherwise
             // applies its camera orientation transform, which can produce a blank/white
             // GL frame for ScreenSource on some devices.
@@ -428,11 +428,11 @@ class StreamService : Service(), ConnectChecker {
             val profile = resolveEncoderProfile(width, height, fps)
             activeStreamWidth = profile.width
             activeStreamHeight = profile.height
-            streamResolution.value = "\${profile.width} × \${profile.height}"
+            streamResolution.value = "${profile.width} × ${profile.height}"
             streamFps.value = profile.fps
             stream?.forceBt709Color(true)
             val prepared = stream?.prepareVideo(profile.width, profile.height, bitrate, profile.fps, rotation = 0) == true
-            if (!prepared) throw IllegalStateException("The device rejected \${profile.width}×\${profile.height} recording. Choose a lower preset.")
+            if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} recording. Choose a lower preset.")
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
             installColorFilters()
