@@ -55,6 +55,8 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_STOP_STREAM = "app.streamforge.STOP_STREAM"
         const val ACTION_START_RECORDING = "app.streamforge.START_RECORDING"
         const val ACTION_START_LOCAL_RECORDING = "app.streamforge.START_LOCAL_RECORDING"
+        const val ACTION_START_STUDIO_PREVIEW = "app.streamforge.START_STUDIO_PREVIEW"
+        const val ACTION_STOP_STUDIO_PREVIEW = "app.streamforge.STOP_STUDIO_PREVIEW"
         const val ACTION_STOP_RECORDING = "app.streamforge.STOP_RECORDING"
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
         const val ACTION_APPLY_SCENE = "app.streamforge.APPLY_SCENE"
@@ -82,6 +84,7 @@ class StreamService : Service(), ConnectChecker {
         val status = MutableStateFlow("Ready")
         val streaming = MutableStateFlow(false)
         val recording = MutableStateFlow(false)
+        val studioPreviewReady = MutableStateFlow(false)
         val recordingStartedAt = MutableStateFlow(0L)
         val bitrateKbps = MutableStateFlow(0L)
         val streamResolution = MutableStateFlow("1280 × 720")
@@ -150,6 +153,8 @@ class StreamService : Service(), ConnectChecker {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_STREAM -> startScreenStream(intent)
+            ACTION_START_STUDIO_PREVIEW -> startStudioPreview(intent)
+            ACTION_STOP_STUDIO_PREVIEW -> stopStudioPreview()
             ACTION_STOP_STREAM -> stopStream()
             ACTION_START_RECORDING -> startRecording()
             ACTION_START_LOCAL_RECORDING -> startLocalRecording(intent)
@@ -196,7 +201,8 @@ class StreamService : Service(), ConnectChecker {
         throw IllegalStateException("This device has no compatible H.264 screen encoder profile")
     }
 
-    private fun startScreenStream(intent: Intent) {
+    private fun startStudioPreview(intent: Intent) {
+        if (streaming.value || recording.value || studioPreviewReady.value) return
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val projectionData: Intent? = if (Build.VERSION.SDK_INT >= 33) {
             intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
@@ -204,64 +210,117 @@ class StreamService : Service(), ConnectChecker {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(EXTRA_RESULT_DATA)
         }
+        val width = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(640, 3840)
+        val height = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(360, 2160)
+        val fps = intent.getIntExtra(EXTRA_FPS, 30).coerceIn(24, 60)
+        if (projectionData == null) {
+            status.value = "Screen permission was not granted"
+            stopSelf()
+            return
+        }
+        try {
+            ServiceCompat.startForeground(
+                this, NOTIFICATION_ID, buildNotification("Studio preview readying…"),
+                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            )
+            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection = manager.getMediaProjection(resultCode, projectionData)
+                ?: throw IllegalStateException("Screen capture permission was not granted")
+            val profile = resolveEncoderProfile(width, height, fps)
+            activeStreamWidth = profile.width
+            activeStreamHeight = profile.height
+            streamResolution.value = "${profile.width} × ${profile.height}"
+            streamFps.value = profile.fps
+            stream?.forceBt709Color(true)
+            val prepared = stream?.prepareVideo(profile.width, profile.height, profile.maxBitrate.coerceAtMost(4_500_000), profile.fps, rotation = 0) == true
+            if (!prepared) throw IllegalStateException("Could not prepare the preview encoder")
+            stream?.getGlInterface()?.setCameraOrientation(0)
+            stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            configureAudioMix()
+            installColorFilters()
+            studioPreviewReady.value = true
+            status.value = "Studio preview ready · not live"
+            startPreviewIfAvailable()
+        } catch (error: Exception) {
+            studioPreviewReady.value = false
+            projection?.stop()
+            projection = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            status.value = "Preview failed: ${error.message ?: error.javaClass.simpleName}"
+            stopSelf()
+        }
+    }
+
+    private fun stopStudioPreview() {
+        if (streaming.value || recording.value) return
+        runCatching { stream?.let { if (it.isOnPreview) it.stopPreview() } }
+        projection?.stop()
+        projection = null
+        studioPreviewReady.value = false
+        colorGradingFilter = null
+        status.value = "Preview stopped"
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private fun startScreenStream(intent: Intent) {
         val endpoint = intent.getStringExtra(EXTRA_ENDPOINT).orEmpty()
         val width = intent.getIntExtra(EXTRA_WIDTH, 1280).coerceIn(640, 3840)
         val height = intent.getIntExtra(EXTRA_HEIGHT, 720).coerceIn(360, 2160)
         val fps = intent.getIntExtra(EXTRA_FPS, 30).coerceIn(24, 60)
         val bitrate = intent.getIntExtra(EXTRA_BITRATE, 4_500_000).coerceIn(800_000, 35_000_000)
-        if (projectionData == null || endpoint.isBlank()) {
+        val usePreparedPreview = studioPreviewReady.value && projection != null
+        val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
+        val projectionData: Intent? = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(EXTRA_RESULT_DATA)
+        }
+        if (endpoint.isBlank() || (!usePreparedPreview && projectionData == null)) {
             status.value = "Missing screen permission or destination"
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
-
         ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification("Preparing stream…"),
-            if (Build.VERSION.SDK_INT >= 29) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            } else 0
+            this, NOTIFICATION_ID, buildNotification("Preparing stream…"),
+            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
         )
-
         try {
-            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            projection = manager.getMediaProjection(resultCode, projectionData)
-                ?: throw IllegalStateException("Screen capture permission was not granted")
-            val profile = resolveEncoderProfile(width, height, fps)
-            val encoderBitrate = bitrate.coerceIn(profile.minBitrate, profile.maxBitrate)
-            requestedVideoBitrate = encoderBitrate
-            activeVideoBitrate = encoderBitrate
-            adaptiveBitrateEnabled = getSharedPreferences("streamforge_studio", 0).getBoolean("adaptive_bitrate", true)
-            lastBitrateAdjustmentAt = 0L
-            stableNetworkSince = 0L
-            networkHealth.value = if (profile.width != width || profile.height != height || profile.fps != fps || encoderBitrate != bitrate) {
-                "Device encoder limit · ${profile.width}×${profile.height} @ ${profile.fps} FPS · ${encoderBitrate / 1_000_000f} Mbps"
-            } else "Network monitoring"
-            streamResolution.value = "${profile.width} × ${profile.height}"
-            streamFps.value = profile.fps
-            activeStreamWidth = profile.width
-            activeStreamHeight = profile.height
-            bitrateKbps.value = 0L
-            stream?.forceBt709Color(true)
-            val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
-            if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} @ ${profile.fps} FPS. Choose a lower preset.")
-            // MediaProjection already provides display orientation. RootEncoder otherwise
-            // applies its camera orientation transform, which can produce a blank/white
-            // GL frame for ScreenSource on some devices.
-            stream?.getGlInterface()?.setCameraOrientation(0)
-            stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
-            configureAudioMix()
-            // Install the entire colour chain before the GL renderer begins streaming.
-            // RootEncoder queues filter changes asynchronously on its GL thread. Building
-            // the chain from a live slider callback can briefly expose a partial chain
-            // (and turn the outgoing frame white). Slider callbacks only update values.
-            installColorFilters()
-            // Start the broadcast first. ScreenSource must create exactly one
-            // MediaProjection virtual display; preview attaches to the running GL
-            // pipeline only after streaming has been started.
+            if (!usePreparedPreview) {
+                val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                projection = manager.getMediaProjection(resultCode, projectionData!!)
+                    ?: throw IllegalStateException("Screen capture permission was not granted")
+                val profile = resolveEncoderProfile(width, height, fps)
+                val encoderBitrate = bitrate.coerceIn(profile.minBitrate, profile.maxBitrate)
+                requestedVideoBitrate = encoderBitrate
+                activeVideoBitrate = encoderBitrate
+                adaptiveBitrateEnabled = getSharedPreferences("streamforge_studio", 0).getBoolean("adaptive_bitrate", true)
+                lastBitrateAdjustmentAt = 0L
+                stableNetworkSince = 0L
+                networkHealth.value = if (profile.width != width || profile.height != height || profile.fps != fps || encoderBitrate != bitrate) {
+                    "Device encoder limit · ${profile.width}×${profile.height} @ ${profile.fps} FPS · ${encoderBitrate / 1_000_000f} Mbps"
+                } else "Network monitoring"
+                streamResolution.value = "${profile.width} × ${profile.height}"
+                streamFps.value = profile.fps
+                activeStreamWidth = profile.width
+                activeStreamHeight = profile.height
+                bitrateKbps.value = 0L
+                stream?.forceBt709Color(true)
+                val prepared = stream?.prepareVideo(profile.width, profile.height, encoderBitrate, profile.fps, rotation = 0) == true
+                if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} @ ${profile.fps} FPS. Choose a lower preset.")
+                stream?.getGlInterface()?.setCameraOrientation(0)
+                stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+                configureAudioMix()
+                installColorFilters()
+            } else {
+                requestedVideoBitrate = bitrate
+                activeVideoBitrate = bitrate
+                adaptiveBitrateEnabled = getSharedPreferences("streamforge_studio", 0).getBoolean("adaptive_bitrate", true)
+                lastBitrateAdjustmentAt = 0L
+                stableNetworkSince = 0L
+            }
             stream?.startStream(endpoint)
             status.value = "Connecting…"
             startPreviewIfAvailable()
@@ -270,13 +329,10 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
-
     private fun startPreviewIfAvailable() {
         val activeStream = stream ?: return
         val view = previewView ?: return
-        // Never initialise a screen-capture preview while idle. It can create a
-        // VirtualDisplay before the broadcast and collide with MediaProjection.
-        if (!activeStream.isStreaming || projection == null || activeStream.isOnPreview) return
+        if ((!activeStream.isStreaming && !studioPreviewReady.value) || projection == null || activeStream.isOnPreview) return
         if (!view.isAvailable || view.width <= 0 || view.height <= 0) return
         runCatching { activeStream.startPreview(view) }
             .onFailure { status.value = "Preview unavailable: ${it.message ?: "surface error"}" }
@@ -515,6 +571,7 @@ class StreamService : Service(), ConnectChecker {
             if (it.isOnPreview) it.stopPreview()
         }
         streaming.value = false
+        studioPreviewReady.value = false
         streamStartedAt.value = 0L
         hideFloatingControls()
         YouTubeLiveChat.stop()
@@ -907,6 +964,7 @@ class StreamService : Service(), ConnectChecker {
         colorGradingFilter = null
         projection?.stop()
         projection = null
+        studioPreviewReady.value = false
         super.onDestroy()
     }
 
