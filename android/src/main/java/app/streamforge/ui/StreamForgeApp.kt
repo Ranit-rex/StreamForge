@@ -71,6 +71,8 @@ fun StreamForgeApp(
     var colorSharpness by remember { mutableFloatStateOf(prefs.getFloat("color_sharpness", 0f)) }
     var targetBitrateMbps by remember { mutableFloatStateOf(prefs.getFloat("video_bitrate_mbps", qualityOptions[5].bitrate / 1_000_000f).coerceIn(0.8f, 35f)) }
     var adaptiveBitrate by remember { mutableStateOf(prefs.getBoolean("adaptive_bitrate", true)) }
+    var audioBitrateKbps by remember { mutableFloatStateOf(prefs.getInt("audio_bitrate_kbps", 128).toFloat()) }
+    var audioEnhancements by remember { mutableStateOf(prefs.getBoolean("audio_enhancements", true)) }
     var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("keep_screen_awake", true)) }
     var showRecordingConfirm by remember { mutableStateOf(false) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
@@ -189,6 +191,18 @@ fun StreamForgeApp(
                                 adaptiveBitrate = it
                                 context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
                                     .edit().putBoolean("adaptive_bitrate", it).apply()
+                            },
+                            audioBitrateKbps = audioBitrateKbps,
+                            onAudioBitrate = {
+                                audioBitrateKbps = it
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putInt("audio_bitrate_kbps", it.toInt()).apply()
+                            },
+                            audioEnhancements = audioEnhancements,
+                            onAudioEnhancements = {
+                                audioEnhancements = it
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("audio_enhancements", it).apply()
                             },
                             keepScreenAwake = keepScreenAwake,
                             onKeepScreenAwake = {
@@ -478,6 +492,8 @@ private fun SettingsPanel(
     quality: StreamQuality, onQuality: (StreamQuality) -> Unit,
     bitrateMbps: Float, onBitrate: (Float) -> Unit,
     adaptiveBitrate: Boolean, onAdaptiveBitrate: (Boolean) -> Unit,
+    audioBitrateKbps: Float, onAudioBitrate: (Float) -> Unit,
+    audioEnhancements: Boolean, onAudioEnhancements: (Boolean) -> Unit,
     keepScreenAwake: Boolean, onKeepScreenAwake: (Boolean) -> Unit,
     brightness: Float, contrast: Float, saturation: Float, sharpness: Float,
     onColor: (Float, Float, Float, Float) -> Unit
@@ -529,6 +545,15 @@ private fun SettingsPanel(
     SectionHeading("APP", "Recording & behaviour")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Audio bitrate · ${audioBitrateKbps.toInt()} kbps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Slider(value = audioBitrateKbps, onValueChange = onAudioBitrate, valueRange = 64f..320f, steps = 11)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Mic noise suppression & echo cancellation", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Applied when the audio encoder starts.", color = Muted, fontSize = 10.sp)
+                }
+                Switch(checked = audioEnhancements, onCheckedChange = onAudioEnhancements)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Keep screen awake", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
