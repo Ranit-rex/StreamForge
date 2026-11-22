@@ -195,6 +195,10 @@ fun StreamForgeApp(
                                 keepScreenAwake = it
                                 context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
                                     .edit().putBoolean("keep_screen_awake", it).apply()
+                                (context as? android.app.Activity)?.window?.let { window ->
+                                    if (it) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                    else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                                }
                             },
                             brightness = colorBrightness, contrast = colorContrast,
                             saturation = colorSaturation, sharpness = colorSharpness,
