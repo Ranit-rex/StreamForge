@@ -284,8 +284,19 @@ fun SceneStudio(
                                         native.drawRoundRect(rect, 12f, 12f, paint)
                                         paint.style = Paint.Style.FILL
                                         paint.color = android.graphics.Color.WHITE
-                                        paint.textSize = (rect.height() * .055f).coerceIn(11f, 22f)
-                                        native.drawText("▣  GAME CAPTURE  ·  SCREEN SOURCE", rect.left + 12f, rect.top + 24f, paint)
+                                        val iconSize = (rect.height() * .22f).coerceIn(28f, 64f)
+                                        val icon = RectF(rect.centerX() - iconSize * .72f, rect.centerY() - iconSize * 1.05f, rect.centerX() + iconSize * .72f, rect.centerY() + iconSize * .12f)
+                                        paint.style = Paint.Style.STROKE
+                                        paint.strokeWidth = (iconSize * .09f).coerceAtLeast(3f)
+                                        native.drawRoundRect(icon, 9f, 9f, paint)
+                                        paint.style = Paint.Style.FILL
+                                        native.drawCircle(icon.centerX(), icon.bottom - iconSize * .13f, iconSize * .045f, paint)
+                                        paint.textSize = (rect.height() * .10f).coerceIn(16f, 30f)
+                                        val title = "YOUR GAME SCREEN"
+                                        native.drawText(title, rect.centerX() - paint.measureText(title) / 2f, rect.centerY() + iconSize * .48f, paint)
+                                        paint.textSize = (rect.height() * .052f).coerceIn(11f, 18f)
+                                        val help = "Your game or phone screen appears here"
+                                        native.drawText(help, rect.centerX() - paint.measureText(help) / 2f, rect.centerY() + iconSize * .85f, paint)
                                     }
                                     "text" -> {
                                         paint.color = android.graphics.Color.WHITE
