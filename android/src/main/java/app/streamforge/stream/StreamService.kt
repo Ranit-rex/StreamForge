@@ -510,9 +510,9 @@ class StreamService : Service(), ConnectChecker {
             )
         } else filter.setScreenTransform(0f, 0f, 0f, 1f, 1f)
         // Overlay textures are composited separately from the gameplay texture.
-        // Keep overlays at up to 960x540 so video/image sources do not look visibly
-        // soft on 720p/1080p streams, while retaining a bounded compositor surface.
-        val overlayScale = minOf(1f, 960f / activeStreamWidth.coerceAtLeast(1), 540f / activeStreamHeight.coerceAtLeast(1))
+        // Keep overlay composition at up to Full HD for crisp 1080p output without
+        // allocating a full 4K ARGB bitmap on every compositor refresh.
+        val overlayScale = minOf(1f, 1920f / activeStreamWidth.coerceAtLeast(1), 1080f / activeStreamHeight.coerceAtLeast(1))
         val outputWidth = (activeStreamWidth * overlayScale).toInt().coerceAtLeast(320)
         val outputHeight = (activeStreamHeight * overlayScale).toInt().coerceAtLeast(180)
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
@@ -683,14 +683,14 @@ class StreamService : Service(), ConnectChecker {
                                     retriever.getScaledFrameAtTime(
                                         positionMs * 1000L,
                                         MediaMetadataRetriever.OPTION_CLOSEST,
-                                        960,
-                                        540
+                                        1920,
+                                        1080
                                     )
                                 } else {
                                     retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                 }
                                 if (decoded != null) {
-                                    val maxWidth = 960
+                                    val maxWidth = 1920
                                     val frame = if (decoded.width > maxWidth) {
                                         val scaledHeight = (decoded.height * (maxWidth.toFloat() / decoded.width)).toInt().coerceAtLeast(1)
                                         Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also {
