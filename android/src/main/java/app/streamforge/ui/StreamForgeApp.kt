@@ -52,7 +52,9 @@ fun StreamForgeApp(
     onStartStream: (String, Int, Int, Int, Int, String) -> Unit,
     onStopStream: () -> Unit,
     onStartRecording: (Int, Int, Int, Int) -> Unit,
-    onStopRecording: () -> Unit
+    onStopRecording: () -> Unit,
+    onPreparePreview: (Int, Int, Int, Int, String) -> Unit,
+    onStopStudioPreview: () -> Unit
  ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE) }
@@ -78,12 +80,13 @@ fun StreamForgeApp(
     var keepScreenAwake by remember { mutableStateOf(prefs.getBoolean("keep_screen_awake", true)) }
     var showRecordingConfirm by remember { mutableStateOf(false) }
     var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
-    var destinationExpanded by remember { mutableStateOf(true) }
+    var destinationExpanded by remember { mutableStateOf(false) }
     var qualityExpanded by remember { mutableStateOf(false) }
     var colorExpanded by remember { mutableStateOf(false) }
     val status by StreamService.status.collectAsState()
     val isStreaming by StreamService.streaming.collectAsState()
     val isRecording by StreamService.recording.collectAsState()
+    val studioPreviewReady by StreamService.studioPreviewReady.collectAsState()
     val bitrate by StreamService.bitrateKbps.collectAsState()
     val liveResolution by StreamService.streamResolution.collectAsState()
     val liveFps by StreamService.streamFps.collectAsState()
@@ -115,8 +118,8 @@ fun StreamForgeApp(
             Column(Modifier.fillMaxSize()) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().systemBarsPadding().imePadding()
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(15.dp)
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
                     if (isRecording) RecordingDashboard(
@@ -126,14 +129,20 @@ fun StreamForgeApp(
                     )
 
                     when (selectedTab) {
-                        2 -> SceneStudio(onApplyScene = { sceneIndex ->
-                            if (StreamService.streaming.value) {
-                                context.startService(Intent(context, StreamService::class.java).apply {
-                                    action = StreamService.ACTION_APPLY_SCENE
-                                    putExtra(StreamService.EXTRA_SCENE_INDEX, sceneIndex)
-                                })
+                        2 -> SceneStudio(
+                            previewReady = studioPreviewReady,
+                            isStreaming = isStreaming,
+                            onPreparePreview = { onPreparePreview(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode) },
+                            onStopStudioPreview = onStopStudioPreview,
+                            onApplyScene = { sceneIndex ->
+                                if (StreamService.streaming.value || StreamService.studioPreviewReady.value) {
+                                    context.startService(Intent(context, StreamService::class.java).apply {
+                                        action = StreamService.ACTION_APPLY_SCENE
+                                        putExtra(StreamService.EXTRA_SCENE_INDEX, sceneIndex)
+                                    })
+                                }
                             }
-                        })
+                        )
                         3 -> RecordingLibrary()
                         5 -> AiAssistantPanel()
                         6 -> ChatIntegrationPanel()
