@@ -82,6 +82,7 @@ fun SceneStudio(
     isStreaming: Boolean,
     onPreparePreview: () -> Unit,
     onStopStudioPreview: () -> Unit,
+    onChangeCaptureSource: () -> Unit,
     onApplyScene: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -177,7 +178,8 @@ fun SceneStudio(
             previewReady = previewReady,
             isStreaming = isStreaming,
             onPrepare = onPreparePreview,
-            onStop = onStopStudioPreview
+            onStop = onStopStudioPreview,
+            onChangeSource = onChangeCaptureSource
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
