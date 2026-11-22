@@ -38,6 +38,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.sources.audio.MicrophoneSource
+import com.pedro.encoder.input.sources.audio.MixAudioSource
 import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
@@ -61,6 +62,9 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
         const val ACTION_STOP_PREVIEW = "app.streamforge.STOP_PREVIEW"
         const val ACTION_TOGGLE_MIC = "app.streamforge.TOGGLE_MIC"
+        const val ACTION_UPDATE_AUDIO_MIX = "app.streamforge.UPDATE_AUDIO_MIX"
+        const val EXTRA_MIC_GAIN = "audio_mic_gain"
+        const val EXTRA_GAME_GAIN = "audio_game_gain"
         @Volatile var previewView: TextureView? = null
         const val EXTRA_COLOR_BRIGHTNESS = "color_brightness"
         const val EXTRA_COLOR_CONTRAST = "color_contrast"
@@ -85,6 +89,9 @@ class StreamService : Service(), ConnectChecker {
         val streamStartedAt = MutableStateFlow(0L)
         val networkHealth = MutableStateFlow("Network monitoring")
         val microphoneMuted = MutableStateFlow(false)
+        val microphoneGain = MutableStateFlow(1f)
+        val gameAudioGain = MutableStateFlow(1f)
+        val gameAudioAvailable = MutableStateFlow(false)
         val colorBrightness = MutableStateFlow(1.0f)
         val colorContrast = MutableStateFlow(1.0f)
         val colorSaturation = MutableStateFlow(1.0f)
@@ -93,6 +100,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var stream: GenericStream? = null
     private val microphoneSource = MicrophoneSource()
+    private var mixedAudioSource: MixAudioSource? = null
     private var colorGradingFilter: ColorGradingFilterRender? = null
     private var projection: MediaProjection? = null
     private var recordFile: File? = null
@@ -128,6 +136,8 @@ class StreamService : Service(), ConnectChecker {
         val studioPrefs = getSharedPreferences("streamforge_studio", 0)
         val audioBitrate = studioPrefs.getInt("audio_bitrate_kbps", 128).coerceIn(64, 320) * 1_000
         val audioEnhancements = studioPrefs.getBoolean("audio_enhancements", true)
+        microphoneGain.value = studioPrefs.getFloat("audio_mic_gain", 1f).coerceIn(0f, 2f)
+        gameAudioGain.value = studioPrefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)
         stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
             getGlInterface().setForceRender(true, 15)
             prepareAudio(44_100, true, audioBitrate, echoCanceler = audioEnhancements, noiseSuppressor = audioEnhancements)
@@ -147,6 +157,10 @@ class StreamService : Service(), ConnectChecker {
             ACTION_PREVIEW_SURFACE_READY -> startPreviewIfAvailable()
             ACTION_STOP_PREVIEW -> stream?.let { if (it.isOnPreview) it.stopPreview() }
             ACTION_TOGGLE_MIC -> toggleMicrophone()
+            ACTION_UPDATE_AUDIO_MIX -> updateAudioMix(
+                intent.getFloatExtra(EXTRA_MIC_GAIN, microphoneGain.value),
+                intent.getFloatExtra(EXTRA_GAME_GAIN, gameAudioGain.value)
+            )
             ACTION_APPLY_SCENE -> applyScene(intent.getIntExtra(EXTRA_SCENE_INDEX, 0))
             ACTION_UPDATE_COLOR -> updateColorTuning(
                 intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
@@ -239,6 +253,7 @@ class StreamService : Service(), ConnectChecker {
             // GL frame for ScreenSource on some devices.
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            configureAudioMix()
             // Install the entire colour chain before the GL renderer begins streaming.
             // RootEncoder queues filter changes asynchronously on its GL thread. Building
             // the chain from a live slider callback can briefly expose a partial chain
@@ -440,6 +455,7 @@ class StreamService : Service(), ConnectChecker {
             if (!prepared) throw IllegalStateException("The device rejected ${profile.width}×${profile.height} recording. Choose a lower preset.")
             stream?.getGlInterface()?.setCameraOrientation(0)
             stream?.changeVideoSource(ScreenSource(applicationContext, projection!!))
+            configureAudioMix()
             installColorFilters()
             startRecording()
         } catch (error: Exception) {
@@ -509,13 +525,64 @@ class StreamService : Service(), ConnectChecker {
         stopSelf()
     }
 
+
+    private fun configureAudioMix() {
+        val activeStream = stream ?: return
+        val activeProjection = projection
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && activeProjection != null) {
+            runCatching {
+                val mix = MixAudioSource(activeProjection)
+                activeStream.changeAudioSource(mix)
+                val prefs = getSharedPreferences("streamforge_studio", 0)
+                val mic = prefs.getFloat("audio_mic_gain", 1f).coerceIn(0f, 2f)
+                val game = prefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)
+                mix.microphoneVolume = if (microphoneMuted.value) 0f else mic
+                mix.internalVolume = game
+                mixedAudioSource = mix
+                microphoneGain.value = mic
+                gameAudioGain.value = game
+                gameAudioAvailable.value = true
+            }.onFailure {
+                mixedAudioSource = null
+                gameAudioAvailable.value = false
+                status.value = "Game audio unavailable · microphone remains active"
+            }
+        } else {
+            mixedAudioSource = null
+            gameAudioAvailable.value = false
+            activeStream.changeAudioSource(microphoneSource)
+        }
+    }
+
+    private fun updateAudioMix(micGain: Float, gameGain: Float) {
+        val safeMic = micGain.coerceIn(0f, 2f)
+        val safeGame = gameGain.coerceIn(0f, 2f)
+        microphoneGain.value = safeMic
+        gameAudioGain.value = safeGame
+        getSharedPreferences("streamforge_studio", 0).edit()
+            .putFloat("audio_mic_gain", safeMic)
+            .putFloat("audio_game_gain", safeGame)
+            .apply()
+        mixedAudioSource?.let { mix ->
+            runCatching {
+                mix.microphoneVolume = if (microphoneMuted.value) 0f else safeMic
+                mix.internalVolume = safeGame
+            }.onFailure { status.value = "Audio mix update failed: ${it.message ?: "audio error"}" }
+        }
+    }
+
     private fun toggleMicrophone() {
         val muted = !microphoneMuted.value
         val activeStream = stream
         if (activeStream != null) {
             runCatching {
-                if (muted) activeStream.changeAudioSource(SilenceAudioSource())
-                else activeStream.changeAudioSource(microphoneSource)
+                val mix = mixedAudioSource
+                if (mix != null) {
+                    mix.microphoneVolume = if (muted) 0f else microphoneGain.value
+                } else {
+                    if (muted) activeStream.changeAudioSource(SilenceAudioSource())
+                    else activeStream.changeAudioSource(microphoneSource)
+                }
             }.onFailure { status.value = "Microphone toggle failed: ${it.message ?: "audio source error"}" }
         }
         microphoneMuted.value = muted
