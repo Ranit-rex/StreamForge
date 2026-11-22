@@ -55,7 +55,8 @@ fun StreamForgeApp(
     onStopRecording: () -> Unit,
     onPreparePreview: (Int, Int, Int, Int, String) -> Unit,
     onStopStudioPreview: () -> Unit,
-    onChangeCaptureSource: (String, Int, Int, Int, Int, String) -> Unit
+    onChangeCaptureSource: (String, Int, Int, Int, Int, String) -> Unit,
+    compactMode: Boolean = false
  ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE) }
@@ -117,7 +118,23 @@ fun StreamForgeApp(
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
         Surface(Modifier.fillMaxSize(), color = Background) {
-            Column(Modifier.fillMaxSize()) {
+            if (compactMode) {
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(if (isStreaming) "● STREAMFORGE LIVE" else if (isRecording) "● RECORDING" else "STREAMFORGE", color = if (isStreaming) LiveRed else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text(if (isStreaming) "${formatDuration(elapsedSeconds)}  ·  ${bitrate} kbps" else status, color = Color.White, fontSize = 10.sp, maxLines = 1)
+                    }
+                    TextButton(onClick = {
+                        context.startService(Intent(context, StreamService::class.java).setAction(StreamService.ACTION_TOGGLE_MIC))
+                    }, enabled = isStreaming) { Text(if (microphoneMuted) "MIC OFF" else "MIC", color = if (microphoneMuted) LiveRed else Accent, fontSize = 10.sp) }
+                    TextButton(onClick = onStopStream, enabled = isStreaming) { Text("END", color = LiveRed, fontWeight = FontWeight.Black, fontSize = 10.sp) }
+                }
+            }
+            Column(Modifier.then(if (compactMode) Modifier.size(0.dp) else Modifier.fillMaxSize())) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().systemBarsPadding().imePadding()
                         .verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 5.dp),
