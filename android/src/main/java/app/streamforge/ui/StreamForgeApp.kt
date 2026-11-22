@@ -51,7 +51,7 @@ private val qualityOptions = listOf(
 fun StreamForgeApp(
     onStartStream: (String, Int, Int, Int, Int, String) -> Unit,
     onStopStream: () -> Unit,
-    onStartRecording: () -> Unit,
+    onStartRecording: (Int, Int, Int, Int) -> Unit,
     onStopRecording: () -> Unit
 ) {
     var platform by remember { mutableStateOf("YouTube") }
@@ -67,6 +67,11 @@ fun StreamForgeApp(
     var colorContrast by remember { mutableFloatStateOf(1f) }
     var colorSaturation by remember { mutableFloatStateOf(1f) }
     var colorSharpness by remember { mutableFloatStateOf(0f) }
+    var targetBitrateMbps by remember { mutableFloatStateOf(qualityOptions[5].bitrate / 1_000_000f) }
+    var adaptiveBitrate by remember { mutableStateOf(true) }
+    var keepScreenAwake by remember { mutableStateOf(true) }
+    var showRecordingConfirm by remember { mutableStateOf(false) }
+    var recordingElapsedSeconds by remember { mutableLongStateOf(0L) }
     var destinationExpanded by remember { mutableStateOf(true) }
     var qualityExpanded by remember { mutableStateOf(false) }
     var colorExpanded by remember { mutableStateOf(false) }
@@ -81,6 +86,16 @@ fun StreamForgeApp(
     val startedAt by StreamService.streamStartedAt.collectAsState()
     val networkHealth by StreamService.networkHealth.collectAsState()
     val microphoneMuted by StreamService.microphoneMuted.collectAsState()
+    val recordingStartedAt by StreamService.recordingStartedAt.collectAsState()
+
+    LaunchedEffect(isRecording, recordingStartedAt) {
+        if (isRecording && recordingStartedAt > 0L) {
+            while (isRecording) {
+                recordingElapsedSeconds = ((System.currentTimeMillis() - recordingStartedAt) / 1000L).coerceAtLeast(0L)
+                delay(1000)
+            }
+        } else recordingElapsedSeconds = 0L
+    }
 
     LaunchedEffect(isStreaming, startedAt) {
         if (isStreaming && startedAt > 0L) {
@@ -100,6 +115,11 @@ fun StreamForgeApp(
                     verticalArrangement = Arrangement.spacedBy(15.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
+                    if (isRecording) RecordingDashboard(
+                        elapsed = recordingElapsedSeconds,
+                        resolution = liveResolution,
+                        onStop = onStopRecording
+                    )
 
                     when (selectedTab) {
                         1 -> {
@@ -151,7 +171,31 @@ fun StreamForgeApp(
                         4 -> {
                         SettingsPanel(
                             quality = selectedQuality,
-                            onQuality = { selectedQuality = it },
+                            onQuality = {
+                                selectedQuality = it
+                                targetBitrateMbps = it.bitrate / 1_000_000f
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putInt("quality_index", qualityOptions.indexOf(it))
+                                    .putFloat("video_bitrate_mbps", targetBitrateMbps).apply()
+                            },
+                            bitrateMbps = targetBitrateMbps,
+                            onBitrate = {
+                                targetBitrateMbps = it
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putFloat("video_bitrate_mbps", it).apply()
+                            },
+                            adaptiveBitrate = adaptiveBitrate,
+                            onAdaptiveBitrate = {
+                                adaptiveBitrate = it
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("adaptive_bitrate", it).apply()
+                            },
+                            keepScreenAwake = keepScreenAwake,
+                            onKeepScreenAwake = {
+                                keepScreenAwake = it
+                                context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                    .edit().putBoolean("keep_screen_awake", it).apply()
+                            },
                             brightness = colorBrightness, contrast = colorContrast,
                             saturation = colorSaturation, sharpness = colorSharpness,
                             onColor = { b, c, s, sh ->
@@ -223,7 +267,7 @@ fun StreamForgeApp(
                                                     val cleanServer = server.trim().trimEnd('/')
                                                     val cleanKey = streamKey.trim().trimStart('/')
                                                     if ((cleanServer.startsWith("rtmp://") || cleanServer.startsWith("rtmps://")) && cleanKey.isNotBlank()) {
-                                                        onStartStream("$cleanServer/$cleanKey", selectedQuality.width, selectedQuality.height, selectedQuality.fps, selectedQuality.bitrate, captureMode)
+                                                        onStartStream("$cleanServer/$cleanKey", selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt(), captureMode)
                                                     }
                                                 }
                                             },
@@ -233,13 +277,13 @@ fun StreamForgeApp(
                                             shape = RoundedCornerShape(14.dp)
                                         ) { Text(if (isStreaming) "■  END LIVE" else "●  GO LIVE", fontWeight = FontWeight.Black, fontSize = 13.sp) }
                                         OutlinedButton(
-                                            onClick = { if (isRecording) onStopRecording() else onStartRecording() },
+                                            onClick = { if (isRecording) onStopRecording() else showRecordingConfirm = true },
                                             modifier = Modifier.weight(1f).height(52.dp),
                                             shape = RoundedCornerShape(14.dp),
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isRecording) LiveRed else Color.White)
                                         ) { Text(if (isRecording) "■  STOP REC" else "◉  RECORD", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                                     }
-                                    if (isRecording) Text("Local MP4 recording is active.", color = LiveRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isRecording) Text("Local MP4 recording is active · ${formatDuration(recordingElapsedSeconds)}", color = LiveRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     if (isStreaming) {
                                         OutlinedButton(
                                             onClick = {
@@ -278,7 +322,13 @@ fun StreamForgeApp(
                                 Text("Stream key stays on this device and is never sent to StreamForge servers.", color = Muted, fontSize = 10.sp)
                             }
                             StudioAccordion("02", "Video quality", selectedQuality.label, qualityExpanded, { qualityExpanded = !qualityExpanded }) {
-                                QualityPicker(selectedQuality) { selectedQuality = it }
+                                QualityPicker(selectedQuality) {
+                                    selectedQuality = it
+                                    targetBitrateMbps = it.bitrate / 1_000_000f
+                                    context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE)
+                                        .edit().putInt("quality_index", qualityOptions.indexOf(it))
+                                        .putFloat("video_bitrate_mbps", targetBitrateMbps).apply()
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     InfoTile("OUTPUT", "${selectedQuality.width}×${selectedQuality.height}", Modifier.weight(1f))
                                     InfoTile("FRAME RATE", "${selectedQuality.fps} FPS", Modifier.weight(1f))
@@ -309,6 +359,39 @@ fun StreamForgeApp(
                     }
                 }
             }
+            if (showRecordingConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showRecordingConfirm = false },
+                    title = { Text("Start screen recording?") },
+                    text = {
+                        Text("StreamForge will capture your selected screen/app and save an MP4 locally at ${selectedQuality.label} with a ${targetBitrateMbps.toInt()} Mbps target. Android will show its screen-capture permission prompt next.")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showRecordingConfirm = false
+                            onStartRecording(selectedQuality.width, selectedQuality.height, selectedQuality.fps, (targetBitrateMbps * 1_000_000f).toInt())
+                        }) { Text("CONTINUE") }
+                    },
+                    dismissButton = { TextButton(onClick = { showRecordingConfirm = false }) { Text("CANCEL") } },
+                    containerColor = Panel,
+                    titleContentColor = Color.White,
+                    textContentColor = Muted
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> Unit) {
+    Surface(color = Color(0xFF301A20), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = LiveRed, shape = CircleShape, modifier = Modifier.size(9.dp)) {}
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("RECORDING  ·  ${formatDuration(elapsed)}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                Text("MP4 · $resolution · saved locally", color = Muted, fontSize = 10.sp)
+            }
+            TextButton(onClick = onStop) { Text("STOP", color = LiveRed, fontWeight = FontWeight.Black) }
         }
     }
 }
@@ -389,23 +472,49 @@ private fun QuickTile(icon: String, title: String, subtitle: String, modifier: M
 @Composable
 private fun SettingsPanel(
     quality: StreamQuality, onQuality: (StreamQuality) -> Unit,
+    bitrateMbps: Float, onBitrate: (Float) -> Unit,
+    adaptiveBitrate: Boolean, onAdaptiveBitrate: (Boolean) -> Unit,
+    keepScreenAwake: Boolean, onKeepScreenAwake: (Boolean) -> Unit,
     brightness: Float, contrast: Float, saturation: Float, sharpness: Float,
     onColor: (Float, Float, Float, Float) -> Unit
 ) {
-    SectionHeading("OUTPUT", "Video settings")
+    SectionHeading("OUTPUT", "Video & encoder settings")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Resolution & frame rate", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             QualityPicker(quality, onQuality)
-            Text("Choose a preset that matches your device encoder and upload connection.", color = Muted, fontSize = 10.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoTile("REQUESTED OUTPUT", "${quality.width}×${quality.height}", Modifier.weight(1f))
+                InfoTile("FRAME RATE", "${quality.fps} FPS", Modifier.weight(1f))
+            }
+            Text("Target video bitrate · ${"%.1f".format(bitrateMbps)} Mbps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Slider(value = bitrateMbps, onValueChange = onBitrate, valueRange = 0.8f..35f, steps = 169)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Adaptive bitrate", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Reduce bitrate on congestion, then recover gradually.", color = Muted, fontSize = 10.sp)
+                }
+                Switch(checked = adaptiveBitrate, onCheckedChange = onAdaptiveBitrate)
+            }
+            Text("Actual output is selected from the device's supported H.264 encoder modes. Unsupported 4K/1440p requests automatically fall back and show the real resolution.", color = Muted, fontSize = 10.sp)
         }
     }
-    SectionHeading("IMAGE", "Colour tuning")
+    SectionHeading("IMAGE", "Colour grading")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Adjust outgoing stream image", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("Live output colour controls", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { onColor(1f, 1f, 1f, 0f) }) { Text("RESET") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = false, onClick = { onColor(1f, 1f, 1f, 0f) }) { Text("Natural") }
+                FilterChip(selected = false, onClick = { onColor(1.02f, 1.18f, 1.35f, 0.18f) }) { Text("Vivid") }
+                FilterChip(selected = false, onClick = { onColor(0.96f, 1.22f, 0.82f, 0.12f) }) { Text("Cinema") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = false, onClick = { onColor(1.02f, 1.3f, 1.05f, 0.08f) }) { Text("Crisp") }
+                FilterChip(selected = false, onClick = { onColor(1f, 0.95f, 0.72f, 0f) }) { Text("Soft") }
+                FilterChip(selected = false, onClick = { onColor(1f, 1.1f, 0f, 0f) }) { Text("B&W") }
             }
             ColourSlider("Brightness", brightness, 0.8f..1.35f) { onColor(it, contrast, saturation, sharpness) }
             ColourSlider("Contrast", contrast, 0.8f..1.4f) { onColor(brightness, it, saturation, sharpness) }
@@ -413,11 +522,18 @@ private fun SettingsPanel(
             ColourSlider("Sharpness", sharpness, 0f..0.8f) { onColor(brightness, contrast, saturation, it) }
         }
     }
+    SectionHeading("APP", "Recording & behaviour")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text("StreamForge system", color = Color.White, fontWeight = FontWeight.Bold)
-            Text("Direct RTMP / RTMPS output. Your stream key remains stored only in the active app session.", color = Muted, fontSize = 11.sp)
-            Text("4K availability depends on Android encoder support, device thermals and network upload speed.", color = Muted, fontSize = 11.sp)
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Keep screen awake", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Prevent screen sleep while using StreamForge.", color = Muted, fontSize = 10.sp)
+                }
+                Switch(checked = keepScreenAwake, onCheckedChange = onKeepScreenAwake)
+            }
+            Text("Recording saves MP4 files to StreamForge's Movies folder. A persistent notification includes a Stop recording action while capture is active.", color = Muted, fontSize = 10.sp)
+            Text("Stream key stays in the current app session and is not included in diagnostic reports.", color = Muted, fontSize = 10.sp)
         }
     }
 }
