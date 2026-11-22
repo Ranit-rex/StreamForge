@@ -220,7 +220,7 @@ class StreamService : Service(), ConnectChecker {
                 status.value = if (isVisible) {
                     "Selected app visible"
                 } else {
-                    "Selected app is hidden · return to it to restore preview"
+                    "Selected app hidden · keep it visible in split-screen/PiP or choose Full display"
                 }
             }
         }
