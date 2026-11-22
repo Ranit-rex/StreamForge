@@ -13,6 +13,7 @@ import android.app.PictureInPictureParams
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -22,6 +23,7 @@ import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 
 class MainActivity : ComponentActivity() {
+    private val pictureInPictureMode = mutableStateOf(false)
     private var pendingEndpoint = ""
     private var pendingWidth = 1280
     private var pendingHeight = 720
@@ -164,9 +166,15 @@ class MainActivity : ComponentActivity() {
                         beginStandaloneRecording(width, height, fps, bitrate)
                     }
                 },
-                onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) }
+                onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) },
+                compactMode = pictureInPictureMode.value
             )
         }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pictureInPictureMode.value = isInPictureInPictureMode
     }
 
     override fun onUserLeaveHint() {
