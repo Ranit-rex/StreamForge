@@ -69,7 +69,7 @@ private data class SceneLayer(
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
     val loop: Boolean = true, val fps: Int = 5, val soundVolume: Float = 1f, val soundMuted: Boolean = false,
     val autoPlay: Boolean = true,
-    val cameraFacing: String = "back"
+    val cameraFacing: String = "front"
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -106,7 +106,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false), item.optBoolean("autoPlay", true), item.optString("cameraFacing", "back"))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false), item.optBoolean("autoPlay", true), item.optString("cameraFacing", "front"))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -555,7 +555,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             }
-            scene.layers.filter { it.visible && it.kind != "camera" && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
+            scene.layers.filter { it.visible && it.kind != "camera" && it.kind != "website" && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
                 val rect = RectF(item.x * size.width, item.y * size.height,
                     (item.x + item.width) * size.width, (item.y + item.height) * size.height)
                 native.save()
@@ -648,6 +648,17 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                 native.restore()
             }
         }
+            }
+            scene.layers.filter { it.visible && it.kind == "website" && it.text.isNotBlank() }.forEach { item ->
+                key(item.id, item.text) {
+                    WebsiteLayerPreview(
+                        url = item.text,
+                        modifier = Modifier
+                            .offset(x = previewWidth * item.x, y = previewHeight * item.y)
+                            .size(width = previewWidth * item.width, height = previewHeight * item.height)
+                            .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
+                    )
+                }
             }
             scene.layers.filter { it.visible && it.kind == "camera" }.forEach { item ->
                 key(item.id) {
@@ -862,12 +873,12 @@ fun SceneStudio(
             System.nanoTime(),
             when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; "timer" -> "Timer ${count}"; else -> "Game Capture" },
             kind,
-            if (kind == "text") "YOUR TEXT" else if (kind == "timer") "00:00" else "",
+            if (kind == "text") "YOUR TEXT" else if (kind == "timer") "00:00" else if (kind == "website") "https://example.com" else "",
             if (kind == "screen") 0f else .08f,
             if (kind == "screen") 0f else .08f,
-            when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; "timer" -> .22f; "video" -> .42f; else -> .34f },
-            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; "timer" -> .12f; "video" -> .32f; else -> .34f },
-            locked = kind == "screen"
+            when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; "website" -> .82f; "timer" -> .22f; "video" -> .42f; else -> .34f },
+            when (kind) { "screen" -> 1f; "text" -> .16f; "camera" -> .24f; "website" -> .46f; "timer" -> .12f; "video" -> .32f; else -> .34f },
+            locked = kind == "screen", cameraFacing = "front"
         )
         sourceMessage = ""
         scenes[index] = current.copy(layers = current.layers + item)
@@ -1207,6 +1218,17 @@ fun SceneStudio(
                     Text("Select a layer to edit its main controls.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                 } else {
                     Text(layer.name, color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                scenes[index] = scenes[index].copy(layers = scenes[index].layers.filterNot { it.id == layer.id })
+                                selected = -1L
+                            },
+                            enabled = !layer.locked,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) { Text("Delete layer", fontSize = 9.sp) }
+                    }
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
                             value = layer.text, enabled = !layer.locked && layer.kind == "text",
@@ -1220,6 +1242,17 @@ fun SceneStudio(
                             Text("Auto play", color = Color.White, fontSize = 9.sp, modifier = Modifier.weight(1f))
                             Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
                         }
+                    }
+                    if (layer.kind == "website") {
+                        OutlinedTextField(
+                            value = layer.text,
+                            onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
+                            label = { Text("Website URL") },
+                            placeholder = { Text("https://example.com") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Text("Runs in the scene preview. Enter a full https:// or http:// URL.", color = Color.Gray, fontSize = 8.sp)
                     }
                     if (layer.kind == "camera") {
                         Text("CAMERA", color = Color(0xFFA1A8AF), fontSize = 8.sp)
@@ -1327,7 +1360,7 @@ fun SceneStudio(
         onDismissRequest = { addDialog = false }, title = { Text("Add to this scene") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Choose what you want to place on the canvas.", color = Color.Gray, fontSize = 11.sp)
-            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Phone camera (live)").forEach { (kind, label) ->
+            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Phone camera (front)", "website" to "Website / browser").forEach { (kind, label) ->
                 TextButton(onClick = { addSource(kind); addDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
         } },
