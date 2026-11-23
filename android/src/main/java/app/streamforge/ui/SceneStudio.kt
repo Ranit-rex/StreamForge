@@ -847,6 +847,7 @@ fun SceneStudio(
     var addDialog by remember { mutableStateOf(false) }
     var websiteDialog by remember { mutableStateOf(false) }
     var websiteUrl by remember { mutableStateOf("https://") }
+    var editingWebsiteLayerId by remember { mutableStateOf<Long?>(null) }
     var assetsDialog by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var transformDialog by remember { mutableStateOf(false) }
@@ -1300,7 +1301,7 @@ fun SceneStudio(
                     }
                     if (layer.kind == "website") {
                         OutlinedButton(
-                            onClick = { websiteUrl = layer.text; websiteDialog = true },
+                            onClick = { editingWebsiteLayerId = layer.id; websiteUrl = layer.text; websiteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                         ) { Text("Change website URL", fontSize = 9.sp) }
@@ -1416,6 +1417,7 @@ fun SceneStudio(
                 TextButton(onClick = {
                     addDialog = false
                     if (kind == "website") {
+                        editingWebsiteLayerId = null
                         websiteUrl = "https://"
                         websiteDialog = true
                     } else addSource(kind)
@@ -1446,7 +1448,10 @@ fun SceneStudio(
                     val address = websiteUrl.trim()
                     if (address.isNotBlank() && address != "https://") {
                         val normalized = if (address.startsWith("http://", true) || address.startsWith("https://", true)) address else "https://$address"
-                        addSource("website", normalized)
+                        val editingId = editingWebsiteLayerId
+                        if (editingId != null) updateLayer(editingId) { it.copy(text = normalized) }
+                        else addSource("website", normalized)
+                        editingWebsiteLayerId = null
                         websiteDialog = false
                     }
                 },
