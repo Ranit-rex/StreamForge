@@ -162,7 +162,13 @@ private object SceneVideoPlayback {
         val surface = Surface(texture)
         state.surfaceTexture = texture
         state.surface = surface
-        runCatching { state.player.setSurface(surface) }.onFailure {
+        runCatching {
+            state.player.setSurface(surface)
+            if (state.ready.value && state.wantsPlayback && !state.player.isPlaying) {
+                state.player.start()
+                state.playing.value = true
+            }
+        }.onFailure {
             state.error.value = it.message ?: "Could not attach video surface"
         }
     }
@@ -263,7 +269,7 @@ private fun formatSceneVideoTime(milliseconds: Int): String {
 
 
 @Composable
-fun SceneCompositionPreview(modifier: Modifier = Modifier, showPlaybackControls: Boolean = false, compact: Boolean = false) {
+fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
