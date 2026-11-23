@@ -759,10 +759,9 @@ fun SceneStudio(
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SCENE STUDIO", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
-                Text(if (showMoreSettings) "OPTIONS  ▴" else "OPTIONS  ⋯", fontSize = 10.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp), modifier = Modifier.height(26.dp)) {
+                Text(if (showMoreSettings) "⋯  Less" else "⋯", fontSize = 12.sp)
             }
         }
         if (showMoreSettings) {
@@ -773,15 +772,11 @@ fun SceneStudio(
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("PREVIEW", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
-            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO", color = Color(0xFFFF6A35), fontSize = 9.sp)
-        }
         if (scene.layers.any { it.kind == "video" }) {
             SceneVideoPlaybackModeSelector()
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 210.dp)) {
+        Box(Modifier.widthIn(max = 260.dp)) {
         if (isStreaming) {
             StudioPreviewSurface(
                 previewReady = previewReady,
@@ -796,13 +791,8 @@ fun SceneStudio(
         }
         }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SCENE EDIT", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text(scene.name, color = Color(0xFFFF8659), fontSize = 10.sp)
-        }
-        Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("SOURCE LAYERS", color = Color(0xFFA1A8AF), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
                     scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
                         val bitmap = runCatching {
@@ -842,7 +832,7 @@ fun SceneStudio(
                                     val top = target.y * size.height
                                     val right = (target.x + target.width) * size.width
                                     val bottom = (target.y + target.height) * size.height
-                                    val edgeTouch = 144f
+                                    val edgeTouch = 38f
                                     val resizeLeft = abs(down.position.x - left) < edgeTouch
                                     val resizeRight = abs(down.position.x - right) < edgeTouch
                                     val resizeTop = abs(down.position.y - top) < edgeTouch
@@ -1077,9 +1067,9 @@ fun SceneStudio(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(.95f).heightIn(min = 180.dp, max = 360.dp)
+                modifier = Modifier.weight(.78f).heightIn(min = 170.dp, max = 300.dp)
             ) {
-                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("LAYERS", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { assetsDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Assets", fontSize = 9.sp) }
@@ -1088,20 +1078,20 @@ fun SceneStudio(
                     if (scene.layers.isEmpty()) {
                         Text("No layers yet", color = Color.Gray, fontSize = 10.sp)
                     } else {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             scene.layers.asReversed().forEach { item ->
                                 var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
                                 Surface(
                                     color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF20262B),
-                                    shape = RoundedCornerShape(7.dp),
+                                    shape = RoundedCornerShape(5.dp),
                                     modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = { if (!item.locked) { selected = item.id; reorderDrag = 0f } },
+                                            onDragStart = { if (!item.locked) selected = item.id; reorderDrag = 0f },
                                             onDragEnd = { reorderDrag = 0f },
                                             onDragCancel = { reorderDrag = 0f },
                                             onDrag = { change, dragAmount ->
                                                 change.consume()
-                                                if (!item.locked) {
+                                                {
                                                     reorderDrag += dragAmount.y
                                                     if (reorderDrag >= 28f || reorderDrag <= -28f) {
                                                         val currentItems = scenes[index].layers.toMutableList()
@@ -1119,39 +1109,38 @@ fun SceneStudio(
                                             }
                                         )
                                     },
-                                    onClick = { if (!item.locked) selected = item.id }
+                                    onClick = { selected = item.id }
                                 ) {
-                                    Row(Modifier.padding(horizontal = 3.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                                             TextButton(onClick = {
                                                 val items = scenes[index].layers.toMutableList()
                                                 val pos = items.indexOfFirst { it.id == item.id }
                                                 if (pos > 0) { val moving = items.removeAt(pos); items.add(pos - 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(28.dp)) {
-                                                Text("↑", color = Color(0xFFFFA27A), fontSize = 15.sp)
+                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(20.dp)) {
+                                                Text("↑", color = Color(0xFFFFA27A), fontSize = 11.sp)
                                             }
                                             TextButton(onClick = {
                                                 val items = scenes[index].layers.toMutableList()
                                                 val pos = items.indexOfFirst { it.id == item.id }
                                                 if (pos >= 0 && pos < items.lastIndex) { val moving = items.removeAt(pos); items.add(pos + 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(28.dp)) {
-                                                Text("↓", color = Color(0xFFFFA27A), fontSize = 15.sp)
+                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(20.dp)) {
+                                                Text("↓", color = Color(0xFFFFA27A), fontSize = 11.sp)
                                             }
                                         }
                                         Column(Modifier.weight(1f).padding(start = 3.dp)) {
-                                            Text(item.name, color = Color.White, fontSize = 9.sp, maxLines = 1)
-                                            Text(item.kind.uppercase() + if (item.locked) " · LOCK" else "", color = Color.Gray, fontSize = 8.sp, maxLines = 1)
+                                            Text(item.name + if (item.locked) " · 🔒" else "", color = Color.White, fontSize = 8.sp, maxLines = 1)
                                         }
                                         TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
-                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
-                                            Text(if (item.visible) "◉" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 17.sp)
+                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(24.dp)) {
+                                            Text(if (item.visible) "●" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 11.sp)
                                         }
                                         TextButton(onClick = {
                                             val locking = !item.locked
                                             updateLayer(item.id) { it.copy(locked = locking) }
-                                            if (locking && selected == item.id) selected = -1L
-                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
-                                            Text(if (item.locked) "🔒" else "🔓", fontSize = 16.sp)
+                                            if (locking) selected = item.id
+                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(24.dp)) {
+                                            Text(if (item.locked) "🔒" else "↗", fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -1161,10 +1150,10 @@ fun SceneStudio(
                 }
             }
         if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
-                Column(Modifier.padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("SELECTED · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 10.sp)
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.55f).heightIn(min = 170.dp, max = 300.dp)) {
+                Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("EDITING · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
                             value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
@@ -1301,7 +1290,7 @@ fun SceneStudio(
             Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("Select a layer to edit its size, position, media and appearance.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
+                    Text("Select any layer on the left to edit it here.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                 }
             }
         }
@@ -1317,7 +1306,7 @@ fun SceneStudio(
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Drag inside a layer to move it. Use the larger edge handles to resize; pinch and twist for scale and rotation.", color = Color.Gray, fontSize = 9.sp)
+        Text("Tap a layer to edit · drag inside to move · drag an edge to resize.", color = Color.Gray, fontSize = 9.sp)
     }
 
     if (assetsDialog) AlertDialog(
