@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -844,6 +845,8 @@ fun SceneStudio(
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
     var selected by remember { mutableLongStateOf(-1L) }
     var addDialog by remember { mutableStateOf(false) }
+    var websiteDialog by remember { mutableStateOf(false) }
+    var websiteUrl by remember { mutableStateOf("https://") }
     var assetsDialog by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var transformDialog by remember { mutableStateOf(false) }
@@ -882,19 +885,25 @@ fun SceneStudio(
         }
     }
 
-    LaunchedEffect(scenes.toList()) { prefs.edit().putString("scenes", encodeSceneList(scenes)).apply() }
     val index = active.coerceIn(0, scenes.lastIndex)
     val scene = scenes[index]
-    LaunchedEffect(index, scene) {
-        SceneVideoPlayback.activateScene(scene.layers.filter { it.kind == "video" }.map { it.text }.toSet())
-        // The service reads the scene JSON immediately after ACTION_APPLY_SCENE.
-        // Commit the latest layer order first so it cannot render a stale snapshot
-        // while SharedPreferences.apply() is still writing asynchronously.
-        prefs.edit()
-            .putString("scenes", encodeSceneList(scenes))
-            .putInt("active_scene", index)
-            .commit()
-        onApplyScene(index, encodeSceneList(scenes))
+    val latestApplyScene = rememberUpdatedState(onApplyScene)
+    // Observe the complete serialized scene list. This catches every nested layer
+    // edit/reorder/add/delete and sends the exact same snapshot to the live renderer.
+    // A single collector also avoids races between async preference writes and service intents.
+    LaunchedEffect(Unit) {
+        snapshotFlow { active.coerceIn(0, scenes.lastIndex) to encodeSceneList(scenes) }
+            .distinctUntilChanged()
+            .collect { (sceneIndex, sceneJson) ->
+                val currentScenes = decodeSceneList(sceneJson)
+                val currentScene = currentScenes.getOrNull(sceneIndex)
+                SceneVideoPlayback.activateScene(currentScene?.layers?.filter { it.kind == "video" }?.map { it.text }?.toSet().orEmpty())
+                prefs.edit()
+                    .putString("scenes", sceneJson)
+                    .putInt("active_scene", sceneIndex)
+                    .commit()
+                latestApplyScene.value(sceneIndex, sceneJson)
+            }
     }
     val layer = scene.layers.firstOrNull { it.id == selected }
 
@@ -905,7 +914,7 @@ fun SceneStudio(
     val latestScene = rememberUpdatedState(scene)
     val latestUpdateLayer = rememberUpdatedState<(Long, (SceneLayer) -> SceneLayer) -> Unit>({ id, transform -> updateLayer(id, transform) })
 
-    fun addSource(kind: String) {
+    fun addSource(kind: String, websiteAddress: String = "") {
         if (kind == "image" || kind == "gif") { imagePicker.launch(arrayOf("image/*")); return }
         if (kind == "video") { videoPicker.launch(arrayOf("video/*")); return }
         val current = scenes[index]
@@ -919,7 +928,7 @@ fun SceneStudio(
             System.nanoTime(),
             when (kind) { "text" -> "Text ${count}"; "camera" -> "Camera ${count}"; "timer" -> "Timer ${count}"; else -> "Game Capture" },
             kind,
-            if (kind == "text") "YOUR TEXT" else if (kind == "timer") "00:00" else if (kind == "website") "https://example.com" else "",
+            if (kind == "text") "YOUR TEXT" else if (kind == "timer") "00:00" else if (kind == "website") websiteAddress.trim().let { if (it.startsWith("http://", true) || it.startsWith("https://", true)) it else "https://$it" } else "",
             if (kind == "screen") 0f else .08f,
             if (kind == "screen") 0f else .08f,
             when (kind) { "screen" -> 1f; "text" -> .42f; "camera" -> .30f; "website" -> .82f; "timer" -> .22f; "video" -> .42f; else -> .34f },
@@ -1290,15 +1299,12 @@ fun SceneStudio(
                         }
                     }
                     if (layer.kind == "website") {
-                        OutlinedTextField(
-                            value = layer.text,
-                            onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
-                            label = { Text("Website URL") },
-                            placeholder = { Text("https://example.com") },
+                        OutlinedButton(
+                            onClick = { websiteUrl = layer.text; websiteDialog = true },
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Text("Runs in the scene preview. Enter a full https:// or http:// URL.", color = Color.Gray, fontSize = 8.sp)
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) { Text("Change website URL", fontSize = 9.sp) }
+                        Text("Website runs inside the scene preview.", color = Color.Gray, fontSize = 8.sp)
                     }
                     if (layer.kind == "camera") {
                         Text("CAMERA", color = Color(0xFFA1A8AF), fontSize = 8.sp)
@@ -1407,10 +1413,47 @@ fun SceneStudio(
         text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Choose what you want to place on the canvas.", color = Color.Gray, fontSize = 11.sp)
             listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Phone camera (front)", "website" to "Website / browser").forEach { (kind, label) ->
-                TextButton(onClick = { addSource(kind); addDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+                TextButton(onClick = {
+                    addDialog = false
+                    if (kind == "website") {
+                        websiteUrl = "https://"
+                        websiteDialog = true
+                    } else addSource(kind)
+                }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
         } },
         confirmButton = { TextButton(onClick = { addDialog = false }) { Text("Close") } }
+    )
+    if (websiteDialog) AlertDialog(
+        onDismissRequest = { websiteDialog = false },
+        title = { Text("Open website source") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Enter the website URL to add it as a scene source.", color = Color.Gray, fontSize = 11.sp)
+                OutlinedTextField(
+                    value = websiteUrl,
+                    onValueChange = { websiteUrl = it },
+                    label = { Text("Website URL") },
+                    placeholder = { Text("https://example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val address = websiteUrl.trim()
+                    if (address.isNotBlank() && address != "https://") {
+                        val normalized = if (address.startsWith("http://", true) || address.startsWith("https://", true)) address else "https://$address"
+                        addSource("website", normalized)
+                        websiteDialog = false
+                    }
+                },
+                enabled = websiteUrl.trim().isNotBlank() && websiteUrl.trim() != "https://"
+            ) { Text("Add website") }
+        },
+        dismissButton = { TextButton(onClick = { websiteDialog = false }) { Text("Cancel") } }
     )
     if (renameDialog) AlertDialog(
         onDismissRequest = { renameDialog = false }, title = { Text("Rename scene") },
