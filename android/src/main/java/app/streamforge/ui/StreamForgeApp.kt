@@ -539,7 +539,7 @@ fun StudioPreviewSurface(
     compact: Boolean = false,
     sourceMonitorOnly: Boolean = false
 ) {
-    Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth(.94f).align(Alignment.CenterHorizontally)) {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             if (isStreaming || (sourceMonitorOnly && previewReady)) {
                 AndroidView(
