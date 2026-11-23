@@ -830,10 +830,13 @@ fun SceneStudio(
     val scene = scenes[index]
     LaunchedEffect(index, scene) {
         SceneVideoPlayback.activateScene(scene.layers.filter { it.kind == "video" }.map { it.text }.toSet())
+        // The service reads the scene JSON immediately after ACTION_APPLY_SCENE.
+        // Commit the latest layer order first so it cannot render a stale snapshot
+        // while SharedPreferences.apply() is still writing asynchronously.
         prefs.edit()
             .putString("scenes", encodeSceneList(scenes))
             .putInt("active_scene", index)
-            .apply()
+            .commit()
         onApplyScene(index)
     }
     val layer = scene.layers.firstOrNull { it.id == selected }
