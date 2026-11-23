@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                     pendingHeight = height
                     pendingFps = fps
                     pendingBitrate = bitrate
-                    pendingCaptureMode = captureMode
+                    pendingCaptureMode = if (Build.VERSION.SDK_INT >= 34) captureMode else "FULL"
                     if (StreamService.studioPreviewReady.value) {
                         ContextCompat.startForegroundService(this, Intent(this, StreamService::class.java).apply {
                             action = StreamService.ACTION_START_STREAM
@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
                         pendingHeight = height
                         pendingFps = fps
                         pendingBitrate = bitrate
-                        pendingCaptureMode = captureMode
+                        pendingCaptureMode = if (Build.VERSION.SDK_INT >= 34) captureMode else "FULL"
                         if (!Settings.canDrawOverlays(this)) {
                             waitingForOverlayPermission = true
                             startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)), 7402)
@@ -156,7 +156,7 @@ class MainActivity : ComponentActivity() {
                     pendingHeight = height
                     pendingFps = fps
                     pendingBitrate = bitrate
-                    pendingCaptureMode = captureMode
+                    pendingCaptureMode = if (Build.VERSION.SDK_INT >= 34) captureMode else "FULL"
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) requestScreenCapture()
                     else permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
                 },
