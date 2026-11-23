@@ -754,7 +754,7 @@ fun SceneStudio(
     onPreparePreview: () -> Unit,
     onStopStudioPreview: () -> Unit,
     onChangeCaptureSource: () -> Unit,
-    onApplyScene: (Int) -> Unit = {}
+    onApplyScene: (Int, String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
@@ -837,7 +837,7 @@ fun SceneStudio(
             .putString("scenes", encodeSceneList(scenes))
             .putInt("active_scene", index)
             .commit()
-        onApplyScene(index)
+        onApplyScene(index, encodeSceneList(scenes))
     }
     val layer = scene.layers.firstOrNull { it.id == selected }
 
