@@ -56,7 +56,7 @@ private data class SceneLayer(
     val visible: Boolean = true, val locked: Boolean = false,
     val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
-    val loop: Boolean = true, val fps: Int = 5
+    val loop: Boolean = true, val fps: Int = 5, val soundVolume: Float = 1f, val soundMuted: Boolean = false
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -73,7 +73,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
-                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps)
+                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps); put("soundVolume", layer.soundVolume); put("soundMuted", layer.soundMuted)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -93,7 +93,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -181,6 +181,10 @@ private object SceneVideoPlayback {
         runCatching { state.surface?.release() }
         state.surface = null
         state.surfaceTexture = null
+    }
+
+    fun setAudio(state: State, volume: Float, muted: Boolean) {
+        runCatching { state.player.setVolume(if (muted) 0f else volume.coerceIn(0f, 1f), if (muted) 0f else volume.coerceIn(0f, 1f)) }
     }
 
     fun toggle(state: State) {
@@ -306,6 +310,11 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val videoPlayers = remember(videoSources) {
         videoSources.associate { (id, uriString, settings) ->
             id to SceneVideoPlayback.get(context, uriString, settings.first)
+        }
+    }
+    LaunchedEffect(scene.layers.map { listOf(it.id, it.soundVolume, it.soundMuted) }) {
+        scene.layers.filter { it.kind == "video" }.forEach { item ->
+            SceneVideoPlayback.setAudio(SceneVideoPlayback.get(context, item.text, item.loop), item.soundVolume, item.soundMuted)
         }
     }
     LaunchedEffect(videoSources, previewMode) {
@@ -595,6 +604,7 @@ fun SceneStudio(
     var renameDialog by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var sourceMessage by remember { mutableStateOf("") }
+    var editorTab by remember { mutableStateOf("Canvas") }
     var canvasWidth by remember { mutableFloatStateOf(1f) }
     var canvasHeight by remember { mutableFloatStateOf(1f) }
 
@@ -720,7 +730,12 @@ fun SceneStudio(
                 FilterChip(selected = i == index, onClick = { active = i; selected = -1L }, label = { Text(item.name) })
             }
         }
-
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Canvas", "Layers", "Edit").forEach { tab ->
+                FilterChip(selected = editorTab == tab, onClick = { editorTab = tab }, modifier = Modifier.weight(1f), label = { Text(tab, fontSize = 11.sp) })
+            }
+        }
+        if (editorTab == "Canvas") {
         Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("SOURCE LAYERS", color = Color(0xFFA1A8AF), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -763,7 +778,7 @@ fun SceneStudio(
                                     val top = target.y * size.height
                                     val right = (target.x + target.width) * size.width
                                     val bottom = (target.y + target.height) * size.height
-                                    val edgeTouch = 96f
+                                    val edgeTouch = 144f
                                     val resizeLeft = abs(down.position.x - left) < edgeTouch
                                     val resizeRight = abs(down.position.x - right) < edgeTouch
                                     val resizeTop = abs(down.position.y - top) < edgeTouch
@@ -938,9 +953,19 @@ fun SceneStudio(
                             paint.strokeWidth = if (item.id == selected) 3f else 1.5f
                             paint.color = if (item.id == selected) android.graphics.Color.CYAN else android.graphics.Color.argb(175, 210, 224, 245)
                             native.drawRoundRect(rect, 10f, 10f, paint)
+                            if (item.kind == "video" || item.kind == "image" || item.kind == "gif") {
+                                paint.style = Paint.Style.FILL
+                                paint.color = android.graphics.Color.argb(205, 8, 14, 22)
+                                val labelHeight = 30f.coerceAtMost(rect.height() * .28f)
+                                native.drawRoundRect(RectF(rect.left, rect.top, rect.right, rect.top + labelHeight), 8f, 8f, paint)
+                                paint.color = android.graphics.Color.WHITE
+                                paint.textSize = 12f
+                                paint.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+                                native.drawText("${item.kind.uppercase()}  ·  ${item.name.take(18)}  ·  ID ${item.id.toString().takeLast(7)}", rect.left + 9f, rect.top + labelHeight * .68f, paint)
+                            }
                             if (item.id == selected && !item.locked) {
                                 paint.style = Paint.Style.FILL
-                                val handleSize = 28f
+                                val handleSize = 52f
                                 paint.color = android.graphics.Color.WHITE
                                 val handles = listOf(
                                     rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
@@ -965,6 +990,9 @@ fun SceneStudio(
             }
         }
 
+        }
+        }
+        if (editorTab == "Layers") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("LAYERS", color = Color.White, fontSize = 12.sp)
@@ -1003,11 +1031,19 @@ fun SceneStudio(
                         updateLayer(item.id) { it.copy(locked = locking) }
                         if (locking && selected == item.id) selected = -1L
                     }) { Text(if (item.locked) "Unlock" else "Lock") }
+                    TextButton(onClick = {
+                        val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == item.id }
+                        if (i > 0) { val moved = items.removeAt(i); items.add(i - 1, moved); scenes[index] = scene.copy(layers = items) }
+                    }, enabled = !item.locked && scene.layers.indexOfFirst { it.id == item.id } > 0) { Text("↑") }
+                    TextButton(onClick = {
+                        val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == item.id }
+                        if (i >= 0 && i < items.lastIndex) { val moved = items.removeAt(i); items.add(i + 1, moved); scenes[index] = scene.copy(layers = items) }
+                    }, enabled = !item.locked && scene.layers.indexOfFirst { it.id == item.id } < scene.layers.lastIndex) { Text("↓") }
                 }
             }
         }
-
-        if (layer != null) {
+        }
+        if (editorTab == "Edit" && layer != null) {
             Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
@@ -1045,6 +1081,11 @@ fun SceneStudio(
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
                         if (layer.kind == "video") {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (layer.soundMuted) "VIDEO SOUND · MUTED" else "VIDEO SOUND · ${(layer.soundVolume * 100).toInt()}%", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                                Switch(checked = !layer.soundMuted, enabled = !layer.locked, onCheckedChange = { enabled -> updateLayer(layer.id) { it.copy(soundMuted = !enabled) } })
+                            }
+                            Slider(value = layer.soundVolume, enabled = !layer.locked && !layer.soundMuted, onValueChange = { value -> updateLayer(layer.id) { it.copy(soundVolume = value.coerceIn(0f, 1f)) } }, valueRange = 0f..1f)
                             SceneVideoPlaybackCard(
                                 uri = layer.text,
                                 loop = layer.loop,
@@ -1134,6 +1175,7 @@ fun SceneStudio(
             }
         }
 
+        if (editorTab == "Edit" && layer == null) Text("Select a layer from Layers to edit its settings.", color = Color.Gray, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
             OutlinedButton(onClick = {
