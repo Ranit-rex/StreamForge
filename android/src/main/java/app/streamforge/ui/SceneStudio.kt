@@ -50,8 +50,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.lazy.LazyListItemScope
-import androidx.compose.foundation.lazy.animateItemPlacement
+import androidx.compose.foundation.ExperimentalFoundationApi
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -689,6 +688,7 @@ private fun SceneVideoPlaybackModeSelector() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SceneStudio(
     previewReady: Boolean,
@@ -1083,7 +1083,7 @@ fun SceneStudio(
                                     color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF20262B),
                                     shape = RoundedCornerShape(6.dp),
                                     modifier = Modifier.fillMaxWidth()
-                                        .animateItemPlacement(animationSpec = spring(dampingRatio = .82f, stiffness = 360f))
+                                        .animateItem()
                                         .pointerInput(item.id, scene.layers) {
                                             detectDragGesturesAfterLongPress(
                                                 onDragStart = { selected = item.id; reorderDrag = 0f },
