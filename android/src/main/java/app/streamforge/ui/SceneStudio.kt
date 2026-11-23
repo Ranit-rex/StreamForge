@@ -758,23 +758,36 @@ fun SceneStudio(
         sourceMessage = "Free overlay pack added. Import your own background or GIF from Add source."
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp), modifier = Modifier.height(26.dp)) {
-                Text(if (showMoreSettings) "⋯  Less" else "⋯", fontSize = 12.sp)
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("SOURCE", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                StudioPreviewSurface(
+                    previewReady = previewReady,
+                    isStreaming = isStreaming,
+                    sourceMonitorOnly = true,
+                    onPrepare = onPreparePreview,
+                    onStop = onStopStudioPreview,
+                    onChangeSource = onChangeCaptureSource,
+                    compact = true
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(9.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                        SceneCompositionPreview(Modifier.fillMaxSize())
+                    }
+                }
             }
         }
-        Text("01  ·  GAME / SOURCE MONITOR", color = Color(0xFFFF8659), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-        StudioPreviewSurface(
-            previewReady = previewReady,
-            isStreaming = isStreaming,
-            sourceMonitorOnly = true,
-            onPrepare = onPreparePreview,
-            onStop = onStopStudioPreview,
-            onChangeSource = onChangeCaptureSource,
-            compact = true
-        )
-        Text("02  ·  SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp), modifier = Modifier.height(22.dp)) {
+                Text(if (showMoreSettings) "⋯ Less" else "⋯", fontSize = 10.sp)
+            }
+        }
         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
             modifier = Modifier.fillMaxWidth()) {
@@ -787,8 +800,11 @@ fun SceneStudio(
                         if (bitmap != null) item.id to bitmap else null
                     }.toMap()
                 }
-                Canvas(
-                    Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                    SceneCompositionPreview(Modifier.fillMaxSize())
+                    Canvas(
+                        Modifier.fillMaxSize()
+                            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                         .background(Color(0xFF111518), RoundedCornerShape(9.dp))
                         .pointerInput(index) {
                             detectTapGestures { point ->
@@ -898,129 +914,40 @@ fun SceneStudio(
                                 }
                             }
                         }
-                ) {
-                    canvasWidth = size.width; canvasHeight = size.height
-                    drawRect(Color(0xFF292D30))
-                    drawIntoCanvas { canvas ->
-                        val native = canvas.nativeCanvas
-                        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) }
-                        scene.layers.filter { it.visible }.forEach { item ->
-                            val left = item.x * size.width
-                            val top = item.y * size.height
-                            val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
-                            native.save()
-                            native.rotate(item.rotation, rect.centerX(), rect.centerY())
-                            paint.alpha = (item.opacity.coerceIn(0f, 1f) * 255).toInt()
-                            val importedBitmap = if (item.kind == "image" || item.kind == "gif") imageBitmaps[item.id] else null
-                            if (importedBitmap != null) {
-                                paint.style = Paint.Style.FILL
-                                native.drawBitmap(importedBitmap, android.graphics.Rect((importedBitmap.width * item.cropLeft).toInt(), (importedBitmap.height * item.cropTop).toInt(), (importedBitmap.width * item.cropRight).toInt().coerceAtLeast(1), (importedBitmap.height * item.cropBottom).toInt().coerceAtLeast(1)), rect, paint)
-                            } else {
-                                paint.style = Paint.Style.FILL
-                                when (item.kind) {
-                                    "background" -> {
-                                        paint.shader = LinearGradient(rect.left, rect.top, rect.right, rect.bottom, android.graphics.Color.rgb(13, 15, 17), android.graphics.Color.rgb(53, 29, 21), Shader.TileMode.CLAMP)
-                                        native.drawRect(rect, paint)
-                                        paint.shader = null
-                                        paint.color = android.graphics.Color.argb(55, 255, 106, 53)
-                                        native.drawCircle(rect.right * .82f, rect.top + rect.height() * .22f, rect.height() * .22f, paint)
-                                    }
-                                    "frame" -> {
-                                        paint.style = Paint.Style.STROKE
-                                        paint.strokeWidth = 5f
-                                        paint.color = android.graphics.Color.rgb(255, 106, 53)
-                                        native.drawRoundRect(rect, 22f, 22f, paint)
-                                        paint.style = Paint.Style.FILL
-                                    }
-                                    "screen" -> {
-                                        paint.color = android.graphics.Color.rgb(15, 31, 52)
-                                        native.drawRoundRect(rect, 12f, 12f, paint)
-                                        paint.color = android.graphics.Color.rgb(63, 106, 167)
-                                        paint.strokeWidth = 3f
-                                        paint.style = Paint.Style.STROKE
-                                        native.drawRoundRect(rect, 12f, 12f, paint)
-                                        paint.style = Paint.Style.FILL
+                    ) {
+                        canvasWidth = size.width
+                        canvasHeight = size.height
+                        val item = scene.layers.firstOrNull { it.id == selected && it.visible }
+                        if (item != null) {
+                            drawIntoCanvas { canvas ->
+                                val native = canvas.nativeCanvas
+                                val left = item.x * size.width
+                                val top = item.y * size.height
+                                val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
+                                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                    style = Paint.Style.STROKE
+                                    strokeWidth = 3f
+                                    color = android.graphics.Color.CYAN
+                                }
+                                native.save()
+                                native.rotate(item.rotation, rect.centerX(), rect.centerY())
+                                native.drawRoundRect(rect, 8f, 8f, paint)
+                                if (!item.locked) {
+                                    paint.style = Paint.Style.FILL
+                                    val handle = 36f
+                                    listOf(
+                                        rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
+                                        rect.left to rect.centerY(), rect.right to rect.centerY(),
+                                        rect.left to rect.bottom, rect.centerX() to rect.bottom, rect.right to rect.bottom
+                                    ).forEach { (x, y) ->
                                         paint.color = android.graphics.Color.WHITE
-                                        val iconSize = (rect.height() * .22f).coerceIn(28f, 64f)
-                                        val icon = RectF(rect.centerX() - iconSize * .72f, rect.centerY() - iconSize * 1.05f, rect.centerX() + iconSize * .72f, rect.centerY() + iconSize * .12f)
-                                        paint.style = Paint.Style.STROKE
-                                        paint.strokeWidth = (iconSize * .09f).coerceAtLeast(3f)
-                                        native.drawRoundRect(icon, 9f, 9f, paint)
-                                        paint.style = Paint.Style.FILL
-                                        native.drawCircle(icon.centerX(), icon.bottom - iconSize * .13f, iconSize * .045f, paint)
-                                        paint.textSize = (rect.height() * .10f).coerceIn(16f, 30f)
-                                        val title = "YOUR GAME SCREEN"
-                                        native.drawText(title, rect.centerX() - paint.measureText(title) / 2f, rect.centerY() + iconSize * .48f, paint)
-                                        paint.textSize = (rect.height() * .052f).coerceIn(11f, 18f)
-                                        val help = "Your game or phone screen appears here"
-                                        native.drawText(help, rect.centerX() - paint.measureText(help) / 2f, rect.centerY() + iconSize * .85f, paint)
-                                    }
-                                    "text", "timer" -> {
-                                        paint.color = runCatching { android.graphics.Color.parseColor(item.textColor) }.getOrDefault(android.graphics.Color.WHITE)
-                                        paint.typeface = android.graphics.Typeface.create(item.fontFamily, android.graphics.Typeface.BOLD)
-                                        paint.textSize = ((rect.height() * .58f).coerceIn(12f, 48f) * item.fontSizeScale.coerceIn(.5f, 2f))
-                                        paint.setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-                                        val baseline = rect.top + (rect.height() - (paint.descent() + paint.ascent())) / 2f
-                                        val shown = if (item.kind == "timer") {
-                                            val seconds = (System.currentTimeMillis() / 1000L) % 3600L
-                                            String.format(java.util.Locale.US, "%02d:%02d", seconds / 60L, seconds % 60L)
-                                        } else item.text.take(36)
-                                        native.drawText(shown, rect.left + 4f, baseline, paint)
-                                        paint.clearShadowLayer()
-                                    }
-                                    "camera" -> {
-                                        paint.color = android.graphics.Color.rgb(54, 83, 103)
-                                        native.drawRoundRect(rect, 10f, 10f, paint)
-                                        paint.color = android.graphics.Color.WHITE
-                                        paint.textSize = (rect.height() * .16f).coerceIn(10f, 24f)
-                                        native.drawText("CAMERA SOURCE", left + 8f, rect.centerY(), paint)
-                                    }
-                                    "image", "gif" -> {
-                                        paint.color = android.graphics.Color.rgb(80, 66, 116)
-                                        native.drawRoundRect(rect, 10f, 10f, paint)
-                                        paint.color = android.graphics.Color.WHITE
-                                        paint.textSize = 12f
-                                        native.drawText(item.kind.uppercase() + " · " + item.name, left + 8f, rect.centerY(), paint)
-                                    }
-                                    else -> {
-                                        paint.color = android.graphics.Color.WHITE
-                                        paint.textSize = 12f
-                                        native.drawText("GAMEPLAY AREA", left + 8f, top + 22f, paint)
+                                        native.drawCircle(x, y, handle / 2f, paint)
+                                        paint.color = android.graphics.Color.rgb(20, 35, 55)
+                                        native.drawCircle(x, y, 3f, paint)
                                     }
                                 }
+                                native.restore()
                             }
-                            paint.style = Paint.Style.STROKE
-                            paint.strokeWidth = if (item.id == selected) 3f else 1.5f
-                            paint.color = if (item.id == selected) android.graphics.Color.CYAN else android.graphics.Color.argb(175, 210, 224, 245)
-                            native.drawRoundRect(rect, 10f, 10f, paint)
-                            if (item.kind == "video" || item.kind == "image" || item.kind == "gif") {
-                                paint.style = Paint.Style.FILL
-                                paint.color = android.graphics.Color.argb(210, 8, 14, 22)
-                                val labelHeight = 30f.coerceAtMost(rect.height() * .28f)
-                                native.drawRoundRect(RectF(rect.left, rect.top, rect.right, rect.top + labelHeight), 8f, 8f, paint)
-                                paint.color = android.graphics.Color.WHITE
-                                paint.textSize = 12f
-                                paint.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
-                                native.drawText(item.kind.uppercase() + " · " + item.name.take(16) + " · ID " + item.id.toString().takeLast(7), rect.left + 8f, rect.top + labelHeight * .68f, paint)
-                            }
-                            if (item.id == selected && !item.locked) {
-                                paint.style = Paint.Style.FILL
-                                val handleSize = 48f
-                                paint.color = android.graphics.Color.WHITE
-                                val handles = listOf(
-                                    rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
-                                    rect.left to rect.centerY(), rect.right to rect.centerY(),
-                                    rect.left to rect.bottom, rect.centerX() to rect.bottom, rect.right to rect.bottom
-                                )
-                                handles.forEach { (hx, hy) ->
-                                    native.drawRect(hx - handleSize / 2f, hy - handleSize / 2f, hx + handleSize / 2f, hy + handleSize / 2f, paint)
-                                    paint.color = android.graphics.Color.rgb(20, 35, 55)
-                                    native.drawRect(hx - 3f, hy - 3f, hx + 3f, hy + 3f, paint)
-                                    paint.color = android.graphics.Color.WHITE
-                                }
-                            }
-                            paint.style = Paint.Style.FILL
-                            native.restore()
                         }
                     }
                 }
