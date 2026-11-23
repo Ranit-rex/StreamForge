@@ -758,42 +758,26 @@ fun SceneStudio(
         sourceMessage = "Free overlay pack added. Import your own background or GIF from Add source."
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp), modifier = Modifier.height(26.dp)) {
                 Text(if (showMoreSettings) "⋯  Less" else "⋯", fontSize = 12.sp)
             }
         }
-        if (showMoreSettings) {
-            Surface(color = Color(0xFF202326), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                    Text("ADVANCED OPTIONS", color = Color(0xFFA1A8AF), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("Advanced controls are grouped here to keep the Scene page compact.", color = Color.Gray, fontSize = 9.sp)
-                }
-            }
-        }
-        if (scene.layers.any { it.kind == "video" }) {
-            SceneVideoPlaybackModeSelector()
-        }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 320.dp)) {
-        if (isStreaming) {
-            StudioPreviewSurface(
-                previewReady = previewReady,
-                isStreaming = true,
-                onPrepare = onPreparePreview,
-                onStop = onStopStudioPreview,
-                onChangeSource = onChangeCaptureSource,
-                compact = true
-            )
-        } else {
-            SceneCompositionPreview(compact = true, modifier = Modifier.fillMaxWidth())
-        }
-        }
-        }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 320.dp)) {
-        Surface(color = Color(0xFF202326), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("01  ·  GAME / SOURCE MONITOR", color = Color(0xFFFF8659), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        StudioPreviewSurface(
+            previewReady = previewReady,
+            isStreaming = isStreaming,
+            sourceMonitorOnly = true,
+            onPrepare = onPreparePreview,
+            onStop = onStopStudioPreview,
+            onChangeSource = onChangeCaptureSource,
+            compact = false
+        )
+        Text("02  ·  SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
+            modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
                     scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
@@ -1045,9 +1029,19 @@ fun SceneStudio(
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
             }
         }
-        }
-        }
 
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (showMoreSettings) {
+            Surface(color = Color(0xFF202326), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                    Text("ADVANCED OPTIONS", color = Color(0xFFA1A8AF), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Advanced controls are grouped here to keep the Scene page compact.", color = Color.Gray, fontSize = 9.sp)
+                }
+            }
+        }
+        if (scene.layers.any { it.kind == "video" }) {
+            SceneVideoPlaybackModeSelector()
+        }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1307,6 +1301,7 @@ fun SceneStudio(
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
         Text("Tap a layer to edit · drag inside to move · drag an edge to resize.", color = Color.Gray, fontSize = 9.sp)
+        }
     }
 
     if (assetsDialog) AlertDialog(
