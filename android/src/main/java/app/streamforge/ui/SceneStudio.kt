@@ -170,7 +170,6 @@ private object SceneVideoPlayback {
             media.setAudioAttributes(audioAttributes)
             media.setVolume(0f, 0f)
             media.isLooping = state.loop
-            state.surface?.takeIf { it.isValid }?.let(media::setSurface)
             media.setOnPreparedListener { prepared ->
                 synchronized(this) {
                     if (state.player !== prepared || state.generation != token) return@synchronized
@@ -202,6 +201,7 @@ private object SceneVideoPlayback {
                 true
             }
             media.setDataSource(state.context, Uri.parse(state.uri))
+            state.surface?.takeIf { it.isValid }?.let(media::setSurface)
             media.prepareAsync()
         } catch (error: Exception) {
             state.error.value = error.message ?: "Could not prepare video"
