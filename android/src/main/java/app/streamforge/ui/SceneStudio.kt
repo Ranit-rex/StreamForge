@@ -116,6 +116,8 @@ private object SceneVideoPlayback {
         val durationMs = mutableIntStateOf(0)
         val error = mutableStateOf<String?>(null)
         var wantsPlayback: Boolean = true
+        var requestedVolume: Float = 0f
+        var requestedMuted: Boolean = false
         var surfaceTexture: SurfaceTexture? = null
         var surface: Surface? = null
     }
@@ -138,7 +140,7 @@ private object SceneVideoPlayback {
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_ALL)
+                        setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_NONE)
                     }
                 }.build()
             player.setAudioAttributes(audioAttributes)
@@ -197,21 +199,27 @@ private object SceneVideoPlayback {
         state.surfaceTexture = null
     }
 
+    @Volatile
+    private var appInForeground: Boolean = true
+
+    private fun applyVolume(state: State) {
+        val audible = appInForeground && !state.requestedMuted
+        val volume = if (audible) state.requestedVolume.coerceIn(0f, 1f) else 0f
+        runCatching { state.player.setVolume(volume, volume) }
+    }
+
     @Synchronized
     fun pauseForBackground() {
-        states.values.forEach { state ->
-            runCatching {
-                if (state.player.isPlaying) {
-                    state.player.pause()
-                    state.playing.value = false
-                }
-            }
-        }
+        // Keep video frames advancing while backgrounded, but silence preview audio.
+        appInForeground = false
+        states.values.forEach(::applyVolume)
     }
 
     @Synchronized
     fun resumeInForeground() {
+        appInForeground = true
         states.values.forEach { state ->
+            applyVolume(state)
             if (state.wantsPlayback && state.ready.value) {
                 runCatching {
                     if (!state.player.isPlaying) state.player.start()
@@ -222,7 +230,9 @@ private object SceneVideoPlayback {
     }
 
     fun setAudio(state: State, volume: Float, muted: Boolean) {
-        runCatching { state.player.setVolume(if (muted) 0f else volume.coerceIn(0f, 1f), if (muted) 0f else volume.coerceIn(0f, 1f)) }
+        state.requestedVolume = volume.coerceIn(0f, 1f)
+        state.requestedMuted = muted
+        applyVolume(state)
     }
 
     fun toggle(state: State) {
