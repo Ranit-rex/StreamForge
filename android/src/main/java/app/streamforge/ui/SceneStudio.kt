@@ -123,11 +123,17 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
     }
     val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
+    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     val videoSources = remember(scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
-    LaunchedEffect(videoSources) {
+    LaunchedEffect(videoSources, previewMode) {
+        if (previewMode != "decode") {
+            videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
+            videoFrames.clear()
+            return@LaunchedEffect
+        }
         val sources = videoSources.mapNotNull { (id, uriString, settings) ->
             runCatching {
                 val retriever = MediaMetadataRetriever()
@@ -182,7 +188,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             videoFrames.clear()
         }
     }
-    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("VIDEO PLAYBACK", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.weight(1f))
