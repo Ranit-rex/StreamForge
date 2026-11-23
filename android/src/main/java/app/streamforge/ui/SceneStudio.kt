@@ -784,7 +784,7 @@ fun SceneStudio(
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
                             modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                                Box(Modifier.fillMaxWidth().height(112.dp).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
                                     SceneCompositionPreview(Modifier.fillMaxSize())
                                     Canvas(
                                         Modifier.fillMaxSize()
@@ -963,8 +963,8 @@ fun SceneStudio(
                     shape = RoundedCornerShape(9.dp),
                     onClick = { active = i; selected = -1L }
                 ) {
-                    Text("Scene ${i + 1} · ${item.name}", color = if (i == index) Color(0xFFFFA27A) else Color.White,
-                        fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+                    Text("${i + 1} · ${item.name}", color = if (i == index) Color(0xFFFFA27A) else Color.White,
+                        fontSize = 9.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
                 }
             }
             Surface(color = Color(0xFF20262B), shape = RoundedCornerShape(9.dp), onClick = {
@@ -1017,7 +1017,7 @@ fun SceneStudio(
                                     },
                                     onClick = { selected = item.id }
                                 ) {
-                                    Row(Modifier.padding(horizontal = 2.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
                                             TextButton(onClick = {
                                                 val items = scenes[index].layers.toMutableList()
@@ -1038,14 +1038,14 @@ fun SceneStudio(
                                             Text(item.name + if (item.locked) " · 🔒" else "", color = Color.White, fontSize = 9.sp, maxLines = 1, softWrap = false)
                                         }
                                         TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
-                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(24.dp)) {
+                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
                                             Text(if (item.visible) "●" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 11.sp)
                                         }
                                         TextButton(onClick = {
                                             val locking = !item.locked
                                             updateLayer(item.id) { it.copy(locked = locking) }
                                             if (locking) selected = item.id
-                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(24.dp)) {
+                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
                                             Text(if (item.locked) "🔒" else "↗", fontSize = 11.sp)
                                         }
                                     }
