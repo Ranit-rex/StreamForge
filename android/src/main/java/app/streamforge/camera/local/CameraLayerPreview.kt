@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,9 @@ fun CameraLayerPreview(
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    LaunchedEffect(Unit) {
+        if (!granted) permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
 
     Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
         if (!granted) {
