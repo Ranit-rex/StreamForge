@@ -585,22 +585,12 @@ fun StudioPreviewSurface(
                         Text("STOP PREVIEW", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-            } else if (sourceMonitorOnly) {
-                Column(
-                    Modifier.align(Alignment.Center).padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("STREAM PREVIEW", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("Your default screen appears here. Start screen capture or go live to show the captured display.", color = Color(0xFF9AA4AE), fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-                Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text("● SOURCE MONITOR", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                }
             } else {
-                SceneCompositionPreview(Modifier.fillMaxSize())
+                // Always render the active scene while screen capture is inactive.
+                // Decode-only prevents two preview panes fighting over one MediaPlayer Surface.
+                SceneCompositionPreview(Modifier.fillMaxSize(), forceDecode = true)
                 Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text("● AUTO PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text(if (sourceMonitorOnly) "● LIVE SCENE PREVIEW" else "● AUTO PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
