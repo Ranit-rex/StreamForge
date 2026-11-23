@@ -1075,14 +1075,14 @@ fun SceneStudio(
                                                 val items = scenes[index].layers.toMutableList()
                                                 val pos = items.indexOfFirst { it.id == item.id }
                                                 if (pos > 0) { val moving = items.removeAt(pos); items.add(pos - 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(20.dp)) {
+                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(17.dp)) {
                                                 Text("↑", color = Color(0xFFFFA27A), fontSize = 11.sp)
                                             }
                                             TextButton(onClick = {
                                                 val items = scenes[index].layers.toMutableList()
                                                 val pos = items.indexOfFirst { it.id == item.id }
                                                 if (pos >= 0 && pos < items.lastIndex) { val moving = items.removeAt(pos); items.add(pos + 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(20.dp)) {
+                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(17.dp)) {
                                                 Text("↓", color = Color(0xFFFFA27A), fontSize = 11.sp)
                                             }
                                         }
@@ -1090,14 +1090,14 @@ fun SceneStudio(
                                             Text(item.name + if (item.locked) " · 🔒" else "", color = Color.White, fontSize = 9.sp, maxLines = 1, softWrap = false)
                                         }
                                         TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
-                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
+                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(25.dp)) {
                                             Text(if (item.visible) "●" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 11.sp)
                                         }
                                         TextButton(onClick = {
                                             val locking = !item.locked
                                             updateLayer(item.id) { it.copy(locked = locking) }
                                             if (locking) selected = item.id
-                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) {
+                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(25.dp)) {
                                             Text(if (item.locked) "🔒" else "↗", fontSize = 11.sp)
                                         }
                                     }
@@ -1128,17 +1128,19 @@ fun SceneStudio(
                             modifier = Modifier.fillMaxWidth(), singleLine = true
                         )
                     }
+                    if (layer.kind == "video") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Auto play", color = Color.White, fontSize = 9.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
+                        }
+                    }
                     if (layer.kind == "image" || layer.kind == "gif" || layer.kind == "video") {
                         OutlinedButton(
                             onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) },
-                            enabled = !layer.locked, modifier = Modifier.fillMaxWidth()
-                        ) { Text("Replace media") }
+                            enabled = !layer.locked, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 5.dp, vertical = 2.dp)
+                        ) { Text("Replace media", fontSize = 9.sp) }
                     }
                     if (layer.kind == "video") {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Auto play", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                            Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
-                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Loop", color = Color.White, fontSize = 9.sp, modifier = Modifier.weight(1f))
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
