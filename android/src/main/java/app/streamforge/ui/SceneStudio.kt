@@ -268,6 +268,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, showPlaybackControls:
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
     var activeIndex by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
+    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
             if (key == "scenes" || key == "active_scene") {
@@ -290,7 +291,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, showPlaybackControls:
     }
     val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
-    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     val videoSources = remember(scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
@@ -356,25 +356,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, showPlaybackControls:
         }
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        if (showPlaybackControls) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("VIDEO PLAYBACK", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.weight(1f))
-            FilterChip(selected = previewMode == "decode", onClick = {
-                previewMode = "decode"
-                prefs.edit().putString("video_preview_mode", "decode").apply()
-            }, label = { Text("DECODE", fontSize = 9.sp) })
-            Spacer(Modifier.width(5.dp))
-            FilterChip(selected = previewMode == "hardware", onClick = {
-                previewMode = "hardware"
-                prefs.edit().putString("video_preview_mode", "hardware").apply()
-            }, label = { Text("HARDWARE", fontSize = 9.sp) })
-        }
-        Text(
-            if (previewMode == "hardware") "Native Android playback · source FPS · no frame sampling"
-            else "Frame decode preview · scaled frames",
-            color = Color.Gray, fontSize = 9.sp
-        )
-        }
         BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(if (compact) 16f / 7.5f else 16f / 9f).background(Color.Black)) {
             val previewWidth = maxWidth
             val previewHeight = maxHeight
@@ -530,6 +511,33 @@ private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Mod
 }
 
 @Composable
+private fun SceneVideoPlaybackModeSelector() {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
+    var mode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
+            if (key == "video_preview_mode") mode = shared.getString(key, "decode") ?: "decode"
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("VIDEO PREVIEW", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.weight(1f))
+        FilterChip(
+            selected = mode == "decode",
+            onClick = { mode = "decode"; prefs.edit().putString("video_preview_mode", "decode").apply() },
+            label = { Text("DECODE", fontSize = 9.sp) }
+        )
+        FilterChip(
+            selected = mode == "hardware",
+            onClick = { mode = "hardware"; prefs.edit().putString("video_preview_mode", "hardware").apply() },
+            label = { Text("HARDWARE", fontSize = 9.sp) }
+        )
+    }
+}
+
+@Composable
 fun SceneStudio(
     previewReady: Boolean,
     isStreaming: Boolean,
@@ -663,6 +671,7 @@ fun SceneStudio(
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SceneVideoPlaybackModeSelector()
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
             Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO · UPDATES LIVE", color = Color(0xFFFF6A35), fontSize = 9.sp)
@@ -677,7 +686,7 @@ fun SceneStudio(
                 compact = true
             )
         } else {
-            SceneCompositionPreview(showPlaybackControls = true, compact = true)
+            SceneCompositionPreview(compact = true)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
