@@ -1091,15 +1091,6 @@ fun SceneStudio(
                                 Switch(checked = !layer.soundMuted, enabled = !layer.locked, onCheckedChange = { enabled -> updateLayer(layer.id) { it.copy(soundMuted = !enabled) } })
                             }
                             Slider(value = layer.soundVolume, enabled = !layer.locked && !layer.soundMuted, onValueChange = { value -> updateLayer(layer.id) { it.copy(soundVolume = value.coerceIn(0f, 1f)) } }, valueRange = 0f..1f)
-                            SceneVideoPlaybackCard(
-                                uri = layer.text,
-                                loop = layer.loop,
-                                onUseHardware = {
-                                    prefs.edit().putString("video_preview_mode", "hardware").apply()
-                                },
-                                volume = layer.soundVolume,
-                                muted = layer.soundMuted
-                            )
                             if (showMoreSettings) {
                             Text(
                                 if (layer.fps == 0) "VIDEO FPS · ORIGINAL SOURCE (AUTO)" else "VIDEO FPS · ${layer.fps}",
