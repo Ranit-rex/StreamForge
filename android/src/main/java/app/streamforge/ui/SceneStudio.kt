@@ -207,6 +207,7 @@ private object SceneVideoPlayback {
             state.error.value = error.message ?: "Could not prepare video"
             state.ready.value = false
             state.playing.value = false
+            state.recovering = false
         }
     }
 
