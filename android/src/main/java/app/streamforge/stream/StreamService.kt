@@ -22,8 +22,6 @@ import android.graphics.drawable.GradientDrawable
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
-import android.media.MediaMetadataRetriever
-import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -135,7 +133,7 @@ class StreamService : Service(), ConnectChecker {
     // decoded frame is retained for each overlay so slow devices can skip frames.
     private val videoDecodeExecutor = Executors.newSingleThreadExecutor()
     private val videoDecodePending = ConcurrentHashMap.newKeySet<String>()
-    private val videoRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
+    private val videoDecoders = ConcurrentHashMap<String, HardwareVideoFrameDecoder>()
     private val videoStartedAt = ConcurrentHashMap<String, Long>()
     private val videoDurationMs = ConcurrentHashMap<String, Long>()
     private val videoSourceFps = ConcurrentHashMap<String, Int>()
@@ -634,76 +632,24 @@ class StreamService : Service(), ConnectChecker {
                 "video" -> {
                     val uriString = item.optString("text")
                     val now = SystemClock.uptimeMillis()
-                    val startedAt = videoStartedAt.putIfAbsent(uriString, now) ?: now
                     val manualFps = item.optInt("fps", 0).coerceIn(0, 60)
                     val sourceFps = videoSourceFps[uriString] ?: 30
                     val targetFps = (if (manualFps == 0) sourceFps else manualFps).coerceIn(5, 30)
-                    val frameInterval = (1000L / targetFps.coerceIn(5, 60)).coerceAtLeast(16L)
+                    val frameInterval = (1000L / targetFps).coerceAtLeast(16L)
                     val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                     if (now - lastFrameAt >= frameInterval && videoDecodePending.add(uriString)) {
                         videoLastFrameAt[uriString] = now
-                        val elapsedMs = (now - startedAt).coerceAtLeast(0L)
                         val shouldLoop = item.optBoolean("loop", true)
                         videoDecodeExecutor.execute {
                             try {
-                                val retriever = videoRetrievers[uriString] ?: MediaMetadataRetriever().apply {
-                                    setDataSource(this@StreamService, Uri.parse(uriString))
-                                }.also { videoRetrievers[uriString] = it }
-                                val durationMs = videoDurationMs[uriString] ?: run {
-                                    val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                        ?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                                    val extractor = MediaExtractor()
-                                    val detectedFps = try {
-                                        extractor.setDataSource(this@StreamService, Uri.parse(uriString), null)
-                                        (0 until extractor.trackCount).firstNotNullOfOrNull { track ->
-                                            val format = extractor.getTrackFormat(track)
-                                            if (format.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true &&
-                                                format.containsKey(MediaFormat.KEY_FRAME_RATE)) {
-                                                format.getInteger(MediaFormat.KEY_FRAME_RATE).coerceIn(5, 60)
-                                            } else null
-                                        }
-                                    } catch (_: Exception) {
-                                        null
-                                    } finally {
-                                        runCatching { extractor.release() }
-                                    }
-                                    val fps = detectedFps
-                                        ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                                            ?.toFloatOrNull()?.toInt()?.coerceIn(5, 60)
-                                        ?: 30
-                                    videoSourceFps[uriString] = fps
-                                    videoDurationMs[uriString] = duration
-                                    duration
-                                }
-                                val positionMs = if (shouldLoop) elapsedMs % durationMs else elapsedMs.coerceAtMost(durationMs - 1L)
-                                // Decode directly to a bounded bitmap on modern Android. Some
-                                // phone galleries contain 4K/8K clips; decoding a full-size frame
-                                // for a small overlay can otherwise exhaust the app heap.
-                                val timestampUs = positionMs * 1000L
-                                val decoded = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                                    retriever.getScaledFrameAtTime(
-                                        timestampUs,
-                                        MediaMetadataRetriever.OPTION_CLOSEST,
-                                        1280,
-                                        720
-                                    ) ?: retriever.getScaledFrameAtTime(
-                                        timestampUs,
-                                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                        1280,
-                                        720
-                                    )
-                                } else {
-                                    retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST)
-                                        ?: retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                                }
-                                if (decoded != null) {
-                                    val maxWidth = 1920
-                                    val frame = if (decoded.width > maxWidth) {
-                                        val scaledHeight = (decoded.height * (maxWidth.toFloat() / decoded.width)).toInt().coerceAtLeast(1)
-                                        Bitmap.createScaledBitmap(decoded, maxWidth, scaledHeight, true).also {
-                                            if (it !== decoded && !decoded.isRecycled) decoded.recycle()
-                                        }
-                                    } else decoded
+                                val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
+                                    this@StreamService,
+                                    Uri.parse(uriString)
+                                ).also { videoDecoders[uriString] = it }
+                                videoSourceFps[uriString] = decoder.frameRate
+                                videoDurationMs[uriString] = decoder.durationMs
+                                val frame = decoder.nextFrame(shouldLoop)
+                                if (frame != null) {
                                     synchronized(videoFrameLock) {
                                         videoFrameBitmaps.put(uriString, frame)?.let { previous ->
                                             if (previous !== frame && !previous.isRecycled) previous.recycle()
@@ -711,14 +657,15 @@ class StreamService : Service(), ConnectChecker {
                                     }
                                 }
                             } catch (_: OutOfMemoryError) {
-                                // A malformed/oversized source must not take down the whole app.
                                 synchronized(videoFrameLock) {
                                     videoFrameBitmaps.remove(uriString)?.let { if (!it.isRecycled) it.recycle() }
                                 }
-                                videoDurationMs.remove(uriString)
+                                videoDecoders.remove(uriString)?.close()
                                 videoSourceFps.remove(uriString)
+                                videoDurationMs.remove(uriString)
                             } catch (_: Exception) {
-                                // Keep displaying the last successfully decoded frame.
+                                // Keep the last good frame; the decoder is retried on the next refresh.
+                                videoDecoders.remove(uriString)?.close()
                             } finally {
                                 videoDecodePending.remove(uriString)
                             }
@@ -1311,8 +1258,8 @@ class StreamService : Service(), ConnectChecker {
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         gifMovies.clear()
         gifStartedAt.clear()
-        videoRetrievers.values.forEach { runCatching { it.release() } }
-        videoRetrievers.clear()
+        videoDecoders.values.forEach { runCatching { it.close() } }
+        videoDecoders.clear()
         videoDecodeExecutor.shutdownNow()
         synchronized(videoFrameLock) {
             videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
