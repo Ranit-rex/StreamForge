@@ -93,7 +93,7 @@ fun StreamForgeApp(
     var streamKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
     var selectedQuality by remember { mutableStateOf(qualityOptions.getOrElse(prefs.getInt("quality_index", 5)) { qualityOptions[5] }) }
-    var captureMode by remember { mutableStateOf("GAME") }
+    var captureMode by remember { mutableStateOf(if (android.os.Build.VERSION.SDK_INT >= 34) "GAME" else "FULL") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
@@ -349,12 +349,13 @@ fun StreamForgeApp(
                                         }
                                     }
                                     Text("SOURCE", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        CaptureModeCard("APP", "Single app.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
-                                        CaptureModeCard("DISPLAY", "Entire screen.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
-                                    }
-                                    if (captureMode == "GAME" && android.os.Build.VERSION.SDK_INT < 34) {
-                                        Text("This Android version uses full-screen capture; app-only selection needs Android 14 or newer.", color = Color(0xFFFFB27F), fontSize = 10.sp)
+                                    if (android.os.Build.VERSION.SDK_INT >= 34) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            CaptureModeCard("APP", "Single app.", captureMode == "GAME", Modifier.weight(1f)) { captureMode = "GAME" }
+                                            CaptureModeCard("DISPLAY", "Entire screen.", captureMode == "FULL", Modifier.weight(1f)) { captureMode = "FULL" }
+                                        }
+                                    } else {
+                                        CaptureModeCard("DISPLAY", "Entire screen · compatible with this Android version.", true, Modifier.fillMaxWidth()) { captureMode = "FULL" }
                                     }
                                     StatusLine(isStreaming, status)
                                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -588,13 +589,10 @@ fun StudioPreviewSurface(
                 Column(
                     Modifier.align(Alignment.Center).padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("GAME / PHONE SCREEN", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    Text("This monitor shows the captured device screen. Scene overlays are edited in the canvas below.", color = Muted, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) {
-                        Text("START SOURCE PREVIEW", fontSize = 10.sp)
-                    }
+                    Text("STREAM PREVIEW", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Your default screen appears here. Start screen capture or go live to show the captured display.", color = Color(0xFF9AA4AE), fontSize = 9.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
                 Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text("● SOURCE MONITOR", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
