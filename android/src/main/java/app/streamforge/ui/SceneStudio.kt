@@ -1092,11 +1092,10 @@ fun SceneStudio(
                     }
                 }
             }
-        }
-        Surface(
-            color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.weight(1f).height(190.dp)
-        ) {
+            Surface(
+                color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(190.dp)
+            ) {
             Column(
                 Modifier.fillMaxSize().padding(7.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -1150,6 +1149,7 @@ fun SceneStudio(
                     }
                 }
             }
+        }
         }
         if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
