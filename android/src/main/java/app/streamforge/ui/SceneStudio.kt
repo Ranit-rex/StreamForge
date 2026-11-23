@@ -10,8 +10,11 @@ import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.net.Uri
 import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.SystemClock
+import android.view.Surface
+import android.view.TextureView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -36,11 +39,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -177,14 +182,36 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             videoFrames.clear()
         }
     }
-    Canvas(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
+    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("VIDEO PLAYBACK", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.weight(1f))
+            FilterChip(selected = previewMode == "decode", onClick = {
+                previewMode = "decode"
+                prefs.edit().putString("video_preview_mode", "decode").apply()
+            }, label = { Text("DECODE", fontSize = 9.sp) })
+            Spacer(Modifier.width(5.dp))
+            FilterChip(selected = previewMode == "hardware", onClick = {
+                previewMode = "hardware"
+                prefs.edit().putString("video_preview_mode", "hardware").apply()
+            }, label = { Text("HARDWARE", fontSize = 9.sp) })
+        }
+        Text(
+            if (previewMode == "hardware") "Native Android playback · source FPS · no frame sampling"
+            else "Frame decode preview · scaled frames",
+            color = Color.Gray, fontSize = 9.sp
+        )
+        BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
+            val previewWidth = maxWidth
+            val previewHeight = maxHeight
+            Canvas(Modifier.matchParentSize()) {
         drawRect(Color(0xFF101316))
         drawIntoCanvas { canvas ->
             val native = canvas.nativeCanvas
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             }
-            scene.layers.filter { it.visible }.forEach { item ->
+            scene.layers.filter { it.visible && !(previewMode == "hardware" && it.kind == "video") }.forEach { item ->
                 val rect = RectF(item.x * size.width, item.y * size.height,
                     (item.x + item.width) * size.width, (item.y + item.height) * size.height)
                 native.save()
@@ -280,6 +307,80 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                 }
                 native.restore()
             }
+        }
+            if (previewMode == "hardware") {
+                scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
+                    HardwareVideoPreview(
+                        uriString = item.text,
+                        loop = item.loop,
+                        modifier = Modifier
+                            .offset(x = previewWidth * item.x, y = previewHeight * item.y)
+                            .size(width = previewWidth * item.width, height = previewHeight * item.height)
+                            .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val player = remember(uriString, loop) { MediaPlayer() }
+    val error = remember(uriString) { mutableStateOf<String?>(null) }
+    val outputSurface = remember(player) { arrayOfNulls<Surface>(1) }
+
+    Box(modifier.background(Color.Black)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = {
+                TextureView(it).apply {
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                            runCatching {
+                                val surface = Surface(surfaceTexture)
+                                outputSurface[0] = surface
+                                player.setSurface(surface)
+                                player.setVolume(0f, 0f)
+                                player.isLooping = loop
+                                player.setOnErrorListener { _, what, extra ->
+                                    error.value = "Native video playback error ($what/$extra)"
+                                    true
+                                }
+                                player.setOnPreparedListener { mediaPlayer ->
+                                    mediaPlayer.isLooping = loop
+                                    mediaPlayer.start()
+                                }
+                                player.setDataSource(context, Uri.parse(uriString))
+                                player.prepareAsync()
+                            }.onFailure {
+                                error.value = it.message ?: "Could not open video"
+                            }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(surface: android.graphics.SurfaceTexture, width: Int, height: Int) = Unit
+                        override fun onSurfaceTextureUpdated(surface: android.graphics.SurfaceTexture) = Unit
+                        override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
+                            runCatching { player.setSurface(null) }
+                            outputSurface[0]?.release()
+                            outputSurface[0] = null
+                            return true
+                        }
+                    }
+                }
+            }
+        )
+        error.value?.let { Text(it, color = Color.White, fontSize = 9.sp, modifier = Modifier.align(Alignment.Center)) }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            runCatching { if (player.isPlaying) player.stop() }
+            runCatching { player.reset() }
+            runCatching { player.release() }
+            outputSurface[0]?.release()
+            outputSurface[0] = null
         }
     }
 }
