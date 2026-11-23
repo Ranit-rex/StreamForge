@@ -344,7 +344,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
     var activeIndex by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
-    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
+    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "hardware") ?: "hardware") }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
             if (key == "scenes" || key == "active_scene") {
@@ -352,7 +352,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                 activeIndex = shared.getInt("active_scene", 0)
             }
             if (key == "video_preview_mode") {
-                previewMode = shared.getString("video_preview_mode", "decode") ?: "decode"
+                previewMode = shared.getString("video_preview_mode", "hardware") ?: "hardware"
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -601,10 +601,10 @@ private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Mod
 private fun SceneVideoPlaybackModeSelector() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
-    var mode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
+    var mode by remember { mutableStateOf(prefs.getString("video_preview_mode", "hardware") ?: "hardware") }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
-            if (key == "video_preview_mode") mode = shared.getString(key, "decode") ?: "decode"
+            if (key == "video_preview_mode") mode = shared.getString(key, "hardware") ?: "hardware"
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
@@ -759,8 +759,8 @@ fun SceneStudio(
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("SOURCE", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 StudioPreviewSurface(
                     previewReady = previewReady,
@@ -772,7 +772,7 @@ fun SceneStudio(
                     compact = true
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                     TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(18.dp)) {
