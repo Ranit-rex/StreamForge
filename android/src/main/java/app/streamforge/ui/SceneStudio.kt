@@ -663,7 +663,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             if (renderMode == "hardware") {
                 scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
                     // Keep the AndroidView attached to its layer identity while z-order changes.
-                    key(item.id) {
+                    key(item.id, item.text) {
                         HardwareVideoPreview(
                             uriString = item.text,
                             loop = item.loop,
