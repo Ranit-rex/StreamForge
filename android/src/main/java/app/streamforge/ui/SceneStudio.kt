@@ -324,7 +324,7 @@ private fun formatSceneVideoTime(milliseconds: Int): String {
 
 
 @Composable
-fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false, forceDecode: Boolean = false) {
+fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false, forceDecode: Boolean = false, editorMode: Boolean = false) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -358,7 +358,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    val renderMode = if (forceDecode) "decode" else previewMode
+    val renderMode = if (editorMode) "editor" else if (forceDecode) "decode" else previewMode
     val scene = savedScenes.getOrNull(activeIndex) ?: savedScenes.firstOrNull() ?: sceneDefaults().first()
     val bitmaps = remember(scene.layers.map { it.id to it.text }) {
         scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
@@ -368,8 +368,8 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     }
     val videoFrames = remember { androidx.compose.runtime.mutableStateMapOf<Long, Bitmap>() }
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
-    val videoSources = remember(scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
-        scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
+    val videoSources = remember(editorMode, scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
+        if (editorMode) emptyList() else scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
     // The retained native player is the persistent playback clock in both modes.
@@ -518,26 +518,18 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                         native.drawBitmap(bitmap, src, rect, paint)
                     }
                     "video" -> {
-                        val frame = videoFrames[item.id]
                         paint.style = Paint.Style.FILL
-                        if (frame != null && !frame.isRecycled) {
-                            val src = android.graphics.Rect(
-                                (frame.width * item.cropLeft).toInt().coerceIn(0, frame.width - 1),
-                                (frame.height * item.cropTop).toInt().coerceIn(0, frame.height - 1),
-                                (frame.width * item.cropRight).toInt().coerceIn(1, frame.width),
-                                (frame.height * item.cropBottom).toInt().coerceIn(1, frame.height)
-                            )
-                            native.drawBitmap(frame, src, rect, paint)
-                        } else {
-                            paint.color = android.graphics.Color.rgb(48, 65, 90)
-                            native.drawRoundRect(rect, 10f, 10f, paint)
-                            paint.color = android.graphics.Color.WHITE
-                            paint.textSize = (rect.height() * .12f).coerceIn(12f, 22f)
-                            val sourceError = videoErrors[item.id]
-                            val statusText = if (sourceError != null) "VIDEO ERROR: ${sourceError.take(46)}" else "VIDEO PREVIEW LOADING"
-                            paint.textSize = (rect.height() * .075f).coerceIn(9f, 16f)
-                            native.drawText(statusText, rect.left + 8f, rect.centerY(), paint)
-                        }
+                        paint.color = android.graphics.Color.rgb(31, 39, 49)
+                        native.drawRoundRect(rect, 10f, 10f, paint)
+                        paint.style = Paint.Style.STROKE
+                        paint.strokeWidth = (rect.width() * .012f).coerceIn(2f, 4f)
+                        paint.color = android.graphics.Color.rgb(255, 134, 89)
+                        native.drawRoundRect(rect, 10f, 10f, paint)
+                        paint.style = Paint.Style.FILL
+                        paint.color = android.graphics.Color.WHITE
+                        paint.textSize = (rect.height() * .14f).coerceIn(10f, 18f)
+                        val label = item.name.ifBlank { "VIDEO" }.take(34)
+                        native.drawText(label, rect.left + 8f, rect.centerY(), paint)
                     }
                     "camera" -> {
                         paint.style = Paint.Style.FILL
@@ -784,8 +776,8 @@ fun SceneStudio(
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
                             modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Box(Modifier.fillMaxWidth().height(112.dp).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
-                                    SceneCompositionPreview(Modifier.fillMaxSize())
+                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                                    SceneCompositionPreview(Modifier.fillMaxSize(), editorMode = true)
                                     Canvas(
                                         Modifier.fillMaxSize()
                                             .pointerInput(index) {
@@ -972,12 +964,10 @@ fun SceneStudio(
                 active = scenes.lastIndex; selected = -1L
             }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
         }
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val panelWidth = maxWidth
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.width(panelWidth).height(210.dp)
+                modifier = Modifier.weight(.95f).heightIn(min = 170.dp, max = 240.dp)
             ) {
                 Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1058,7 +1048,7 @@ fun SceneStudio(
                 }
             }
         if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.width(panelWidth).height(210.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)) {
                 Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("EDITING · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
@@ -1193,13 +1183,11 @@ fun SceneStudio(
                 }
             }
         } else {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.width(panelWidth).height(210.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("Select any layer on the left to edit it here.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                 }
-            }
-        }
             }
         }
         if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
