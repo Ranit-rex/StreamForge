@@ -780,21 +780,9 @@ fun SceneStudio(
             SceneCompositionPreview(compact = true)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("SCENES", color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-            }
-            Button(onClick = {
-                scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
-                active = scenes.lastIndex; selected = -1L
-            }) { Text("+ New") }
+            Text("SCENE EDIT", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(scene.name, color = Color(0xFFFF8659), fontSize = 10.sp)
         }
-
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            scenes.forEachIndexed { i, item ->
-                FilterChip(selected = i == index, onClick = { active = i; selected = -1L }, label = { Text(item.name) })
-            }
-        }
-
         Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("SOURCE LAYERS", color = Color(0xFFA1A8AF), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -1049,72 +1037,98 @@ fun SceneStudio(
             }
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("LAYERS", color = Color.White, fontSize = 12.sp)
-                Text("Top layer appears above lower layers.", color = Color.Gray, fontSize = 10.sp)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { assetsDialog = true }) { Text("FREE ASSETS") }
-                Button(onClick = { addDialog = true }) { Text("+ Add source") }
-            }
-        }
-        scene.layers.asReversed().forEach { item ->
-            var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
-                color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF15191D),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { if (!item.locked) { selected = item.id; reorderDrag = 0f } },
-                        onDragEnd = { reorderDrag = 0f },
-                        onDragCancel = { reorderDrag = 0f },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            if (!item.locked) {
-                                reorderDrag += dragAmount.y
-                                if (reorderDrag >= 34f || reorderDrag <= -34f) {
-                                    val currentItems = scenes[index].layers.toMutableList()
-                                    val currentIndex = currentItems.indexOfFirst { it.id == item.id }
-                                    val step = if (reorderDrag > 0f) -1 else 1
-                                    val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
-                                    if (currentIndex >= 0 && currentIndex != targetIndex) {
-                                        val moving = currentItems.removeAt(currentIndex)
-                                        currentItems.add(targetIndex, moving)
-                                        scenes[index] = scenes[index].copy(layers = currentItems)
+                color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
+                modifier = Modifier.weight(.82f).heightIn(min = 132.dp, max = 190.dp)
+            ) {
+                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("SCENES", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = {
+                            scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
+                            active = scenes.lastIndex; selected = -1L
+                        }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("+", fontSize = 15.sp) }
+                    }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        scenes.forEachIndexed { i, item ->
+                            Surface(
+                                color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
+                                shape = RoundedCornerShape(7.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { active = i; selected = -1L }
+                            ) {
+                                Text(item.name, color = if (i == index) Color(0xFFFFA27A) else Color.White, fontSize = 10.sp,
+                                    maxLines = 1, modifier = Modifier.padding(horizontal = 7.dp, vertical = 7.dp))
+                            }
+                        }
+                    }
+                }
+            }
+            Surface(
+                color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
+                modifier = Modifier.weight(1.55f).heightIn(min = 132.dp, max = 190.dp)
+            ) {
+                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("LAYERS", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { assetsDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Assets", fontSize = 9.sp) }
+                        TextButton(onClick = { addDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("+ Add", fontSize = 9.sp) }
+                    }
+                    if (scene.layers.isEmpty()) {
+                        Text("No layers yet", color = Color.Gray, fontSize = 10.sp)
+                    } else {
+                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            scene.layers.asReversed().forEach { item ->
+                                var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
+                                Surface(
+                                    color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF20262B),
+                                    shape = RoundedCornerShape(7.dp),
+                                    modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = { if (!item.locked) { selected = item.id; reorderDrag = 0f } },
+                                            onDragEnd = { reorderDrag = 0f },
+                                            onDragCancel = { reorderDrag = 0f },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                if (!item.locked) {
+                                                    reorderDrag += dragAmount.y
+                                                    if (reorderDrag >= 28f || reorderDrag <= -28f) {
+                                                        val currentItems = scenes[index].layers.toMutableList()
+                                                        val currentIndex = currentItems.indexOfFirst { it.id == item.id }
+                                                        val step = if (reorderDrag > 0f) -1 else 1
+                                                        val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
+                                                        if (currentIndex >= 0 && currentIndex != targetIndex) {
+                                                            val moving = currentItems.removeAt(currentIndex)
+                                                            currentItems.add(targetIndex, moving)
+                                                            scenes[index] = scenes[index].copy(layers = currentItems)
+                                                        }
+                                                        reorderDrag = 0f
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    },
+                                    onClick = { if (!item.locked) selected = item.id }
+                                ) {
+                                    Row(Modifier.padding(horizontal = 5.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text("⠿", color = Color(0xFFFF8659), fontSize = 14.sp)
+                                        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+                                            Text(item.name, color = Color.White, fontSize = 9.sp, maxLines = 1)
+                                            Text(item.kind.uppercase() + if (item.locked) " · LOCK" else "", color = Color.Gray, fontSize = 8.sp, maxLines = 1)
+                                        }
+                                        TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
+                                            contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text(if (item.visible) "◉" else "○", fontSize = 10.sp) }
+                                        TextButton(onClick = {
+                                            val locking = !item.locked
+                                            updateLayer(item.id) { it.copy(locked = locking) }
+                                            if (locking && selected == item.id) selected = -1L
+                                        }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text(if (item.locked) "🔒" else "↕", fontSize = 10.sp) }
                                     }
-                                    reorderDrag = 0f
                                 }
                             }
                         }
-                    )
-                },
-                onClick = { if (!item.locked) selected = item.id }
-            ) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⠿", color = Color(0xFFFF8659), fontSize = 17.sp)
-                    Column(Modifier.weight(1f).padding(start = 7.dp)) {
-                        Text(item.name + if (item.locked) "  ·  LOCKED" else "", color = Color.White, fontSize = 12.sp)
-                        Text(
-                            when (item.kind) {
-                                "screen" -> "GAMEPLAY"
-                                "video" -> "VIDEO OVERLAY"
-                                "image" -> "IMAGE OVERLAY"
-                                "gif" -> "ANIMATED OVERLAY"
-                                "camera" -> "CAMERA"
-                                else -> item.kind.uppercase()
-                            },
-                            color = Color.Gray, fontSize = 9.sp
-                        )
                     }
-                    TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } }) { Text(if (item.visible) "Hide" else "Show") }
-                    TextButton(onClick = {
-                        val locking = !item.locked
-                        updateLayer(item.id) { it.copy(locked = locking) }
-                        if (locking && selected == item.id) selected = -1L
-                    }) { Text(if (item.locked) "Unlock" else "Lock") }
-                    TextButton(onClick = { val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == item.id }; if (i > 0) { val moving = items.removeAt(i); items.add(i - 1, moving); scenes[index] = scene.copy(layers = items) } }, enabled = !item.locked && scene.layers.indexOfFirst { it.id == item.id } > 0) { Text("↑") }
-                    TextButton(onClick = { val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == item.id }; if (i >= 0 && i < items.lastIndex) { val moving = items.removeAt(i); items.add(i + 1, moving); scenes[index] = scene.copy(layers = items) } }, enabled = !item.locked && scene.layers.indexOfFirst { it.id == item.id } < scene.layers.lastIndex) { Text("↓") }
                 }
             }
         }
