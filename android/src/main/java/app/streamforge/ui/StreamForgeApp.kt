@@ -176,7 +176,7 @@ fun StreamForgeApp(
             }
             Column(Modifier.then(if (compactMode) Modifier.size(0.dp) else Modifier.fillMaxSize())) {
                 Column(
-                    Modifier.weight(1f).fillMaxWidth().systemBarsPadding().imePadding()
+                    Modifier.weight(1f).fillMaxWidth().statusBarsPadding().imePadding()
                         .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -442,7 +442,7 @@ fun StreamForgeApp(
                         }
                     }
                 }
-                NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp) {
+                NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth().background(Panel)) {
                     val destinations = listOf(
                         Triple(0, "Studio", "●"),
                         Triple(2, "Scenes", "▦"),
