@@ -1193,7 +1193,7 @@ fun SceneStudio(
                 }
             }
         } else {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(0.70f).heightIn(min = 160.dp, max = 260.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.width(panelWidth).height(210.dp)) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("Select any layer on the left to edit it here.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
