@@ -1270,7 +1270,7 @@ fun SceneStudio(
                                 scenes[index] = scenes[index].copy(layers = scenes[index].layers.filterNot { it.id == layer.id })
                                 selected = -1L
                             },
-                            enabled = !layer.locked,
+                            enabled = true,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.height(28.dp)
                         ) { Text("Delete layer", fontSize = 9.sp) }
