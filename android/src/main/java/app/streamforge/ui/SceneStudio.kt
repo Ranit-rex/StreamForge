@@ -433,7 +433,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         }
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(if (compact) 16f / 7.5f else 16f / 9f).background(Color.Black)) {
+        BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
             val previewWidth = maxWidth
             val previewHeight = maxHeight
             Canvas(Modifier.matchParentSize()) {
@@ -759,7 +759,6 @@ fun SceneStudio(
             Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                     Text("ADVANCED OPTIONS", color = Color(0xFFA1A8AF), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    SceneVideoPlaybackModeSelector()
                     Text("Advanced controls are grouped here to keep the Scene page compact.", color = Color.Gray, fontSize = 9.sp)
                 }
             }
@@ -768,6 +767,11 @@ fun SceneStudio(
             Text("PREVIEW", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
             Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO", color = Color(0xFFFF6A35), fontSize = 9.sp)
         }
+        if (scene.layers.any { it.kind == "video" }) {
+            SceneVideoPlaybackModeSelector()
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.widthIn(max = 210.dp)) {
         if (isStreaming) {
             StudioPreviewSurface(
                 previewReady = previewReady,
@@ -778,7 +782,9 @@ fun SceneStudio(
                 compact = true
             )
         } else {
-            SceneCompositionPreview(compact = true)
+            SceneCompositionPreview(compact = true, modifier = Modifier.fillMaxWidth())
+        }
+        }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SCENE EDIT", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -1038,51 +1044,28 @@ fun SceneStudio(
             }
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
-            Surface(
-                color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(.82f).heightIn(min = 132.dp, max = 190.dp)
-            ) {
-                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("SCENES", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-                        TextButton(onClick = {
-                            scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
-                            active = scenes.lastIndex; selected = -1L
-                        }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("+", fontSize = 15.sp) }
-                    }
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        scenes.forEachIndexed { i, item ->
-                            Surface(
-                                color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
-                                shape = RoundedCornerShape(7.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = { active = i; selected = -1L }
-                            ) {
-                                Text(item.name, color = if (i == index) Color(0xFFFFA27A) else Color.White, fontSize = 10.sp,
-                                    maxLines = 1, modifier = Modifier.padding(horizontal = 7.dp, vertical = 7.dp))
-                            }
-                        }
-                    }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            scenes.forEachIndexed { i, item ->
+                Surface(
+                    color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
+                    shape = RoundedCornerShape(9.dp),
+                    onClick = { active = i; selected = -1L }
+                ) {
+                    Text("Scene ${i + 1} · ${item.name}", color = if (i == index) Color(0xFFFFA27A) else Color.White,
+                        fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
                 }
             }
+            Surface(color = Color(0xFF20262B), shape = RoundedCornerShape(9.dp), onClick = {
+                scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
+                active = scenes.lastIndex; selected = -1L
+            }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
-                color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(1.55f).heightIn(min = 132.dp, max = 190.dp)
-            ) {
-                Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("LAYERS", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { assetsDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Assets", fontSize = 9.sp) }
-                        TextButton(onClick = { addDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("+ Add", fontSize = 9.sp) }
-                    }
-                    if (scene.layers.isEmpty()) {
-                        Text("No layers yet", color = Color.Gray, fontSize = 10.sp)
-                    } else {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            scene.layers.asReversed().forEach { item ->
-                                var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
-                                Surface(
                                     color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF20262B),
                                     shape = RoundedCornerShape(7.dp),
                                     modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
@@ -1113,30 +1096,27 @@ fun SceneStudio(
                                     onClick = { if (!item.locked) selected = item.id }
                                 ) {
                                     Row(Modifier.padding(horizontal = 5.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("⠿", color = Color(0xFFFF8659), fontSize = 14.sp)
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {\n                                            TextButton(onClick = { val items = scenes[index].layers.toMutableList(); val pos = items.indexOfFirst { it.id == item.id }; if (pos > 0) { val moving = items.removeAt(pos); items.add(pos - 1, moving); scenes[index] = scenes[index].copy(layers = items) } }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(28.dp)) { Text("↑", color = Color(0xFFFFA27A), fontSize = 15.sp) }\n                                            TextButton(onClick = { val items = scenes[index].layers.toMutableList(); val pos = items.indexOfFirst { it.id == item.id }; if (pos >= 0 && pos < items.lastIndex) { val moving = items.removeAt(pos); items.add(pos + 1, moving); scenes[index] = scenes[index].copy(layers = items) } }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(28.dp)) { Text("↓", color = Color(0xFFFFA27A), fontSize = 15.sp) }\n                                        }
                                         Column(Modifier.weight(1f).padding(start = 4.dp)) {
                                             Text(item.name, color = Color.White, fontSize = 9.sp, maxLines = 1)
                                             Text(item.kind.uppercase() + if (item.locked) " · LOCK" else "", color = Color.Gray, fontSize = 8.sp, maxLines = 1)
                                         }
                                         TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
-                                            contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text(if (item.visible) "◉" else "○", fontSize = 10.sp) }
+                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) { Text(if (item.visible) "◉" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 17.sp) }
                                         TextButton(onClick = {
                                             val locking = !item.locked
                                             updateLayer(item.id) { it.copy(locked = locking) }
                                             if (locking && selected == item.id) selected = -1L
-                                        }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)) { Text(if (item.locked) "🔒" else "↕", fontSize = 10.sp) }
+                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(36.dp)) { Text(if (item.locked) "🔒" else "🔓", fontSize = 16.sp) }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-        }
-
-        if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            }        if (layer != null) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
+                Column(Modifier.padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
@@ -1270,6 +1250,7 @@ fun SceneStudio(
                     }
                 }
             }
+        }
         }
 
         if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
