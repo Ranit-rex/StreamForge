@@ -765,7 +765,7 @@ fun SceneStudio(
             }
         }
         if (showMoreSettings) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = Color(0xFF202326), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
                     Text("ADVANCED OPTIONS", color = Color(0xFFA1A8AF), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("Advanced controls are grouped here to keep the Scene page compact.", color = Color.Gray, fontSize = 9.sp)
@@ -776,7 +776,7 @@ fun SceneStudio(
             SceneVideoPlaybackModeSelector()
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.widthIn(max = 340.dp)) {
+        Box(Modifier.widthIn(max = 320.dp)) {
         if (isStreaming) {
             StudioPreviewSurface(
                 previewReady = previewReady,
@@ -791,7 +791,9 @@ fun SceneStudio(
         }
         }
         }
-        Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(Modifier.widthIn(max = 320.dp)) {
+        Surface(color = Color(0xFF202326), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
                     scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
@@ -914,7 +916,7 @@ fun SceneStudio(
                         }
                 ) {
                     canvasWidth = size.width; canvasHeight = size.height
-                    drawRect(Color(0xFF20262B))
+                    drawRect(Color(0xFF292D30))
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
                         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) }
@@ -1043,6 +1045,8 @@ fun SceneStudio(
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
             }
         }
+        }
+        }
 
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1051,7 +1055,7 @@ fun SceneStudio(
         ) {
             scenes.forEachIndexed { i, item ->
                 Surface(
-                    color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
+                    color = if (i == index) Color(0xFF3B2A22) else Color(0xFF20262B),
                     shape = RoundedCornerShape(9.dp),
                     onClick = { active = i; selected = -1L }
                 ) {
@@ -1067,7 +1071,7 @@ fun SceneStudio(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(1.02f).heightIn(min = 160.dp, max = 260.dp)
+                modifier = Modifier.weight(0.30f).heightIn(min = 160.dp, max = 260.dp)
             ) {
                 Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1148,14 +1152,14 @@ fun SceneStudio(
                 }
             }
         if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.28f).heightIn(min = 160.dp, max = 260.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(0.70f).heightIn(min = 160.dp, max = 260.dp)) {
                 Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("EDITING · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
                             value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
-                            label = { Text(if (layer.kind == "timer") "Timer label" else "Text shown on screen") }, modifier = Modifier.fillMaxWidth()
+                            label = { Text(if (layer.kind == "timer") "Timer label" else "Text shown on screen", maxLines = 1, softWrap = false) }, modifier = Modifier.fillMaxWidth(), singleLine = true
                         )
                         Text("TEXT COLOR", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1283,7 +1287,7 @@ fun SceneStudio(
                 }
             }
         } else {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(0.70f).heightIn(min = 160.dp, max = 260.dp)) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("Select any layer on the left to edit it here.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
