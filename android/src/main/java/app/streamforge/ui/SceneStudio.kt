@@ -773,7 +773,12 @@ fun SceneStudio(
                 )
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(18.dp)) {
+                        Text("⋯", fontSize = 10.sp)
+                    }
+                }
                         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
                             modifier = Modifier.fillMaxWidth()) {
@@ -933,12 +938,6 @@ fun SceneStudio(
                         }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp), modifier = Modifier.height(22.dp)) {
-                Text(if (showMoreSettings) "⋯ Less" else "⋯", fontSize = 10.sp)
-            }
-        }
-
 
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         if (showMoreSettings) {
