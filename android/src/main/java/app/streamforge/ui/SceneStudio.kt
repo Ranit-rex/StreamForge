@@ -1200,8 +1200,6 @@ fun SceneStudio(
                 }
             }
         }
-        }
-
             }
         }
         if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
