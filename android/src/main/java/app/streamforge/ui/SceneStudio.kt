@@ -1091,20 +1091,18 @@ fun SceneStudio(
                                             onDragCancel = { reorderDrag = 0f },
                                             onDrag = { change, dragAmount ->
                                                 change.consume()
-                                                {
-                                                    reorderDrag += dragAmount.y
-                                                    if (reorderDrag >= 28f || reorderDrag <= -28f) {
-                                                        val currentItems = scenes[index].layers.toMutableList()
-                                                        val currentIndex = currentItems.indexOfFirst { it.id == item.id }
-                                                        val step = if (reorderDrag > 0f) -1 else 1
-                                                        val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
-                                                        if (currentIndex >= 0 && currentIndex != targetIndex) {
-                                                            val moving = currentItems.removeAt(currentIndex)
-                                                            currentItems.add(targetIndex, moving)
-                                                            scenes[index] = scenes[index].copy(layers = currentItems)
-                                                        }
-                                                        reorderDrag = 0f
+                                                reorderDrag += dragAmount.y
+                                                if (reorderDrag >= 28f || reorderDrag <= -28f) {
+                                                    val currentItems = scenes[index].layers.toMutableList()
+                                                    val currentIndex = currentItems.indexOfFirst { it.id == item.id }
+                                                    val step = if (reorderDrag > 0f) -1 else 1
+                                                    val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
+                                                    if (currentIndex >= 0 && currentIndex != targetIndex) {
+                                                        val moving = currentItems.removeAt(currentIndex)
+                                                        currentItems.add(targetIndex, moving)
+                                                        scenes[index] = scenes[index].copy(layers = currentItems)
                                                     }
+                                                    reorderDrag = 0f
                                                 }
                                             }
                                         )
