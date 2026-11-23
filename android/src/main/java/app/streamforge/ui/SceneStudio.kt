@@ -1047,6 +1047,7 @@ fun SceneStudio(
                     }
                 }
             }
+        }
         if (layer != null) {
             Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)) {
                 Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
