@@ -3,6 +3,8 @@ package app.streamforge.stream
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaCodec
+import android.media.MediaCodecList
+import android.os.Build
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
@@ -43,7 +45,19 @@ internal class HardwareVideoFrameDecoder(
         // Request flexible YUV output so frames can be composited into the
         // existing scene bitmap without a CPU seek/decode for every timestamp.
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.COLOR_FORMAT_YUV420_FLEXIBLE)
-        decoder = MediaCodec.createDecoderByType(mime)
+        val hardwareDecoder = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
+            !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isHardwareAccelerated
+                else !info.name.startsWith("OMX.google.", ignoreCase = true) &&
+                    !info.name.startsWith("c2.android.", ignoreCase = true)
+        }
+        decoder = if (hardwareDecoder != null) {
+            MediaCodec.createByCodecName(hardwareDecoder.name)
+        } else {
+            // Some older/low-end devices expose no hardware YUV decoder for a
+            // format; keep compatibility rather than failing to open the scene.
+            MediaCodec.createDecoderByType(mime)
+        }
         decoder.configure(format, null, null, 0)
         decoder.start()
     }
