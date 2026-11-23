@@ -378,13 +378,15 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     val videoSources = remember(editorMode, scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         if (editorMode) emptyList() else scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
-            .map { Triple(it.id, it.text, Triple(it.loop, it.fps, it.autoPlay)) }
+            .map { Triple(it.id, it.text, Triple(it.loop, it.fps, Triple(it.autoPlay, it.soundVolume to it.soundMuted, Unit))) }
     }
     // The retained native player is the persistent playback clock in both modes.
     // Frame-decode preview samples this clock instead of restarting at zero on navigation.
     val videoPlayers = remember(videoSources) {
         videoSources.associate { (id, uriString, settings) ->
-            id to SceneVideoPlayback.get(context, uriString, settings.first, settings.third)
+            val player = SceneVideoPlayback.get(context, uriString, settings.first, settings.third.first)
+            SceneVideoPlayback.setAudio(player, settings.third.second.first, settings.third.second.second)
+            id to player
         }
     }
     LaunchedEffect(videoSources, renderMode) {
