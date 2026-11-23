@@ -772,6 +772,26 @@ fun SceneStudio(
                 }
             }
         }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            scenes.forEachIndexed { i, item ->
+                Surface(
+                    color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
+                    shape = RoundedCornerShape(9.dp),
+                    onClick = { active = i; selected = -1L }
+                ) {
+                    Text("Scene ${i + 1} · ${item.name}", color = if (i == index) Color(0xFFFFA27A) else Color.White,
+                        fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+                }
+            }
+            Surface(color = Color(0xFF20262B), shape = RoundedCornerShape(9.dp), onClick = {
+                scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
+                active = scenes.lastIndex; selected = -1L
+            }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
+        }
         if (scene.layers.any { it.kind == "video" }) {
             SceneVideoPlaybackModeSelector()
         }
@@ -1044,26 +1064,6 @@ fun SceneStudio(
             }
         }
 
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            scenes.forEachIndexed { i, item ->
-                Surface(
-                    color = if (i == index) Color(0xFF35231D) else Color(0xFF20262B),
-                    shape = RoundedCornerShape(9.dp),
-                    onClick = { active = i; selected = -1L }
-                ) {
-                    Text("Scene ${i + 1} · ${item.name}", color = if (i == index) Color(0xFFFFA27A) else Color.White,
-                        fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
-                }
-            }
-            Surface(color = Color(0xFF20262B), shape = RoundedCornerShape(9.dp), onClick = {
-                scenes.add(SceneModel(System.nanoTime(), "Scene ${scenes.size + 1}", emptyList()))
-                active = scenes.lastIndex; selected = -1L
-            }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
