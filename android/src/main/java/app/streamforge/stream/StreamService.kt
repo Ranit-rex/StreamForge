@@ -68,6 +68,7 @@ class StreamService : Service(), ConnectChecker {
         const val ACTION_UPDATE_COLOR = "app.streamforge.UPDATE_COLOR"
         const val ACTION_APPLY_SCENE = "app.streamforge.APPLY_SCENE"
         const val EXTRA_SCENE_INDEX = "scene_index"
+        const val EXTRA_SCENE_JSON = "scene_json"
         const val ACTION_PREVIEW_SURFACE_READY = "app.streamforge.PREVIEW_SURFACE_READY"
         const val ACTION_STOP_PREVIEW = "app.streamforge.STOP_PREVIEW"
         const val ACTION_CHANGE_CAPTURE_SOURCE = "app.streamforge.CHANGE_CAPTURE_SOURCE"
@@ -203,7 +204,7 @@ class StreamService : Service(), ConnectChecker {
                 intent.getFloatExtra(EXTRA_MIC_GAIN, microphoneGain.value),
                 intent.getFloatExtra(EXTRA_GAME_GAIN, gameAudioGain.value)
             )
-            ACTION_APPLY_SCENE -> applyScene(intent.getIntExtra(EXTRA_SCENE_INDEX, 0))
+            ACTION_APPLY_SCENE -> applyScene(intent.getIntExtra(EXTRA_SCENE_INDEX, 0), intent.getStringExtra(EXTRA_SCENE_JSON))
             ACTION_UPDATE_COLOR -> updateColorTuning(
                 intent.getFloatExtra(EXTRA_COLOR_BRIGHTNESS, colorBrightness.value),
                 intent.getFloatExtra(EXTRA_COLOR_CONTRAST, colorContrast.value),
@@ -467,10 +468,10 @@ class StreamService : Service(), ConnectChecker {
         applyScene(getSharedPreferences("streamforge_studio", 0).getInt("active_scene", 0))
     }
 
-    private fun applyScene(sceneIndex: Int) {
+    private fun applyScene(sceneIndex: Int, sceneJsonOverride: String? = null) {
         val filter = colorGradingFilter ?: return
         val prefs = getSharedPreferences("streamforge_studio", 0)
-        val raw = prefs.getString("scenes", "[]").orEmpty()
+        val raw = sceneJsonOverride ?: prefs.getString("scenes", "[]").orEmpty()
         val scenes = runCatching { org.json.JSONArray(raw) }.getOrNull()
         if (scenes == null || scenes.length() == 0) {
             filter.setSceneOverlayBitmap(null)
