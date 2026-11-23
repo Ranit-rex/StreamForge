@@ -130,12 +130,8 @@ private object SceneVideoPlayback {
         val existing = states[uri]
         if (existing != null) {
             runCatching { existing.player.isLooping = loop }
-            existing.wantsPlayback = autoPlay
-            if (existing.ready.value) runCatching {
-                if (autoPlay && !existing.player.isPlaying) existing.player.start()
-                else if (!autoPlay && existing.player.isPlaying) existing.player.pause()
-                existing.playing.value = autoPlay
-            }
+            // Do not reset the user's play/pause choice during recomposition or
+            // when a TextureView reattaches. Auto-play is applied explicitly by setAutoPlay().
             return existing
         }
         val player = MediaPlayer()
@@ -180,7 +176,7 @@ private object SceneVideoPlayback {
 
     @Synchronized
     fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
-        val state = get(context, uri, loop)
+        val state = states[uri] ?: get(context, uri, loop)
         if (state.surfaceTexture === texture) return
         runCatching { state.surface?.let { state.player.setSurface(null); it.release() } }
         val surface = Surface(texture)
@@ -237,6 +233,17 @@ private object SceneVideoPlayback {
         }
     }
 
+    @Synchronized
+    fun setAutoPlay(state: State, autoPlay: Boolean) {
+        state.wantsPlayback = autoPlay
+        if (!state.ready.value) return
+        runCatching {
+            if (autoPlay && !state.player.isPlaying) state.player.start()
+            else if (!autoPlay && state.player.isPlaying) state.player.pause()
+            state.playing.value = autoPlay
+        }.onFailure { state.error.value = it.message ?: "Playback state update failed" }
+    }
+
     fun setAudio(state: State, volume: Float, muted: Boolean) {
         state.requestedVolume = volume.coerceIn(0f, 1f)
         state.requestedMuted = muted
@@ -277,6 +284,7 @@ private object SceneVideoPlayback {
 private fun SceneVideoPlaybackCard(
     uri: String,
     loop: Boolean,
+    autoPlay: Boolean,
     onUseHardware: () -> Unit,
     volume: Float,
     muted: Boolean,
@@ -284,7 +292,8 @@ private fun SceneVideoPlaybackCard(
     onMuteChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val state = remember(uri) { SceneVideoPlayback.get(context, uri, loop) }
+    val state = remember(uri) { SceneVideoPlayback.get(context, uri, loop, autoPlay) }
+    LaunchedEffect(state, autoPlay) { SceneVideoPlayback.setAutoPlay(state, autoPlay) }
     LaunchedEffect(state, volume, muted) { SceneVideoPlayback.setAudio(state, volume, muted) }
     LaunchedEffect(state) {
         while (isActive) {
@@ -292,42 +301,43 @@ private fun SceneVideoPlaybackCard(
             delay(250L)
         }
     }
-    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(5.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("VIDEO PLAYER", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("VIDEO", color = Color.White, fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
                 Text(
                     if (state.ready.value) "READY" else if (state.error.value != null) "ERROR" else "LOADING",
                     color = if (state.error.value != null) Color(0xFFFF8A80) else Color(0xFF9FB5CE),
-                    fontSize = 9.sp
+                    fontSize = 8.sp
                 )
             }
-            Slider(
-                value = state.positionMs.value.toFloat().coerceIn(0f, state.durationMs.value.toFloat().coerceAtLeast(1f)),
-                onValueChange = { onUseHardware(); SceneVideoPlayback.seek(state, it.toInt()) },
-                valueRange = 0f..state.durationMs.value.toFloat().coerceAtLeast(1f),
-                enabled = state.ready.value
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatSceneVideoTime(state.positionMs.value), color = Color.White, fontSize = 10.sp)
-                Spacer(Modifier.weight(1f))
-                Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 10.sp)
-                Spacer(Modifier.width(8.dp))
-                Button(
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(formatSceneVideoTime(state.positionMs.value), color = Color.White, fontSize = 9.sp)
+                Slider(
+                    value = state.positionMs.value.toFloat().coerceIn(0f, state.durationMs.value.toFloat().coerceAtLeast(1f)),
+                    onValueChange = { onUseHardware(); SceneVideoPlayback.seek(state, it.toInt()) },
+                    valueRange = 0f..state.durationMs.value.toFloat().coerceAtLeast(1f),
+                    enabled = state.ready.value,
+                    modifier = Modifier.weight(1f).height(22.dp)
+                )
+                Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 9.sp)
+                androidx.compose.material3.IconButton(
                     onClick = { onUseHardware(); SceneVideoPlayback.toggle(state) },
                     enabled = state.ready.value,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
-                    modifier = Modifier.height(26.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
-                    Text(if (state.playing.value) "Ⅱ" else "▶", fontSize = 10.sp)
+                    Text(if (state.playing.value) "Ⅱ" else "▶", color = Color.White, fontSize = 12.sp)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(23.dp)) { Text(if (muted) "MUTED" else "SOUND", fontSize = 8.sp) }
-                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(24.dp), valueRange = 0f..1f)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(22.dp)) {
+                    Text(if (muted) "MUTED" else "SOUND", fontSize = 8.sp)
+                }
+                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(20.dp), valueRange = 0f..1f)
                 Text("${(volume * 100).toInt()}%", color = Color.Gray, fontSize = 8.sp)
             }
-            state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 9.sp) }
+            state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 8.sp) }
         }
     }
 }
@@ -392,6 +402,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val videoPlayers = remember(videoSources) {
         videoSources.associate { (id, uriString, settings) ->
             val player = SceneVideoPlayback.get(context, uriString, settings.first, settings.third.first)
+            SceneVideoPlayback.setAutoPlay(player, settings.third.first)
             SceneVideoPlayback.setAudio(player, settings.third.second.first, settings.third.second.second)
             id to player
         }
@@ -600,7 +611,7 @@ private fun HardwareVideoPreview(
     val context = LocalContext.current
     val state = remember(uriString) { SceneVideoPlayback.get(context, uriString, loop, autoPlay) }
     LaunchedEffect(state, autoPlay, volume, muted) {
-        SceneVideoPlayback.get(context, uriString, loop, autoPlay)
+        SceneVideoPlayback.setAutoPlay(state, autoPlay)
         SceneVideoPlayback.setAudio(state, volume, muted)
     }
     Box(modifier.background(Color.Black)) {
@@ -798,7 +809,7 @@ fun SceneStudio(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("SOURCE", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Box(Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally).padding(start = 10.dp)) {
+                Box(Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally)) {
                     StudioPreviewSurface(
                         previewReady = previewReady,
                         isStreaming = isStreaming,
@@ -821,7 +832,7 @@ fun SceneStudio(
                 }
                         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(0.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-                            modifier = Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally).padding(end = 10.dp)) {
+                            modifier = Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally)) {
                             Column(Modifier.padding(2.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518))) {
                                     SceneCompositionPreview(Modifier.fillMaxSize(), editorMode = true)
@@ -995,7 +1006,7 @@ fun SceneStudio(
         }
         val selectedVideo = scene.layers.firstOrNull { it.id == selected && it.kind == "video" }
         if (selectedVideo != null) {
-            SceneVideoPlaybackCard(uri = selectedVideo.text, loop = selectedVideo.loop, volume = selectedVideo.soundVolume, muted = selectedVideo.soundMuted,
+            SceneVideoPlaybackCard(uri = selectedVideo.text, loop = selectedVideo.loop, autoPlay = selectedVideo.autoPlay, volume = selectedVideo.soundVolume, muted = selectedVideo.soundMuted,
                 onUseHardware = { prefs.edit().putString("video_preview_mode", "hardware").apply() },
                 onVolumeChange = { value -> updateLayer(selectedVideo.id) { it.copy(soundVolume = value) } },
                 onMuteChange = { value -> updateLayer(selectedVideo.id) { it.copy(soundMuted = value) } })
