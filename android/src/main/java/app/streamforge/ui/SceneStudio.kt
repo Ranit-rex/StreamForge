@@ -772,7 +772,7 @@ fun SceneStudio(
             onPrepare = onPreparePreview,
             onStop = onStopStudioPreview,
             onChangeSource = onChangeCaptureSource,
-            compact = false
+            compact = true
         )
         Text("02  ·  SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
@@ -1024,7 +1024,6 @@ fun SceneStudio(
                         }
                     }
                 }
-                Text("Large touch handles: drag any corner or side grip to resize. Drag inside the layer to move; import free image/GIF overlays from Free Assets.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
                 if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFB27F), fontSize = 10.sp)
                 if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
             }
@@ -1062,7 +1061,7 @@ fun SceneStudio(
                 active = scenes.lastIndex; selected = -1L
             }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 230.dp, max = 340.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
                 modifier = Modifier.weight(0.30f).heightIn(min = 160.dp, max = 260.dp)
@@ -1300,7 +1299,6 @@ fun SceneStudio(
                 if (scenes.size > 1) { scenes.removeAt(index); active = (index - 1).coerceAtLeast(0); selected = -1L }
             }, enabled = scenes.size > 1) { Text("Delete") }
         }
-        Text("Tap a layer to edit · drag inside to move · drag an edge to resize.", color = Color.Gray, fontSize = 9.sp)
         }
     }
 
