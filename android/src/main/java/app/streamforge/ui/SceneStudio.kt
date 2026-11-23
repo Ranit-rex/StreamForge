@@ -694,6 +694,52 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
 }
 
 @Composable
+private fun WebsiteLayerPreview(url: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val normalizedUrl = remember(url) {
+        val trimmed = url.trim()
+        when {
+            trimmed.startsWith("https://", true) || trimmed.startsWith("http://", true) -> trimmed
+            trimmed.isNotBlank() -> "https://$trimmed"
+            else -> "about:blank"
+        }
+    }
+    val webViewRef = remember { mutableStateOf<android.webkit.WebView?>(null) }
+    AndroidView(
+        modifier = modifier.background(Color.Black),
+        factory = { viewContext ->
+            android.webkit.WebView(viewContext).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.loadsImagesAutomatically = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                webViewClient = android.webkit.WebViewClient()
+                webViewRef.value = this
+                loadUrl(normalizedUrl)
+            }
+        },
+        update = { view ->
+            webViewRef.value = view
+            if (view.tag != normalizedUrl) {
+                view.tag = normalizedUrl
+                view.loadUrl(normalizedUrl)
+            }
+        }
+    )
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef.value?.apply {
+                stopLoading()
+                loadUrl("about:blank")
+                removeAllViews()
+                destroy()
+            }
+            webViewRef.value = null
+        }
+    }
+}
+
+@Composable
 private fun HardwareVideoPreview(
     uriString: String, loop: Boolean, autoPlay: Boolean, volume: Float, muted: Boolean,
     modifier: Modifier = Modifier
