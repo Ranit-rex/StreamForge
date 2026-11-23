@@ -673,7 +673,8 @@ fun SceneStudio(
                 isStreaming = true,
                 onPrepare = onPreparePreview,
                 onStop = onStopStudioPreview,
-                onChangeSource = onChangeCaptureSource
+                onChangeSource = onChangeCaptureSource,
+                compact = true
             )
         } else {
             SceneCompositionPreview(showPlaybackControls = true, compact = true)
