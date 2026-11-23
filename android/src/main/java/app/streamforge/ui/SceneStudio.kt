@@ -301,6 +301,13 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
             .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
     }
+    // The retained native player is the persistent playback clock in both modes.
+    // Frame-decode preview samples this clock instead of restarting at zero on navigation.
+    val videoPlayers = remember(videoSources) {
+        videoSources.associate { (id, uriString, settings) ->
+            id to SceneVideoPlayback.get(context, uriString, settings.first)
+        }
+    }
     LaunchedEffect(videoSources, previewMode) {
         if (previewMode != "decode") {
             videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
@@ -315,14 +322,18 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                 Triple(id, retriever, Pair(duration, settings))
             }.getOrNull()
         }
-        val startedAt = SystemClock.elapsedRealtime()
         try {
             while (isActive && sources.isNotEmpty()) {
+                val currentPositions = videoPlayers.mapValues { (_, state) ->
+                    if (state.ready.value) {
+                        runCatching { state.player.currentPosition.toLong() }
+                            .getOrDefault(state.positionMs.value.toLong())
+                    } else 0L
+                }
                 val frames = withContext(Dispatchers.IO) {
                     sources.mapNotNull { (id, retriever, settings) ->
-                        val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
                         val duration = settings.first
-                        val timeMs = if (settings.second.first) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                        val timeMs = (currentPositions[id] ?: 0L).coerceIn(0L, (duration - 1L).coerceAtLeast(0L))
                         // Program Preview is a small thumbnail surface. Never decode the
                         // source at its native resolution (large 4K clips can exhaust heap).
                         runCatching {
