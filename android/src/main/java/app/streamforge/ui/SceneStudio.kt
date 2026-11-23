@@ -324,7 +324,7 @@ private fun formatSceneVideoTime(milliseconds: Int): String {
 
 
 @Composable
-fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false) {
+fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false, forceDecode: Boolean = false) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -358,6 +358,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
+    val renderMode = if (forceDecode) "decode" else previewMode
     val scene = savedScenes.getOrNull(activeIndex) ?: savedScenes.firstOrNull() ?: sceneDefaults().first()
     val bitmaps = remember(scene.layers.map { it.id to it.text }) {
         scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
@@ -378,8 +379,8 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             id to SceneVideoPlayback.get(context, uriString, settings.first)
         }
     }
-    LaunchedEffect(videoSources, previewMode) {
-        if (previewMode != "decode") {
+    LaunchedEffect(videoSources, renderMode) {
+        if (renderMode != "decode") {
             videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
             videoFrames.clear()
             return@LaunchedEffect
@@ -453,7 +454,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             }
-            scene.layers.filter { it.visible && !(previewMode == "hardware" && it.kind == "video") }.forEach { item ->
+            scene.layers.filter { it.visible && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
                 val rect = RectF(item.x * size.width, item.y * size.height,
                     (item.x + item.width) * size.width, (item.y + item.height) * size.height)
                 native.save()
@@ -551,7 +552,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             }
         }
             }
-            if (previewMode == "hardware") {
+            if (renderMode == "hardware") {
                 scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
                     HardwareVideoPreview(
                         uriString = item.text,
