@@ -679,6 +679,9 @@ fun SceneStudio(
             addAll(if (resetLegacyDefaults) sceneDefaults() else normalized)
             if (needsMigration || resetLegacyDefaults) prefs.edit().putInt("scene_layout_version", 3).apply()
             if (needsVideoFpsMigration) prefs.edit().putInt("video_fps_mode_version", 1).apply()
+            if (prefs.getInt("video_preview_mode_default_version", 0) < 1) {
+                prefs.edit().putString("video_preview_mode", "decode").putInt("video_preview_mode_default_version", 1).apply()
+            }
         }
     }
     var active by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
