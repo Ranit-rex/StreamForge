@@ -774,13 +774,163 @@ fun SceneStudio(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(9.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-                    modifier = Modifier.fillMaxWidth()) {
-                    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
-                        SceneCompositionPreview(Modifier.fillMaxSize())
-                    }
-                }
+                        Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                                    SceneCompositionPreview(Modifier.fillMaxSize())
+                                    Canvas(
+                                        Modifier.fillMaxSize()
+                                            .pointerInput(index) {
+                                            detectTapGestures { point ->
+                                                val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
+                                                    !item.locked && item.visible &&
+                                                        point.x >= item.x * size.width &&
+                                                        point.x <= (item.x + item.width) * size.width &&
+                                                        point.y >= item.y * size.height &&
+                                                        point.y <= (item.y + item.height) * size.height
+                                                }
+                                                selected = hit?.id ?: -1L
+                                            }
+                                        }
+                                        .pointerInput(index) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                val target = latestScene.value.layers.asReversed().firstOrNull { item ->
+                                                    !item.locked && item.visible &&
+                                                        down.position.x >= item.x * size.width &&
+                                                        down.position.x <= (item.x + item.width) * size.width &&
+                                                        down.position.y >= item.y * size.height &&
+                                                        down.position.y <= (item.y + item.height) * size.height
+                                                }
+                                                if (target != null) {
+                                                    selected = target.id
+                                                    val left = target.x * size.width
+                                                    val top = target.y * size.height
+                                                    val right = (target.x + target.width) * size.width
+                                                    val bottom = (target.y + target.height) * size.height
+                                                    val edgeTouch = 38f
+                                                    val resizeLeft = abs(down.position.x - left) < edgeTouch
+                                                    val resizeRight = abs(down.position.x - right) < edgeTouch
+                                                    val resizeTop = abs(down.position.y - top) < edgeTouch
+                                                    val resizeBottom = abs(down.position.y - bottom) < edgeTouch
+                                                    val resizeX = resizeLeft || resizeRight
+                                                    val resizeY = resizeTop || resizeBottom
+                                                    val resizeWithOneFinger = resizeX || resizeY
+                                                    var previousCentroid = down.position
+                                                    var previousDistance = 0f
+                                                    var previousAngle = 0f
+                                                    do {
+                                                        val event = awaitPointerEvent()
+                                                        val activePointers = event.changes.filter { it.pressed }
+                                                        if (activePointers.isNotEmpty()) {
+                                                            event.changes.filter { it.pressed }.forEach { it.consume() }
+                                                            val centroid = androidx.compose.ui.geometry.Offset(
+                                                                activePointers.map { it.position.x }.average().toFloat(),
+                                                                activePointers.map { it.position.y }.average().toFloat()
+                                                            )
+                                                            if (activePointers.size == 1) {
+                                                                val delta = centroid - previousCentroid
+                                                                latestUpdateLayer.value(target.id) { current ->
+                                                                    if (resizeWithOneFinger) {
+                                                                        val dx = if (resizeX) delta.x / size.width else 0f
+                                                                        val dy = if (resizeY) delta.y / size.height else 0f
+                                                                        var newLeft = current.x + if (resizeLeft) dx else 0f
+                                                                        var newRight = current.x + current.width + if (resizeRight) dx else 0f
+                                                                        var newTop = current.y + if (resizeTop) dy else 0f
+                                                                        var newBottom = current.y + current.height + if (resizeBottom) dy else 0f
+                                                                        newLeft = newLeft.coerceIn(0f, (newRight - .06f).coerceAtLeast(0f))
+                                                                        newRight = newRight.coerceIn((newLeft + .06f).coerceAtMost(1f), 1f)
+                                                                        newTop = newTop.coerceIn(0f, (newBottom - .05f).coerceAtLeast(0f))
+                                                                        newBottom = newBottom.coerceIn((newTop + .05f).coerceAtMost(1f), 1f)
+                                                                        current.copy(x = newLeft, y = newTop, width = newRight - newLeft, height = newBottom - newTop)
+                                                                    } else {
+                                                                        current.copy(
+                                                                            x = (current.x + delta.x / size.width).coerceIn(0f, 1f - current.width),
+                                                                            y = (current.y + delta.y / size.height).coerceIn(0f, 1f - current.height)
+                                                                        )
+                                                                    }
+                                                                }
+                                                                previousDistance = 0f
+                                                            } else {
+                                                                val p1 = activePointers[0].position
+                                                                val p2 = activePointers[1].position
+                                                                val dx = p2.x - p1.x
+                                                                val dy = p2.y - p1.y
+                                                                val distance = sqrt(dx * dx + dy * dy)
+                                                                val angle = atan2(dy, dx)
+                                                                if (previousDistance > 0f) {
+                                                                    val zoom = (distance / previousDistance).coerceIn(.85f, 1.15f)
+                                                                    val rotationDelta = Math.toDegrees((angle - previousAngle).toDouble()).toFloat()
+                                                                    val pan = centroid - previousCentroid
+                                                                    latestUpdateLayer.value(target.id) { current ->
+                                                                        val width = (current.width * zoom).coerceIn(.06f, 1f)
+                                                                        val height = (current.height * zoom).coerceIn(.05f, 1f)
+                                                                        val centerX = current.x + current.width / 2f + pan.x / size.width
+                                                                        val centerY = current.y + current.height / 2f + pan.y / size.height
+                                                                        current.copy(
+                                                                            width = width,
+                                                                            height = height,
+                                                                            x = (centerX - width / 2f).coerceIn(0f, 1f - width),
+                                                                            y = (centerY - height / 2f).coerceIn(0f, 1f - height),
+                                                                            rotation = (current.rotation + rotationDelta).coerceIn(-180f, 180f)
+                                                                        )
+                                                                    }
+                                                                }
+                                                                previousDistance = distance
+                                                                previousAngle = angle
+                                                            }
+                                                            previousCentroid = centroid
+                                                            event.changes.forEach { it.consume() }
+                                                        } else {
+                                                            previousDistance = 0f
+                                                        }
+                                                    } while (event.changes.any { it.pressed })
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        canvasWidth = size.width
+                                        canvasHeight = size.height
+                                        val item = scene.layers.firstOrNull { it.id == selected && it.visible }
+                                        if (item != null) {
+                                            drawIntoCanvas { canvas ->
+                                                val native = canvas.nativeCanvas
+                                                val left = item.x * size.width
+                                                val top = item.y * size.height
+                                                val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
+                                                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                                    style = Paint.Style.STROKE
+                                                    strokeWidth = 3f
+                                                    color = android.graphics.Color.CYAN
+                                                }
+                                                native.save()
+                                                native.rotate(item.rotation, rect.centerX(), rect.centerY())
+                                                native.drawRoundRect(rect, 8f, 8f, paint)
+                                                if (!item.locked) {
+                                                    paint.style = Paint.Style.FILL
+                                                    val handle = 36f
+                                                    listOf(
+                                                        rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
+                                                        rect.left to rect.centerY(), rect.right to rect.centerY(),
+                                                        rect.left to rect.bottom, rect.centerX() to rect.bottom, rect.right to rect.bottom
+                                                    ).forEach { (x, y) ->
+                                                        paint.color = android.graphics.Color.WHITE
+                                                        native.drawCircle(x, y, handle / 2f, paint)
+                                                        paint.color = android.graphics.Color.rgb(20, 35, 55)
+                                                        native.drawCircle(x, y, 3f, paint)
+                                                    }
+                                                }
+                                                native.restore()
+                                            }
+                                        }
+                                    }
+                                }
+                                if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFB27F), fontSize = 10.sp)
+                                if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
+                            }
+                        }
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -788,173 +938,7 @@ fun SceneStudio(
                 Text(if (showMoreSettings) "⋯ Less" else "⋯", fontSize = 10.sp)
             }
         }
-        Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-            modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                val imageBitmaps = remember(scene.layers.filter { it.kind == "image" || it.kind == "gif" }.map { it.id to it.text }) {
-                    scene.layers.filter { (it.kind == "image" || it.kind == "gif") && it.text.isNotBlank() }.mapNotNull { item ->
-                        val bitmap = runCatching {
-                            context.contentResolver.openInputStream(Uri.parse(item.text))?.use { BitmapFactory.decodeStream(it) }
-                        }.getOrNull()
-                        if (bitmap != null) item.id to bitmap else null
-                    }.toMap()
-                }
-                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
-                    SceneCompositionPreview(Modifier.fillMaxSize())
-                    Canvas(
-                        Modifier.fillMaxSize()
-                            Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                        .background(Color(0xFF111518), RoundedCornerShape(9.dp))
-                        .pointerInput(index) {
-                            detectTapGestures { point ->
-                                val hit = latestScene.value.layers.asReversed().firstOrNull { item ->
-                                    !item.locked && item.visible &&
-                                        point.x >= item.x * size.width &&
-                                        point.x <= (item.x + item.width) * size.width &&
-                                        point.y >= item.y * size.height &&
-                                        point.y <= (item.y + item.height) * size.height
-                                }
-                                selected = hit?.id ?: -1L
-                            }
-                        }
-                        .pointerInput(index) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val target = latestScene.value.layers.asReversed().firstOrNull { item ->
-                                    !item.locked && item.visible &&
-                                        down.position.x >= item.x * size.width &&
-                                        down.position.x <= (item.x + item.width) * size.width &&
-                                        down.position.y >= item.y * size.height &&
-                                        down.position.y <= (item.y + item.height) * size.height
-                                }
-                                if (target != null) {
-                                    selected = target.id
-                                    val left = target.x * size.width
-                                    val top = target.y * size.height
-                                    val right = (target.x + target.width) * size.width
-                                    val bottom = (target.y + target.height) * size.height
-                                    val edgeTouch = 38f
-                                    val resizeLeft = abs(down.position.x - left) < edgeTouch
-                                    val resizeRight = abs(down.position.x - right) < edgeTouch
-                                    val resizeTop = abs(down.position.y - top) < edgeTouch
-                                    val resizeBottom = abs(down.position.y - bottom) < edgeTouch
-                                    val resizeX = resizeLeft || resizeRight
-                                    val resizeY = resizeTop || resizeBottom
-                                    val resizeWithOneFinger = resizeX || resizeY
-                                    var previousCentroid = down.position
-                                    var previousDistance = 0f
-                                    var previousAngle = 0f
-                                    do {
-                                        val event = awaitPointerEvent()
-                                        val activePointers = event.changes.filter { it.pressed }
-                                        if (activePointers.isNotEmpty()) {
-                                            event.changes.filter { it.pressed }.forEach { it.consume() }
-                                            val centroid = androidx.compose.ui.geometry.Offset(
-                                                activePointers.map { it.position.x }.average().toFloat(),
-                                                activePointers.map { it.position.y }.average().toFloat()
-                                            )
-                                            if (activePointers.size == 1) {
-                                                val delta = centroid - previousCentroid
-                                                latestUpdateLayer.value(target.id) { current ->
-                                                    if (resizeWithOneFinger) {
-                                                        val dx = if (resizeX) delta.x / size.width else 0f
-                                                        val dy = if (resizeY) delta.y / size.height else 0f
-                                                        var newLeft = current.x + if (resizeLeft) dx else 0f
-                                                        var newRight = current.x + current.width + if (resizeRight) dx else 0f
-                                                        var newTop = current.y + if (resizeTop) dy else 0f
-                                                        var newBottom = current.y + current.height + if (resizeBottom) dy else 0f
-                                                        newLeft = newLeft.coerceIn(0f, (newRight - .06f).coerceAtLeast(0f))
-                                                        newRight = newRight.coerceIn((newLeft + .06f).coerceAtMost(1f), 1f)
-                                                        newTop = newTop.coerceIn(0f, (newBottom - .05f).coerceAtLeast(0f))
-                                                        newBottom = newBottom.coerceIn((newTop + .05f).coerceAtMost(1f), 1f)
-                                                        current.copy(x = newLeft, y = newTop, width = newRight - newLeft, height = newBottom - newTop)
-                                                    } else {
-                                                        current.copy(
-                                                            x = (current.x + delta.x / size.width).coerceIn(0f, 1f - current.width),
-                                                            y = (current.y + delta.y / size.height).coerceIn(0f, 1f - current.height)
-                                                        )
-                                                    }
-                                                }
-                                                previousDistance = 0f
-                                            } else {
-                                                val p1 = activePointers[0].position
-                                                val p2 = activePointers[1].position
-                                                val dx = p2.x - p1.x
-                                                val dy = p2.y - p1.y
-                                                val distance = sqrt(dx * dx + dy * dy)
-                                                val angle = atan2(dy, dx)
-                                                if (previousDistance > 0f) {
-                                                    val zoom = (distance / previousDistance).coerceIn(.85f, 1.15f)
-                                                    val rotationDelta = Math.toDegrees((angle - previousAngle).toDouble()).toFloat()
-                                                    val pan = centroid - previousCentroid
-                                                    latestUpdateLayer.value(target.id) { current ->
-                                                        val width = (current.width * zoom).coerceIn(.06f, 1f)
-                                                        val height = (current.height * zoom).coerceIn(.05f, 1f)
-                                                        val centerX = current.x + current.width / 2f + pan.x / size.width
-                                                        val centerY = current.y + current.height / 2f + pan.y / size.height
-                                                        current.copy(
-                                                            width = width,
-                                                            height = height,
-                                                            x = (centerX - width / 2f).coerceIn(0f, 1f - width),
-                                                            y = (centerY - height / 2f).coerceIn(0f, 1f - height),
-                                                            rotation = (current.rotation + rotationDelta).coerceIn(-180f, 180f)
-                                                        )
-                                                    }
-                                                }
-                                                previousDistance = distance
-                                                previousAngle = angle
-                                            }
-                                            previousCentroid = centroid
-                                            event.changes.forEach { it.consume() }
-                                        } else {
-                                            previousDistance = 0f
-                                        }
-                                    } while (event.changes.any { it.pressed })
-                                }
-                            }
-                        }
-                    ) {
-                        canvasWidth = size.width
-                        canvasHeight = size.height
-                        val item = scene.layers.firstOrNull { it.id == selected && it.visible }
-                        if (item != null) {
-                            drawIntoCanvas { canvas ->
-                                val native = canvas.nativeCanvas
-                                val left = item.x * size.width
-                                val top = item.y * size.height
-                                val rect = RectF(left, top, left + size.width * item.width, top + size.height * item.height)
-                                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                    style = Paint.Style.STROKE
-                                    strokeWidth = 3f
-                                    color = android.graphics.Color.CYAN
-                                }
-                                native.save()
-                                native.rotate(item.rotation, rect.centerX(), rect.centerY())
-                                native.drawRoundRect(rect, 8f, 8f, paint)
-                                if (!item.locked) {
-                                    paint.style = Paint.Style.FILL
-                                    val handle = 36f
-                                    listOf(
-                                        rect.left to rect.top, rect.centerX() to rect.top, rect.right to rect.top,
-                                        rect.left to rect.centerY(), rect.right to rect.centerY(),
-                                        rect.left to rect.bottom, rect.centerX() to rect.bottom, rect.right to rect.bottom
-                                    ).forEach { (x, y) ->
-                                        paint.color = android.graphics.Color.WHITE
-                                        native.drawCircle(x, y, handle / 2f, paint)
-                                        paint.color = android.graphics.Color.rgb(20, 35, 55)
-                                        native.drawCircle(x, y, 3f, paint)
-                                    }
-                                }
-                                native.restore()
-                            }
-                        }
-                    }
-                }
-                if (sourceMessage.isNotBlank()) Text(sourceMessage, color = Color(0xFFFFB27F), fontSize = 10.sp)
-                if (scene.layers.isEmpty()) Text("Abhi empty scene hai. + Add source se screen, text ya image add karo.", color = Color(0xFFFFB27F), fontSize = 11.sp)
-            }
-        }
+
 
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         if (showMoreSettings) {
