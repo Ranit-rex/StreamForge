@@ -1153,7 +1153,7 @@ fun SceneStudio(
         if (layer != null) {
             Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
                 Column(Modifier.padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("SELECTED: ${layer.name}", color = Color.White, fontSize = 13.sp)
+                    Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)\n                    Text("SELECTED · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 10.sp)
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
                             value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
@@ -1284,6 +1284,13 @@ fun SceneStudio(
                         }, enabled = !layer.locked, modifier = Modifier.weight(1f)) { Text("Move down") }
                         OutlinedButton(onClick = { scenes[index] = scene.copy(layers = scene.layers.filterNot { it.id == layer.id }); selected = -1L }, enabled = !layer.locked) { Text("Delete") }
                     }
+                }
+            }
+        } else {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 180.dp, max = 360.dp)) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Select a layer to edit its size, position, media and appearance.", color = Color(0xFFA1A8AF), fontSize = 10.sp)
                 }
             }
         }
