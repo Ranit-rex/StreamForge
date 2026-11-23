@@ -1086,7 +1086,7 @@ fun SceneStudio(
                                     shape = RoundedCornerShape(5.dp),
                                     modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
                                         detectDragGesturesAfterLongPress(
-                                            onDragStart = { if (!item.locked) selected = item.id; reorderDrag = 0f },
+                                            onDragStart = { selected = item.id; reorderDrag = 0f },
                                             onDragEnd = { reorderDrag = 0f },
                                             onDragCancel = { reorderDrag = 0f },
                                             onDrag = { change, dragAmount ->
@@ -1256,10 +1256,9 @@ fun SceneStudio(
                         OutlinedButton(onClick = {
                             val locking = !layer.locked
                             updateLayer(layer.id) { it.copy(locked = locking) }
-                            if (locking) selected = -1L
+                            if (locking) selected = layer.id
                         }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
                     }
-                    if (showMoreSettings) {
                     Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.rotation, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
                     Text("Crop left · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
@@ -1272,7 +1271,6 @@ fun SceneStudio(
                     Slider(value = layer.cropBottom, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         OutlinedButton(onClick = {
                             val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
