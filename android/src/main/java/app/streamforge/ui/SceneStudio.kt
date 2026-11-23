@@ -972,10 +972,12 @@ fun SceneStudio(
                 active = scenes.lastIndex; selected = -1L
             }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
         }
-        Row(Modifier.fillMaxWidth().heightIn(min = 230.dp, max = 340.dp), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val panelWidth = maxWidth
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(0.30f).heightIn(min = 160.dp, max = 260.dp)
+                modifier = Modifier.width(panelWidth).height(210.dp)
             ) {
                 Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1056,7 +1058,7 @@ fun SceneStudio(
                 }
             }
         if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(0.70f).heightIn(min = 160.dp, max = 260.dp)) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.width(panelWidth).height(210.dp)) {
                 Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Text("EDITING · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
@@ -1200,6 +1202,8 @@ fun SceneStudio(
         }
         }
 
+            }
+        }
         if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
             OutlinedButton(onClick = {
