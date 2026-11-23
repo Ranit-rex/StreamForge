@@ -811,7 +811,7 @@ fun SceneStudio(
     onPreparePreview: () -> Unit,
     onStopStudioPreview: () -> Unit,
     onChangeCaptureSource: () -> Unit,
-    onApplyScene: (Int, String) -> Unit = {}
+    onApplyScene: (Int, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
