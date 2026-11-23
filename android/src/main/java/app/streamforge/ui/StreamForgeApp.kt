@@ -178,8 +178,8 @@ fun StreamForgeApp(
                 Column(
                     Modifier.weight(1f).fillMaxWidth().statusBarsPadding().imePadding()
                         .then(if (selectedTab == 2) Modifier else Modifier.verticalScroll(rememberScrollState()))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                         .padding(horizontal = if (selectedTab == 2) 7.dp else 12.dp, vertical = if (selectedTab == 2) 2.dp else 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (selectedTab == 2) 3.dp else 8.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
                     if (isRecording) RecordingDashboard(
@@ -540,7 +540,7 @@ fun StudioPreviewSurface(
     sourceMonitorOnly: Boolean = false
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().aspectRatio(if (compact) 16f / 7.5f else 16f / 9f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             if (isStreaming || (sourceMonitorOnly && previewReady)) {
                 AndroidView(
                     factory = { viewContext ->
@@ -624,17 +624,17 @@ private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> 
 @Composable
 private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(34.dp).padding(end = 7.dp))
+        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(25.dp).padding(end = 5.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("STREAMFORGE", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
-            Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.35.sp)
+            Text("STREAMFORGE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+            Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 6.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .8.sp)
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 if (isStreaming) LiveDot() else Surface(color = Good, shape = CircleShape, modifier = Modifier.size(6.dp)) {}
                 Text(if (isStreaming) "ON AIR" else if (isRecording) "RECORDING" else "STANDBY", color = if (isStreaming) LiveRed else if (isRecording) Color(0xFFFFB27F) else Muted, fontSize = 9.sp, fontWeight = FontWeight.Black)
             }
-            TextButton(onClick = onSettings, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) { Text("SETUP  ⚙", color = Accent, fontSize = 9.sp) }
+            TextButton(onClick = onSettings, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp), modifier = Modifier.height(20.dp)) { Text("SETUP ⚙", color = Accent, fontSize = 8.sp) }
         }
     }
 }
