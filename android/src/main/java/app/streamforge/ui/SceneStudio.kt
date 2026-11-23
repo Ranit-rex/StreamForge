@@ -14,6 +14,7 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.SystemClock
 import android.view.Surface
+import android.graphics.SurfaceTexture
 import android.view.TextureView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -98,8 +99,171 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
 
 
+/**
+ * Keeps scene video players alive while the user moves between Studio pages.
+ * TextureView surfaces may be detached/recreated, but the MediaPlayer itself is retained.
+ */
+private object SceneVideoPlayback {
+    class State internal constructor(val uri: String, val player: MediaPlayer) {
+        val ready = mutableStateOf(false)
+        val playing = mutableStateOf(false)
+        val positionMs = mutableIntStateOf(0)
+        val durationMs = mutableIntStateOf(0)
+        val error = mutableStateOf<String?>(null)
+        var wantsPlayback: Boolean = true
+        var surfaceTexture: SurfaceTexture? = null
+        var surface: Surface? = null
+    }
+
+    private val states = mutableMapOf<String, State>()
+
+    @Synchronized
+    fun get(context: android.content.Context, uri: String, loop: Boolean): State {
+        val existing = states[uri]
+        if (existing != null) {
+            runCatching { existing.player.isLooping = loop }
+            return existing
+        }
+        val player = MediaPlayer()
+        val state = State(uri, player)
+        states[uri] = state
+        runCatching {
+            player.setVolume(0f, 0f)
+            player.isLooping = loop
+            player.setOnPreparedListener { media ->
+                state.durationMs.value = media.duration.coerceAtLeast(0)
+                state.ready.value = true
+                if (state.wantsPlayback) {
+                    runCatching { media.start(); state.playing.value = true }
+                }
+            }
+            player.setOnCompletionListener { media ->
+                state.positionMs.value = media.duration.coerceAtLeast(0)
+                state.playing.value = false
+            }
+            player.setOnErrorListener { _, what, extra ->
+                state.error.value = "Playback error ($what/$extra)"
+                state.playing.value = false
+                true
+            }
+            player.setDataSource(context, Uri.parse(uri))
+            player.prepareAsync()
+        }.onFailure {
+            state.error.value = it.message ?: "Could not open video"
+        }
+        return state
+    }
+
+    @Synchronized
+    fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
+        val state = get(context, uri, loop)
+        if (state.surfaceTexture === texture) return
+        runCatching { state.surface?.let { state.player.setSurface(null); it.release() } }
+        val surface = Surface(texture)
+        state.surfaceTexture = texture
+        state.surface = surface
+        runCatching { state.player.setSurface(surface) }.onFailure {
+            state.error.value = it.message ?: "Could not attach video surface"
+        }
+    }
+
+    @Synchronized
+    fun detach(uri: String, texture: SurfaceTexture) {
+        val state = states[uri] ?: return
+        if (state.surfaceTexture !== texture) return
+        runCatching { state.player.setSurface(null) }
+        runCatching { state.surface?.release() }
+        state.surface = null
+        state.surfaceTexture = null
+    }
+
+    fun toggle(state: State) {
+        state.wantsPlayback = !state.wantsPlayback
+        if (!state.ready.value) return
+        runCatching {
+            if (state.wantsPlayback) {
+                if (!state.player.isPlaying) state.player.start()
+                state.playing.value = true
+            } else {
+                if (state.player.isPlaying) state.player.pause()
+                state.playing.value = false
+            }
+        }.onFailure { state.error.value = it.message ?: "Playback control failed" }
+    }
+
+    fun seek(state: State, positionMs: Int) {
+        val target = positionMs.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
+        state.positionMs.value = target
+        if (state.ready.value) runCatching { state.player.seekTo(target) }
+    }
+
+    fun refresh(state: State) {
+        if (state.ready.value) {
+            runCatching {
+                state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
+                state.playing.value = state.player.isPlaying
+            }
+        }
+    }
+}
+
 @Composable
-fun SceneCompositionPreview(modifier: Modifier = Modifier) {
+private fun SceneVideoPlaybackCard(
+    uri: String,
+    loop: Boolean,
+    onUseHardware: () -> Unit
+) {
+    val context = LocalContext.current
+    val state = remember(uri) { SceneVideoPlayback.get(context, uri, loop) }
+    LaunchedEffect(state) {
+        while (isActive) {
+            SceneVideoPlayback.refresh(state)
+            delay(250L)
+        }
+    }
+    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("VIDEO PLAYER", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(
+                    if (state.ready.value) "READY" else if (state.error.value != null) "ERROR" else "LOADING",
+                    color = if (state.error.value != null) Color(0xFFFF8A80) else Color(0xFF9FB5CE),
+                    fontSize = 9.sp
+                )
+            }
+            Slider(
+                value = state.positionMs.value.toFloat().coerceIn(0f, state.durationMs.value.toFloat().coerceAtLeast(1f)),
+                onValueChange = { onUseHardware(); SceneVideoPlayback.seek(state, it.toInt()) },
+                valueRange = 0f..state.durationMs.value.toFloat().coerceAtLeast(1f),
+                enabled = state.ready.value
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(formatSceneVideoTime(state.positionMs.value), color = Color.White, fontSize = 10.sp)
+                Spacer(Modifier.weight(1f))
+                Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 10.sp)
+                Spacer(Modifier.width(8.dp))
+                Button(
+                    onClick = { onUseHardware(); SceneVideoPlayback.toggle(state) },
+                    enabled = state.ready.value,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text(if (state.playing.value) "Ⅱ Pause" else "▶ Play", fontSize = 10.sp)
+                }
+            }
+            state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 9.sp) }
+        }
+    }
+}
+
+private fun formatSceneVideoTime(milliseconds: Int): String {
+    val totalSeconds = (milliseconds.coerceAtLeast(0) / 1000)
+    return String.format(java.util.Locale.US, "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+}
+
+
+@Composable
+fun SceneCompositionPreview(modifier: Modifier = Modifier, showPlaybackControls: Boolean = false, compact: Boolean = false) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
@@ -109,6 +273,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             if (key == "scenes" || key == "active_scene") {
                 savedScenes = decodeSceneList(shared.getString("scenes", "") ?: "")
                 activeIndex = shared.getInt("active_scene", 0)
+            }
+            if (key == "video_preview_mode") {
+                previewMode = shared.getString("video_preview_mode", "decode") ?: "decode"
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -189,6 +356,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
         }
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (showPlaybackControls) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("VIDEO PLAYBACK", color = Color(0xFFA1A8AF), fontSize = 9.sp, modifier = Modifier.weight(1f))
             FilterChip(selected = previewMode == "decode", onClick = {
@@ -206,7 +374,8 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
             else "Frame decode preview · scaled frames",
             color = Color.Gray, fontSize = 9.sp
         )
-        BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(if (compact) 16f / 7.5f else 16f / 9f).background(Color.Black)) {
             val previewWidth = maxWidth
             val previewHeight = maxHeight
             Canvas(Modifier.matchParentSize()) {
@@ -333,61 +502,30 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
 @Composable
 private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val player = remember(uriString, loop) { MediaPlayer() }
-    val error = remember(uriString) { mutableStateOf<String?>(null) }
-    val outputSurface = remember(player) { arrayOfNulls<Surface>(1) }
-
+    val state = remember(uriString) { SceneVideoPlayback.get(context, uriString, loop) }
     Box(modifier.background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = {
-                TextureView(it).apply {
+            factory = { viewContext ->
+                TextureView(viewContext).apply {
                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
-                            runCatching {
-                                val surface = Surface(surfaceTexture)
-                                outputSurface[0] = surface
-                                player.setSurface(surface)
-                                player.setVolume(0f, 0f)
-                                player.isLooping = loop
-                                player.setOnErrorListener { _, what, extra ->
-                                    error.value = "Native video playback error ($what/$extra)"
-                                    true
-                                }
-                                player.setOnPreparedListener { mediaPlayer ->
-                                    mediaPlayer.isLooping = loop
-                                    mediaPlayer.start()
-                                }
-                                player.setDataSource(context, Uri.parse(uriString))
-                                player.prepareAsync()
-                            }.onFailure {
-                                error.value = it.message ?: "Could not open video"
-                            }
+                        override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+                            SceneVideoPlayback.attach(viewContext, uriString, loop, surfaceTexture)
                         }
-
-                        override fun onSurfaceTextureSizeChanged(surface: android.graphics.SurfaceTexture, width: Int, height: Int) = Unit
-                        override fun onSurfaceTextureUpdated(surface: android.graphics.SurfaceTexture) = Unit
-                        override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
-                            runCatching { player.setSurface(null) }
-                            outputSurface[0]?.release()
-                            outputSurface[0] = null
+                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) = Unit
+                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+                        override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                            SceneVideoPlayback.detach(uriString, surfaceTexture)
                             return true
                         }
                     }
                 }
+            },
+            update = { view ->
+                view.surfaceTexture?.let { SceneVideoPlayback.attach(context, uriString, loop, it) }
             }
         )
-        error.value?.let { Text(it, color = Color.White, fontSize = 9.sp, modifier = Modifier.align(Alignment.Center)) }
-    }
-
-    DisposableEffect(player) {
-        onDispose {
-            runCatching { if (player.isPlaying) player.stop() }
-            runCatching { player.reset() }
-            runCatching { player.release() }
-            outputSurface[0]?.release()
-            outputSurface[0] = null
-        }
+        state.error.value?.let { Text(it, color = Color.White, fontSize = 9.sp, modifier = Modifier.align(Alignment.Center)) }
     }
 }
 
@@ -538,7 +676,7 @@ fun SceneStudio(
                 onChangeSource = onChangeCaptureSource
             )
         } else {
-            SceneCompositionPreview()
+            SceneCompositionPreview(showPlaybackControls = true, compact = true)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -880,6 +1018,13 @@ fun SceneStudio(
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
                         if (layer.kind == "video") {
+                            SceneVideoPlaybackCard(
+                                uri = layer.text,
+                                loop = layer.loop,
+                                onUseHardware = {
+                                    prefs.edit().putString("video_preview_mode", "hardware").apply()
+                                }
+                            )
                             Text(
                                 if (layer.fps == 0) "VIDEO FPS · ORIGINAL SOURCE (AUTO)" else "VIDEO FPS · ${layer.fps}",
                                 color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
