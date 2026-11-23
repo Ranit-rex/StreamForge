@@ -540,7 +540,7 @@ fun StudioPreviewSurface(
     sourceMonitorOnly: Boolean = false
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+        Box(if (compact) Modifier.fillMaxWidth().height(112.dp) else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             if (isStreaming || (sourceMonitorOnly && previewReady)) {
                 AndroidView(
                     factory = { viewContext ->
