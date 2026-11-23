@@ -177,7 +177,8 @@ fun StreamForgeApp(
             Column(Modifier.then(if (compactMode) Modifier.size(0.dp) else Modifier.fillMaxSize())) {
                 Column(
                     Modifier.weight(1f).fillMaxWidth().statusBarsPadding().imePadding()
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+                        .then(if (selectedTab == 2) Modifier else Modifier.verticalScroll(rememberScrollState()))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     StudioHeader(isStreaming, isRecording, onSettings = { selectedTab = 4 })
@@ -534,11 +535,12 @@ fun StudioPreviewSurface(
     onPrepare: () -> Unit,
     onStop: () -> Unit,
     onChangeSource: () -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    sourceMonitorOnly: Boolean = false
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().aspectRatio(if (compact) 16f / 7.5f else 16f / 9f)) {
-            if (isStreaming) {
+            if (isStreaming || (sourceMonitorOnly && previewReady)) {
                 AndroidView(
                     factory = { viewContext ->
                         TextureView(viewContext).also { view ->
@@ -571,10 +573,31 @@ fun StudioPreviewSurface(
                     modifier = Modifier.fillMaxSize()
                 )
                 Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
-                    Text(if (StreamService.streaming.value) "● LIVE OUTPUT" else "● REC OUTPUT", color = LiveRed, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text(if (StreamService.streaming.value) "● LIVE OUTPUT" else if (StreamService.recording.value) "● REC OUTPUT" else "● SOURCE PREVIEW", color = if (StreamService.streaming.value || StreamService.recording.value) LiveRed else Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
-                TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
-                    Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                if (isStreaming) {
+                    TextButton(onClick = onChangeSource, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("CHANGE SOURCE", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    TextButton(onClick = onStop, modifier = Modifier.align(Alignment.TopEnd), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("STOP PREVIEW", color = Accent, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            } else if (sourceMonitorOnly) {
+                Column(
+                    Modifier.align(Alignment.Center).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("GAME / PHONE SCREEN", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("This monitor shows the captured device screen. Scene overlays are edited in the canvas below.", color = Muted, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Button(onClick = onPrepare, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) {
+                        Text("START SOURCE PREVIEW", fontSize = 10.sp)
+                    }
+                }
+                Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
+                    Text("● SOURCE MONITOR", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             } else {
                 SceneCompositionPreview(Modifier.fillMaxSize())
