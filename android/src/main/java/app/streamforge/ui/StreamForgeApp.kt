@@ -540,7 +540,7 @@ fun StudioPreviewSurface(
     sourceMonitorOnly: Boolean = false
 ) {
     Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Box(if (compact) Modifier.fillMaxWidth().height(112.dp) else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             if (isStreaming || (sourceMonitorOnly && previewReady)) {
                 AndroidView(
                     factory = { viewContext ->
@@ -588,7 +588,7 @@ fun StudioPreviewSurface(
             } else {
                 // Always render the active scene while screen capture is inactive.
                 // Decode-only prevents two preview panes fighting over one MediaPlayer Surface.
-                SceneCompositionPreview(Modifier.fillMaxSize(), forceDecode = true)
+                SceneCompositionPreview(Modifier.fillMaxSize())
                 Surface(color = Color(0xCC15191D), shape = RoundedCornerShape(7.dp), modifier = Modifier.align(Alignment.TopStart).padding(7.dp)) {
                     Text(if (sourceMonitorOnly) "● LIVE SCENE PREVIEW" else "● AUTO PREVIEW", color = Accent, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
