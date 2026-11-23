@@ -61,7 +61,8 @@ private data class SceneLayer(
     val visible: Boolean = true, val locked: Boolean = false,
     val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
-    val loop: Boolean = true, val fps: Int = 5, val soundVolume: Float = 1f, val soundMuted: Boolean = false
+    val loop: Boolean = true, val fps: Int = 5, val soundVolume: Float = 1f, val soundMuted: Boolean = false,
+    val autoPlay: Boolean = true
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -78,7 +79,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
-                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps); put("soundVolume", layer.soundVolume); put("soundMuted", layer.soundMuted)
+                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps); put("soundVolume", layer.soundVolume); put("soundMuted", layer.soundMuted); put("autoPlay", layer.autoPlay)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -98,7 +99,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false), item.optBoolean("autoPlay", true))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -125,14 +126,21 @@ private object SceneVideoPlayback {
     private val states = mutableMapOf<String, State>()
 
     @Synchronized
-    fun get(context: android.content.Context, uri: String, loop: Boolean): State {
+    fun get(context: android.content.Context, uri: String, loop: Boolean, autoPlay: Boolean = true): State {
         val existing = states[uri]
         if (existing != null) {
             runCatching { existing.player.isLooping = loop }
+            existing.wantsPlayback = autoPlay
+            if (existing.ready.value) runCatching {
+                if (autoPlay && !existing.player.isPlaying) existing.player.start()
+                else if (!autoPlay && existing.player.isPlaying) existing.player.pause()
+                existing.playing.value = autoPlay
+            }
             return existing
         }
         val player = MediaPlayer()
         val state = State(uri, player)
+        state.wantsPlayback = autoPlay
         states[uri] = state
         runCatching {
             val audioAttributes = android.media.AudioAttributes.Builder()
@@ -344,7 +352,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
     var activeIndex by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
-    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "hardware") ?: "hardware") }
+    var previewMode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
             if (key == "scenes" || key == "active_scene") {
@@ -352,7 +360,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                 activeIndex = shared.getInt("active_scene", 0)
             }
             if (key == "video_preview_mode") {
-                previewMode = shared.getString("video_preview_mode", "hardware") ?: "hardware"
+                previewMode = shared.getString("video_preview_mode", "decode") ?: "decode"
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
@@ -370,13 +378,13 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     val videoSources = remember(editorMode, scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         if (editorMode) emptyList() else scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
-            .map { Triple(it.id, it.text, Pair(it.loop, it.fps)) }
+            .map { Triple(it.id, it.text, Triple(it.loop, it.fps, it.autoPlay)) }
     }
     // The retained native player is the persistent playback clock in both modes.
     // Frame-decode preview samples this clock instead of restarting at zero on navigation.
     val videoPlayers = remember(videoSources) {
         videoSources.associate { (id, uriString, settings) ->
-            id to SceneVideoPlayback.get(context, uriString, settings.first)
+            id to SceneVideoPlayback.get(context, uriString, settings.first, settings.third)
         }
     }
     LaunchedEffect(videoSources, renderMode) {
@@ -518,18 +526,30 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                         native.drawBitmap(bitmap, src, rect, paint)
                     }
                     "video" -> {
-                        paint.style = Paint.Style.FILL
-                        paint.color = android.graphics.Color.rgb(31, 39, 49)
-                        native.drawRoundRect(rect, 10f, 10f, paint)
-                        paint.style = Paint.Style.STROKE
-                        paint.strokeWidth = (rect.width() * .012f).coerceIn(2f, 4f)
-                        paint.color = android.graphics.Color.rgb(255, 134, 89)
-                        native.drawRoundRect(rect, 10f, 10f, paint)
-                        paint.style = Paint.Style.FILL
-                        paint.color = android.graphics.Color.WHITE
-                        paint.textSize = (rect.height() * .14f).coerceIn(10f, 18f)
-                        val label = item.name.ifBlank { "VIDEO" }.take(34)
-                        native.drawText(label, rect.left + 8f, rect.centerY(), paint)
+                        val decoded = if (renderMode == "decode") videoFrames[item.id]?.takeIf { !it.isRecycled } else null
+                        if (decoded != null) {
+                            val src = android.graphics.Rect(
+                                (decoded.width * item.cropLeft).toInt().coerceIn(0, decoded.width - 1),
+                                (decoded.height * item.cropTop).toInt().coerceIn(0, decoded.height - 1),
+                                (decoded.width * item.cropRight).toInt().coerceIn(1, decoded.width),
+                                (decoded.height * item.cropBottom).toInt().coerceIn(1, decoded.height)
+                            )
+                            paint.style = Paint.Style.FILL
+                            native.drawBitmap(decoded, src, rect, paint)
+                        } else {
+                            paint.style = Paint.Style.FILL
+                            paint.color = android.graphics.Color.rgb(31, 39, 49)
+                            native.drawRoundRect(rect, 10f, 10f, paint)
+                            paint.style = Paint.Style.STROKE
+                            paint.strokeWidth = (rect.width() * .012f).coerceIn(2f, 4f)
+                            paint.color = android.graphics.Color.rgb(255, 134, 89)
+                            native.drawRoundRect(rect, 10f, 10f, paint)
+                            paint.style = Paint.Style.FILL
+                            paint.color = android.graphics.Color.WHITE
+                            paint.textSize = (rect.height() * .14f).coerceIn(10f, 18f)
+                            val label = item.name.ifBlank { "VIDEO" }.take(34)
+                            native.drawText(label, rect.left + 8f, rect.centerY(), paint)
+                        }
                     }
                     "camera" -> {
                         paint.style = Paint.Style.FILL
@@ -549,6 +569,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                     HardwareVideoPreview(
                         uriString = item.text,
                         loop = item.loop,
+                        autoPlay = item.autoPlay,
+                        volume = item.soundVolume,
+                        muted = item.soundMuted,
                         modifier = Modifier
                             .offset(x = previewWidth * item.x, y = previewHeight * item.y)
                             .size(width = previewWidth * item.width, height = previewHeight * item.height)
@@ -561,9 +584,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
 }
 
 @Composable
-private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Modifier = Modifier) {
+private fun HardwareVideoPreview(
+    uriString: String, loop: Boolean, autoPlay: Boolean, volume: Float, muted: Boolean,
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
-    val state = remember(uriString) { SceneVideoPlayback.get(context, uriString, loop) }
+    val state = remember(uriString) { SceneVideoPlayback.get(context, uriString, loop, autoPlay) }
+    LaunchedEffect(state, autoPlay, volume, muted) {
+        SceneVideoPlayback.get(context, uriString, loop, autoPlay)
+        SceneVideoPlayback.setAudio(state, volume, muted)
+    }
     Box(modifier.background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -594,10 +624,10 @@ private fun HardwareVideoPreview(uriString: String, loop: Boolean, modifier: Mod
 private fun SceneVideoPlaybackModeSelector() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
-    var mode by remember { mutableStateOf(prefs.getString("video_preview_mode", "hardware") ?: "hardware") }
+    var mode by remember { mutableStateOf(prefs.getString("video_preview_mode", "decode") ?: "decode") }
     DisposableEffect(prefs) {
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
-            if (key == "video_preview_mode") mode = shared.getString(key, "hardware") ?: "hardware"
+            if (key == "video_preview_mode") mode = shared.getString(key, "decode") ?: "decode"
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
