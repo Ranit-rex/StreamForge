@@ -115,7 +115,13 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
  * TextureView surfaces may be detached/recreated, but the MediaPlayer itself is retained.
  */
 private object SceneVideoPlayback {
-    class State internal constructor(val uri: String, val player: MediaPlayer) {
+    class State internal constructor(
+        val uri: String,
+        val context: android.content.Context,
+        val loop: Boolean,
+        player: MediaPlayer
+    ) {
+        var player: MediaPlayer = player
         val ready = mutableStateOf(false)
         val playing = mutableStateOf(false)
         val positionMs = mutableIntStateOf(0)
@@ -126,24 +132,33 @@ private object SceneVideoPlayback {
         var requestedMuted: Boolean = false
         var surfaceTexture: SurfaceTexture? = null
         var surface: Surface? = null
+        var generation: Int = 0
+        var recovering: Boolean = false
     }
 
     private val states = mutableMapOf<String, State>()
+    @Volatile private var appInForeground: Boolean = true
 
     @Synchronized
     fun get(context: android.content.Context, uri: String, loop: Boolean, autoPlay: Boolean = true): State {
-        val existing = states[uri]
-        if (existing != null) {
-            runCatching { existing.player.isLooping = loop }
-            // Do not reset the user's play/pause choice during recomposition or
-            // when a TextureView reattaches. Auto-play is applied explicitly by setAutoPlay().
-            return existing
+        states[uri]?.let { state ->
+            state.wantsPlayback = if (state.ready.value) state.wantsPlayback else autoPlay
+            return state
         }
-        val player = MediaPlayer()
-        val state = State(uri, player)
+        val state = State(uri, context.applicationContext, loop, MediaPlayer())
         state.wantsPlayback = autoPlay
         states[uri] = state
-        runCatching {
+        prepare(state, 0)
+        return state
+    }
+
+    private fun configureAndPrepare(state: State, resumeAt: Int) {
+        val media = state.player
+        val token = ++state.generation
+        state.ready.value = false
+        state.playing.value = false
+        state.error.value = null
+        try {
             val audioAttributes = android.media.AudioAttributes.Builder()
                 .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
@@ -152,52 +167,95 @@ private object SceneVideoPlayback {
                         setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_NONE)
                     }
                 }.build()
-            player.setAudioAttributes(audioAttributes)
-            player.setVolume(0f, 0f)
-            player.isLooping = loop
-            player.setOnPreparedListener { media ->
-                state.durationMs.value = media.duration.coerceAtLeast(0)
-                state.ready.value = true
-                if (state.wantsPlayback) {
-                    runCatching { media.start(); state.playing.value = true }
+            media.setAudioAttributes(audioAttributes)
+            media.setVolume(0f, 0f)
+            media.isLooping = state.loop
+            state.surface?.takeIf { it.isValid }?.let(media::setSurface)
+            media.setOnPreparedListener { prepared ->
+                synchronized(this) {
+                    if (state.player !== prepared || state.generation != token) return@synchronized
+                    state.durationMs.value = prepared.duration.coerceAtLeast(0)
+                    state.ready.value = true
+                    if (resumeAt > 0) runCatching { prepared.seekTo(resumeAt.coerceIn(0, state.durationMs.value)) }
+                    applyVolume(state)
+                    if (state.wantsPlayback) {
+                        runCatching { prepared.start(); state.playing.value = true }
+                            .onFailure { state.error.value = it.message ?: "Could not resume video" }
+                    }
+                    state.recovering = false
                 }
             }
-            player.setOnCompletionListener { media ->
-                state.positionMs.value = media.duration.coerceAtLeast(0)
-                state.playing.value = false
+            media.setOnCompletionListener { completed ->
+                synchronized(this) {
+                    if (state.player === completed && state.generation == token) {
+                        state.positionMs.value = completed.duration.coerceAtLeast(0)
+                        state.playing.value = false
+                    }
+                }
             }
-            player.setOnErrorListener { _, what, extra ->
-                state.error.value = "Playback error ($what/$extra)"
-                state.playing.value = false
+            media.setOnErrorListener { failed, what, extra ->
+                synchronized(this) {
+                    if (state.player === failed && state.generation == token) {
+                        recover(state, "Playback error ($what/$extra)")
+                    }
+                }
                 true
             }
-            player.setDataSource(context, Uri.parse(uri))
-            player.prepareAsync()
-        }.onFailure {
-            state.error.value = it.message ?: "Could not open video"
+            media.setDataSource(state.context, Uri.parse(state.uri))
+            media.prepareAsync()
+        } catch (error: Exception) {
+            state.error.value = error.message ?: "Could not prepare video"
+            state.ready.value = false
+            state.playing.value = false
         }
-        return state
+    }
+
+    @Synchronized
+    private fun prepare(state: State, resumeAt: Int) {
+        configureAndPrepare(state, resumeAt)
+    }
+
+    @Synchronized
+    private fun recover(state: State, reason: String) {
+        if (state.recovering) return
+        state.recovering = true
+        val old = state.player
+        val position = if (state.ready.value) runCatching { old.currentPosition }.getOrDefault(state.positionMs.value) else state.positionMs.value
+        state.positionMs.value = position.coerceAtLeast(0)
+        state.ready.value = false
+        state.playing.value = false
+        state.error.value = "Recovering video…"
+        runCatching { old.setOnErrorListener(null) }
+        runCatching { old.reset() }
+        runCatching { old.release() }
+        state.player = MediaPlayer()
+        configureAndPrepare(state, position)
+        // If preparation itself fails, the visible error remains actionable; a later surface
+        // attach can trigger another recovery rather than leaving the old dead player cached.
+        if (state.player === old) state.error.value = reason
     }
 
     @Synchronized
     fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
         val state = states[uri] ?: get(context, uri, loop)
-        if (state.surfaceTexture === texture) return
-        val previousSurface = state.surface
-        val surface = Surface(texture)
+        if (state.surfaceTexture === texture && state.surface?.isValid == true) return
+        val previous = state.surface
+        val next = Surface(texture)
         state.surfaceTexture = texture
-        state.surface = surface
+        state.surface = next
         runCatching {
-            // Replace the output surface directly. Clearing it first can race decoder teardown
-            // and trigger native MediaPlayer errors when layers are reordered.
-            state.player.setSurface(surface)
-            previousSurface?.release()
-            if (state.ready.value && state.wantsPlayback && !state.player.isPlaying) {
-                state.player.start()
-                state.playing.value = true
+            state.player.setSurface(next)
+            previous?.release()
+            if (state.ready.value && state.wantsPlayback) {
+                val isPlaying = runCatching { state.player.isPlaying }.getOrDefault(false)
+                if (!isPlaying) {
+                    state.player.start()
+                    state.playing.value = true
+                }
             }
         }.onFailure {
-            state.error.value = it.message ?: "Could not attach video surface"
+            runCatching { previous?.release() }
+            recover(state, it.message ?: "Could not attach video surface")
         }
     }
 
@@ -205,14 +263,12 @@ private object SceneVideoPlayback {
     fun detach(uri: String, texture: SurfaceTexture) {
         val state = states[uri] ?: return
         if (state.surfaceTexture !== texture) return
-        runCatching { state.player.setSurface(null) }
+        // Do not call setSurface(null): TextureView reorder/detach can race the decoder and
+        // put MediaPlayer into Error state (-38). Replace the output on the next attach.
         runCatching { state.surface?.release() }
         state.surface = null
         state.surfaceTexture = null
     }
-
-    @Volatile
-    private var appInForeground: Boolean = true
 
     private fun applyVolume(state: State) {
         val audible = appInForeground && !state.requestedMuted
@@ -222,19 +278,24 @@ private object SceneVideoPlayback {
 
     @Synchronized
     fun activateScene(activeUris: Set<String>) {
-        // A scene owns only its own videos. Keep inactive players and their positions,
-        // but pause them so they cannot continue invisibly behind the selected scene.
         states.values.forEach { state ->
-            if (state.uri !in activeUris && state.ready.value) {
-                runCatching { if (state.player.isPlaying) state.player.pause() }
+            if (state.uri !in activeUris) {
+                if (state.ready.value) runCatching {
+                    if (state.player.isPlaying) state.player.pause()
+                    state.positionMs.value = state.player.currentPosition.coerceAtLeast(0)
+                }
                 state.playing.value = false
+            } else if (state.wantsPlayback && state.ready.value) {
+                runCatching {
+                    if (!state.player.isPlaying) state.player.start()
+                    state.playing.value = true
+                }.onFailure { recover(state, it.message ?: "Scene video recovery") }
             }
         }
     }
 
     @Synchronized
     fun pauseForBackground() {
-        // Do not pause playback: keep the video clock/frames advancing silently.
         appInForeground = false
         states.values.forEach(::applyVolume)
     }
@@ -244,12 +305,10 @@ private object SceneVideoPlayback {
         appInForeground = true
         states.values.forEach { state ->
             applyVolume(state)
-            if (state.wantsPlayback && state.ready.value) {
-                runCatching {
-                    if (!state.player.isPlaying) state.player.start()
-                    state.playing.value = true
-                }
-            }
+            if (state.wantsPlayback && state.ready.value) runCatching {
+                if (!state.player.isPlaying) state.player.start()
+                state.playing.value = true
+            }.onFailure { recover(state, it.message ?: "Foreground video recovery") }
         }
     }
 
@@ -261,42 +320,40 @@ private object SceneVideoPlayback {
             if (autoPlay && !state.player.isPlaying) state.player.start()
             else if (!autoPlay && state.player.isPlaying) state.player.pause()
             state.playing.value = autoPlay
-        }.onFailure { state.error.value = it.message ?: "Playback state update failed" }
+        }.onFailure { recover(state, it.message ?: "Playback state recovery") }
     }
 
+    @Synchronized
     fun setAudio(state: State, volume: Float, muted: Boolean) {
         state.requestedVolume = volume.coerceIn(0f, 1f)
         state.requestedMuted = muted
         applyVolume(state)
     }
 
+    @Synchronized
     fun toggle(state: State) {
         state.wantsPlayback = !state.wantsPlayback
         if (!state.ready.value) return
         runCatching {
-            if (state.wantsPlayback) {
-                if (!state.player.isPlaying) state.player.start()
-                state.playing.value = true
-            } else {
-                if (state.player.isPlaying) state.player.pause()
-                state.playing.value = false
-            }
-        }.onFailure { state.error.value = it.message ?: "Playback control failed" }
+            if (state.wantsPlayback) state.player.start() else state.player.pause()
+            state.playing.value = state.wantsPlayback
+        }.onFailure { recover(state, it.message ?: "Playback control recovery") }
     }
 
+    @Synchronized
     fun seek(state: State, positionMs: Int) {
         val target = positionMs.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
         state.positionMs.value = target
         if (state.ready.value) runCatching { state.player.seekTo(target) }
+            .onFailure { recover(state, it.message ?: "Seek recovery") }
     }
 
+    @Synchronized
     fun refresh(state: State) {
-        if (state.ready.value) {
-            runCatching {
-                state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
-                state.playing.value = state.player.isPlaying
-            }
-        }
+        if (state.ready.value) runCatching {
+            state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
+            state.playing.value = state.player.isPlaying
+        }.onFailure { recover(state, it.message ?: "Playback refresh recovery") }
     }
 }
 
