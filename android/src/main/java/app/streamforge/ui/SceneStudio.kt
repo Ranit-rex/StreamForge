@@ -279,7 +279,9 @@ private fun SceneVideoPlaybackCard(
     loop: Boolean,
     onUseHardware: () -> Unit,
     volume: Float,
-    muted: Boolean
+    muted: Boolean,
+    onVolumeChange: (Float) -> Unit,
+    onMuteChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val state = remember(uri) { SceneVideoPlayback.get(context, uri, loop) }
@@ -290,8 +292,8 @@ private fun SceneVideoPlaybackCard(
             delay(250L)
         }
     }
-    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(5.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("VIDEO PLAYER", color = Color.White, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text(
@@ -315,10 +317,15 @@ private fun SceneVideoPlaybackCard(
                     onClick = { onUseHardware(); SceneVideoPlayback.toggle(state) },
                     enabled = state.ready.value,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 3.dp),
-                    modifier = Modifier.height(32.dp)
+                    modifier = Modifier.height(26.dp)
                 ) {
-                    Text(if (state.playing.value) "Ⅱ Pause" else "▶ Play", fontSize = 10.sp)
+                    Text(if (state.playing.value) "Ⅱ" else "▶", fontSize = 10.sp)
                 }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(23.dp)) { Text(if (muted) "MUTED" else "SOUND", fontSize = 8.sp) }
+                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(24.dp), valueRange = 0f..1f)
+                Text("${(volume * 100).toInt()}%", color = Color.Gray, fontSize = 8.sp)
             }
             state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 9.sp) }
         }
@@ -791,7 +798,7 @@ fun SceneStudio(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("SOURCE", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Box(Modifier.fillMaxWidth(.90f).align(Alignment.CenterHorizontally)) {
+                Box(Modifier.fillMaxWidth(.84f).align(Alignment.CenterHorizontally)) {
                     StudioPreviewSurface(
                         previewReady = previewReady,
                         isStreaming = isStreaming,
@@ -805,16 +812,18 @@ fun SceneStudio(
             }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("SCENE EDITOR", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    if (scene.layers.any { it.kind == "video" }) SceneVideoPlaybackModeSelector()
                     TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(18.dp)) {
                         Text("⋯", fontSize = 10.sp)
                     }
                 }
-                        Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
+                        Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(0.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-                            modifier = Modifier.fillMaxWidth(.90f).align(Alignment.CenterHorizontally)) {
-                            Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
+                            modifier = Modifier.fillMaxWidth(.84f).align(Alignment.CenterHorizontally)) {
+                            Column(Modifier.padding(2.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518))) {
                                     SceneCompositionPreview(Modifier.fillMaxSize(), editorMode = true)
                                     Canvas(
                                         Modifier.fillMaxSize()
@@ -984,8 +993,12 @@ fun SceneStudio(
                 }
             }
         }
-        if (scene.layers.any { it.kind == "video" }) {
-            SceneVideoPlaybackModeSelector()
+        val selectedVideo = scene.layers.firstOrNull { it.id == selected && it.kind == "video" }
+        if (selectedVideo != null) {
+            SceneVideoPlaybackCard(uri = selectedVideo.text, loop = selectedVideo.loop, volume = selectedVideo.soundVolume, muted = selectedVideo.soundMuted,
+                onUseHardware = { prefs.edit().putString("video_preview_mode", "hardware").apply() },
+                onVolumeChange = { value -> updateLayer(selectedVideo.id) { it.copy(soundVolume = value) } },
+                onMuteChange = { value -> updateLayer(selectedVideo.id) { it.copy(soundMuted = value) } })
         }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1014,9 +1027,9 @@ fun SceneStudio(
         ) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(1f).height(190.dp)
+                modifier = Modifier.weight(1f).height(158.dp)
             ) {
-                Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("LAYERS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { assetsDialog = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)) { Text("Assets", fontSize = 9.sp) }
@@ -1096,11 +1109,11 @@ fun SceneStudio(
             }
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.weight(1f).height(190.dp)
+                modifier = Modifier.weight(1f).height(158.dp)
             ) {
             Column(
-                Modifier.fillMaxSize().padding(7.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(5.dp)
+                Modifier.fillMaxSize().padding(5.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 if (layer == null) {
@@ -1127,19 +1140,9 @@ fun SceneStudio(
                             Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Loop video", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                            Text("Loop", color = Color.White, fontSize = 9.sp, modifier = Modifier.weight(1f))
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Sound", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
-                            Switch(checked = !layer.soundMuted, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(soundMuted = !value) } })
-                        }
-                        Text("Volume · ${(layer.soundVolume * 100).toInt()}%", color = Color(0xFFA1A8AF), fontSize = 9.sp)
-                        Slider(
-                            value = layer.soundVolume, enabled = !layer.locked && !layer.soundMuted,
-                            onValueChange = { value -> updateLayer(layer.id) { it.copy(soundVolume = value.coerceIn(0f, 1f)) } },
-                            valueRange = 0f..1f
-                        )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         OutlinedButton(onClick = { transformDialog = true }, enabled = !layer.locked, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 5.dp, vertical = 3.dp)) {
