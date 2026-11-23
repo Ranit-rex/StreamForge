@@ -28,6 +28,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -35,6 +36,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -128,6 +132,15 @@ private object SceneVideoPlayback {
         val state = State(uri, player)
         states[uri] = state
         runCatching {
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                .apply {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        setAllowedCapturePolicy(android.media.AudioAttributes.ALLOW_CAPTURE_BY_ALL)
+                    }
+                }.build()
+            player.setAudioAttributes(audioAttributes)
             player.setVolume(0f, 0f)
             player.isLooping = loop
             player.setOnPreparedListener { media ->
@@ -181,6 +194,30 @@ private object SceneVideoPlayback {
         runCatching { state.surface?.release() }
         state.surface = null
         state.surfaceTexture = null
+    }
+
+    @Synchronized
+    fun pauseForBackground() {
+        states.values.forEach { state ->
+            runCatching {
+                if (state.player.isPlaying) {
+                    state.player.pause()
+                    state.playing.value = false
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    fun resumeInForeground() {
+        states.values.forEach { state ->
+            if (state.wantsPlayback && state.ready.value) {
+                runCatching {
+                    if (!state.player.isPlaying) state.player.start()
+                    state.playing.value = true
+                }
+            }
+        }
     }
 
     fun setAudio(state: State, volume: Float, muted: Boolean) {
@@ -278,6 +315,21 @@ private fun formatSceneVideoTime(milliseconds: Int): String {
 @Composable
 fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = false) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> SceneVideoPlayback.resumeInForeground()
+                Lifecycle.Event.ON_STOP -> SceneVideoPlayback.pauseForBackground()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            SceneVideoPlayback.pauseForBackground()
+        }
+    }
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
     var savedScenes by remember { mutableStateOf(decodeSceneList(prefs.getString("scenes", "") ?: "")) }
     var activeIndex by remember { mutableIntStateOf(prefs.getInt("active_scene", 0)) }
@@ -604,6 +656,7 @@ fun SceneStudio(
     var sourceMessage by remember { mutableStateOf("") }
     var canvasWidth by remember { mutableFloatStateOf(1f) }
     var canvasHeight by remember { mutableFloatStateOf(1f) }
+    var showMoreSettings by remember { mutableStateOf(false) }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -694,11 +747,25 @@ fun SceneStudio(
         sourceMessage = "Free overlay pack added. Import your own background or GIF from Add source."
     }
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        SceneVideoPlaybackModeSelector()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SCENE PREVIEW", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO · UPDATES LIVE", color = Color(0xFFFF6A35), fontSize = 9.sp)
+            Text("SCENE STUDIO", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { showMoreSettings = !showMoreSettings }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                Text(if (showMoreSettings) "OPTIONS  ▴" else "OPTIONS  ⋯", fontSize = 10.sp)
+            }
+        }
+        if (showMoreSettings) {
+            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
+                    Text("ADVANCED OPTIONS", color = Color(0xFFA1A8AF), fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    SceneVideoPlaybackModeSelector()
+                    Text("Advanced controls are grouped here to keep the Scene page compact.", color = Color.Gray, fontSize = 9.sp)
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("PREVIEW", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            Text(if (isStreaming) { if (StreamService.streaming.value) "LIVE OUTPUT" else "REC OUTPUT" } else "AUTO", color = Color(0xFFFF6A35), fontSize = 9.sp)
         }
         if (isStreaming) {
             StudioPreviewSurface(
@@ -993,14 +1060,40 @@ fun SceneStudio(
             }
         }
         scene.layers.asReversed().forEach { item ->
+            var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
             Surface(
                 color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF15191D),
-                shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { if (!item.locked) { selected = item.id; reorderDrag = 0f } },
+                        onDragEnd = { reorderDrag = 0f },
+                        onDragCancel = { reorderDrag = 0f },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            if (!item.locked) {
+                                reorderDrag += dragAmount.y
+                                if (reorderDrag >= 34f || reorderDrag <= -34f) {
+                                    val currentItems = scenes[index].layers.toMutableList()
+                                    val currentIndex = currentItems.indexOfFirst { it.id == item.id }
+                                    val step = if (reorderDrag > 0f) -1 else 1
+                                    val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
+                                    if (currentIndex >= 0 && currentIndex != targetIndex) {
+                                        val moving = currentItems.removeAt(currentIndex)
+                                        currentItems.add(targetIndex, moving)
+                                        scenes[index] = scenes[index].copy(layers = currentItems)
+                                    }
+                                    reorderDrag = 0f
+                                }
+                            }
+                        }
+                    )
+                },
                 onClick = { if (!item.locked) selected = item.id }
             ) {
                 Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (item.visible) "◉" else "○", color = Color(0xFFFF8659))
-                    Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text("⠿", color = Color(0xFFFF8659), fontSize = 17.sp)
+                    Column(Modifier.weight(1f).padding(start = 7.dp)) {
                         Text(item.name + if (item.locked) "  ·  LOCKED" else "", color = Color.White, fontSize = 12.sp)
                         Text(
                             when (item.kind) {
@@ -1078,6 +1171,7 @@ fun SceneStudio(
                                 volume = layer.soundVolume,
                                 muted = layer.soundMuted
                             )
+                            if (showMoreSettings) {
                             Text(
                                 if (layer.fps == 0) "VIDEO FPS · ORIGINAL SOURCE (AUTO)" else "VIDEO FPS · ${layer.fps}",
                                 color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
@@ -1111,6 +1205,7 @@ fun SceneStudio(
                                 Text("Uses the video's source frame rate automatically, up to 60 FPS. Device performance may limit playback.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
                             }
                             Text("Text, image and other static overlays do not need a video FPS setting.", color = Color(0xFFFF8659), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                            }
                         }
                     }
                     Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
@@ -1133,6 +1228,7 @@ fun SceneStudio(
                             if (locking) selected = -1L
                         }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
                     }
+                    if (showMoreSettings) {
                     Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.rotation, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
                     Text("Crop left · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
@@ -1145,6 +1241,7 @@ fun SceneStudio(
                     Slider(value = layer.cropBottom, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
                     Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
                     Slider(value = layer.opacity, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                         OutlinedButton(onClick = {
                             val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
@@ -1160,7 +1257,7 @@ fun SceneStudio(
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (showMoreSettings) Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = { draft = scene.name; renameDialog = true }, modifier = Modifier.weight(1f)) { Text("Rename scene") }
             OutlinedButton(onClick = {
                 scenes.add(scene.copy(id = System.nanoTime(), name = "${scene.name} Copy", layers = scene.layers.map { it.copy(id = System.nanoTime()) }))
