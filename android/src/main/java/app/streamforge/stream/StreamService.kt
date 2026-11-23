@@ -637,7 +637,7 @@ class StreamService : Service(), ConnectChecker {
                     val startedAt = videoStartedAt.putIfAbsent(uriString, now) ?: now
                     val manualFps = item.optInt("fps", 0).coerceIn(0, 60)
                     val sourceFps = videoSourceFps[uriString] ?: 30
-                    val targetFps = if (manualFps == 0) sourceFps else manualFps
+                    val targetFps = (if (manualFps == 0) sourceFps else manualFps).coerceIn(5, 30)
                     val frameInterval = (1000L / targetFps.coerceIn(5, 60)).coerceAtLeast(16L)
                     val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                     if (now - lastFrameAt >= frameInterval && videoDecodePending.add(uriString)) {
@@ -684,13 +684,13 @@ class StreamService : Service(), ConnectChecker {
                                     retriever.getScaledFrameAtTime(
                                         timestampUs,
                                         MediaMetadataRetriever.OPTION_CLOSEST,
-                                        1920,
-                                        1080
+                                        1280,
+                                        720
                                     ) ?: retriever.getScaledFrameAtTime(
                                         timestampUs,
                                         MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                        1920,
-                                        1080
+                                        1280,
+                                        720
                                     )
                                 } else {
                                     retriever.getFrameAtTime(timestampUs, MediaMetadataRetriever.OPTION_CLOSEST)
@@ -753,7 +753,7 @@ class StreamService : Service(), ConnectChecker {
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
             layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }?.let { item ->
                 val manual = item.optInt("fps", 0)
-                if (manual == 0) videoSourceFps[item.optString("text")] ?: 30 else manual.coerceIn(5, 60)
+                (if (manual == 0) videoSourceFps[item.optString("text")] ?: 30 else manual).coerceIn(5, 30)
             }
         }.maxOrNull() ?: 5
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
