@@ -95,6 +95,12 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        // Match the Android gesture/navigation region to the app bottom navigation.
+        @Suppress("DEPRECATION")
+        run { window.navigationBarColor = android.graphics.Color.rgb(21, 25, 29) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         setContent {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
