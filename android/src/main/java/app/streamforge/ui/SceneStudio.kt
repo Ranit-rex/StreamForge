@@ -1,6 +1,7 @@
 package app.streamforge.ui
 
 import app.streamforge.stream.StreamService
+import app.streamforge.camera.local.CameraLayerPreview
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -67,7 +68,8 @@ private data class SceneLayer(
     val rotation: Float = 0f, val cropLeft: Float = 0f, val cropTop: Float = 0f, val cropRight: Float = 1f, val cropBottom: Float = 1f,
     val textColor: String = "#FFFFFFFF", val fontFamily: String = "sans-serif", val fontSizeScale: Float = 1f,
     val loop: Boolean = true, val fps: Int = 5, val soundVolume: Float = 1f, val soundMuted: Boolean = false,
-    val autoPlay: Boolean = true
+    val autoPlay: Boolean = true,
+    val cameraFacing: String = "back"
 )
 private data class SceneModel(val id: Long, val name: String, val layers: List<SceneLayer>)
 
@@ -84,7 +86,7 @@ private fun encodeSceneList(items: List<SceneModel>): String {
                 put("id", layer.id); put("name", layer.name); put("kind", layer.kind)
                 put("text", layer.text); put("x", layer.x); put("y", layer.y); put("width", layer.width); put("height", layer.height)
                 put("opacity", layer.opacity); put("visible", layer.visible); put("locked", layer.locked); put("rotation", layer.rotation); put("cropLeft", layer.cropLeft); put("cropTop", layer.cropTop); put("cropRight", layer.cropRight); put("cropBottom", layer.cropBottom)
-                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps); put("soundVolume", layer.soundVolume); put("soundMuted", layer.soundMuted); put("autoPlay", layer.autoPlay)
+                put("textColor", layer.textColor); put("fontFamily", layer.fontFamily); put("fontSizeScale", layer.fontSizeScale); put("loop", layer.loop); put("fps", layer.fps); put("soundVolume", layer.soundVolume); put("soundMuted", layer.soundMuted); put("autoPlay", layer.autoPlay); put("cameraFacing", layer.cameraFacing)
             })
         }
         all.put(JSONObject().apply { put("id", scene.id); put("name", scene.name); put("layers", layers) })
@@ -104,7 +106,7 @@ private fun decodeSceneList(raw: String): List<SceneModel> = runCatching {
                     item.optString("text"), item.optDouble("x", .08).toFloat(),
                     item.optDouble("y", .08).toFloat(), item.optDouble("width", .52).toFloat(), item.optDouble("height", .22).toFloat(), item.optDouble("opacity", 1.0).toFloat(),
                     item.optBoolean("visible", true), item.optBoolean("locked", false), item.optDouble("rotation", 0.0).toFloat(), item.optDouble("cropLeft", 0.0).toFloat(), item.optDouble("cropTop", 0.0).toFloat(), item.optDouble("cropRight", 1.0).toFloat(), item.optDouble("cropBottom", 1.0).toFloat(),
-                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false), item.optBoolean("autoPlay", true))
+                    item.optString("textColor", "#FFFFFFFF"), item.optString("fontFamily", "sans-serif"), item.optDouble("fontSizeScale", 1.0).toFloat(), item.optBoolean("loop", true), item.optInt("fps", if (item.optString("kind") == "video") 0 else 5).coerceIn(0, 60), item.optDouble("soundVolume", 1.0).toFloat().coerceIn(0f, 1f), item.optBoolean("soundMuted", false), item.optBoolean("autoPlay", true), item.optString("cameraFacing", "back"))
             })
     }
 }.getOrDefault(sceneDefaults()).ifEmpty { sceneDefaults() }
@@ -553,7 +555,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             }
-            scene.layers.filter { it.visible && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
+            scene.layers.filter { it.visible && it.kind != "camera" && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
                 val rect = RectF(item.x * size.width, item.y * size.height,
                     (item.x + item.width) * size.width, (item.y + item.height) * size.height)
                 native.save()
@@ -642,18 +644,21 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                             native.drawText(label, rect.left + 8f, rect.centerY(), paint)
                         }
                     }
-                    "camera" -> {
-                        paint.style = Paint.Style.FILL
-                        paint.color = android.graphics.Color.rgb(35, 48, 65)
-                        native.drawRoundRect(rect, 10f, 10f, paint)
-                        paint.color = android.graphics.Color.WHITE
-                        paint.textSize = (rect.height() * .18f).coerceIn(14f, 28f)
-                        native.drawText("CAMERA SOURCE", rect.left + 10f, rect.centerY(), paint)
-                    }
                 }
                 native.restore()
             }
         }
+            }
+            scene.layers.filter { it.visible && it.kind == "camera" }.forEach { item ->
+                key(item.id) {
+                    CameraLayerPreview(
+                        lensFacing = item.cameraFacing,
+                        modifier = Modifier
+                            .offset(x = previewWidth * item.x, y = previewHeight * item.y)
+                            .size(width = previewWidth * item.width, height = previewHeight * item.height)
+                            .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
+                    )
+                }
             }
             if (renderMode == "hardware") {
                 scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
@@ -1213,6 +1218,21 @@ fun SceneStudio(
                             Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
                         }
                     }
+                    if (layer.kind == "camera") {
+                        Text("CAMERA", color = Color(0xFFA1A8AF), fontSize = 8.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            listOf("back" to "BACK", "front" to "FRONT").forEach { (facing, label) ->
+                                FilterChip(
+                                    selected = layer.cameraFacing == facing,
+                                    onClick = { updateLayer(layer.id) { it.copy(cameraFacing = facing) } },
+                                    enabled = !layer.locked,
+                                    label = { Text(label, fontSize = 8.sp) }
+                                )
+                            }
+                        }
+                        Text("Live phone camera preview", color = Color.Gray, fontSize = 8.sp)
+                    }
+
                     if (layer.kind == "image" || layer.kind == "gif" || layer.kind == "video") {
                         OutlinedButton(
                             onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) },
@@ -1304,7 +1324,7 @@ fun SceneStudio(
         onDismissRequest = { addDialog = false }, title = { Text("Add to this scene") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Choose what you want to place on the canvas.", color = Color.Gray, fontSize = 11.sp)
-            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Camera placeholder").forEach { (kind, label) ->
+            listOf("screen" to "Game capture / screen", "text" to "Text overlay", "timer" to "Live timer", "image" to "Image or animated GIF", "video" to "Video overlay", "camera" to "Phone camera (live)").forEach { (kind, label) ->
                 TextButton(onClick = { addSource(kind); addDialog = false }, modifier = Modifier.fillMaxWidth()) { Text(label) }
             }
         } },
