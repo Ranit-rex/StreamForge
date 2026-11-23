@@ -313,6 +313,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier) {
                 native.restore()
             }
         }
+            }
             if (previewMode == "hardware") {
                 scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
                     HardwareVideoPreview(
