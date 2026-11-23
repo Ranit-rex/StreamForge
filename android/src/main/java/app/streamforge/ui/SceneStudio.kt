@@ -968,7 +968,12 @@ fun SceneStudio(
             }
         }
 
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        // The two preview surfaces above remain pinned. Only this lower workspace scrolls.
+        Column(
+            Modifier.weight(1f).fillMaxWidth().heightIn(min = 0.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
         if (showMoreSettings) {
             Surface(color = Color(0xFF202326), shape = RoundedCornerShape(9.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
@@ -1000,10 +1005,14 @@ fun SceneStudio(
                 active = scenes.lastIndex; selected = -1L
             }) { Text("+", color = Color(0xFFFFA27A), fontSize = 16.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 5.dp)) }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.Top
+        ) {
             Surface(
                 color = Color(0xFF15191D), shape = RoundedCornerShape(11.dp),
-                modifier = Modifier.weight(.95f).heightIn(min = 170.dp, max = 240.dp)
+                modifier = Modifier.weight(1f).height(190.dp)
             ) {
                 Column(Modifier.padding(5.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1086,9 +1095,12 @@ fun SceneStudio(
         }
         Surface(
             color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)
+            modifier = Modifier.weight(1f).height(190.dp)
         ) {
-            Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(
+                Modifier.fillMaxSize().padding(7.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
                 Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 if (layer == null) {
                     Text("Select a layer to edit its main controls.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
