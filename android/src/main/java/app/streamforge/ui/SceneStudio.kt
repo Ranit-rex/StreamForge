@@ -686,6 +686,7 @@ fun SceneStudio(
     var addDialog by remember { mutableStateOf(false) }
     var assetsDialog by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
+    var transformDialog by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var sourceMessage by remember { mutableStateOf("") }
     var canvasWidth by remember { mutableFloatStateOf(1f) }
@@ -1078,137 +1079,58 @@ fun SceneStudio(
                 }
             }
         }
-        if (layer != null) {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)) {
-                Column(Modifier.padding(7.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("EDITING · ${layer.name}", color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
+        Surface(
+            color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)
+        ) {
+            Column(Modifier.padding(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("LAYER SETTINGS", color = Color.White, fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                if (layer == null) {
+                    Text("Select a layer to edit its main controls.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
+                } else {
+                    Text(layer.name, color = Color(0xFFFFA27A), fontSize = 9.sp, maxLines = 1)
                     if (layer.kind == "text" || layer.kind == "timer") {
                         OutlinedTextField(
-                            value = layer.text, enabled = !layer.locked && layer.kind == "text", onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
-                            label = { Text(if (layer.kind == "timer") "Timer label" else "Text shown on screen", maxLines = 1, softWrap = false) }, modifier = Modifier.fillMaxWidth(), singleLine = true
+                            value = layer.text, enabled = !layer.locked && layer.kind == "text",
+                            onValueChange = { value -> updateLayer(layer.id) { it.copy(text = value) } },
+                            label = { Text(if (layer.kind == "timer") "Timer label" else "Text", maxLines = 1) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true
                         )
-                        Text("TEXT COLOR", color = Color(0xFFA1A8AF), fontSize = 9.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("#FFFFFFFF", "#FFFFD166", "#FF68DDFD", "#FFFF6B8A", "#FF9BFFB0", "#FFB99CFF").forEach { hex ->
-                                Surface(
-                                    modifier = Modifier.size(28.dp),
-                                    shape = RoundedCornerShape(50),
-                                    color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.White),
-                                    onClick = { updateLayer(layer.id) { it.copy(textColor = hex) } },
-                                    border = androidx.compose.foundation.BorderStroke(if (layer.textColor == hex) 2.dp else 0.dp, Color.White)
-                                ) {}
-                            }
-                        }
-                        Text("FONT", color = Color(0xFFA1A8AF), fontSize = 9.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            listOf("sans-serif" to "Modern", "serif" to "Serif", "monospace" to "Mono", "casual" to "Casual").forEach { (family, label) ->
-                                FilterChip(selected = layer.fontFamily == family, onClick = { updateLayer(layer.id) { it.copy(fontFamily = family) } }, label = { Text(label, fontSize = 10.sp) })
-                            }
-                        }
-                        Text("FONT SIZE · ${(layer.fontSizeScale * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                        Slider(value = layer.fontSizeScale, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(fontSizeScale = v) } }, valueRange = .5f..2f)
                     }
                     if (layer.kind == "image" || layer.kind == "gif" || layer.kind == "video") {
-                        Text("${layer.kind.uppercase()} source added. Replace to choose another visual.", color = Color(0xFFA1A8AF), fontSize = 11.sp)
-                        OutlinedButton(onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) }, enabled = !layer.locked, modifier = Modifier.fillMaxWidth()) { Text("Replace media") }
+                        OutlinedButton(
+                            onClick = { if (layer.kind == "video") videoPicker.launch(arrayOf("video/*")) else imagePicker.launch(arrayOf("image/*")) },
+                            enabled = !layer.locked, modifier = Modifier.fillMaxWidth()
+                        ) { Text("Replace media") }
+                    }
+                    if (layer.kind == "video") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Loop playback", color = Color.White, modifier = Modifier.weight(1f), fontSize = 11.sp)
+                            Text("Auto play", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = layer.autoPlay, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(autoPlay = value) } })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Loop video", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
                             Switch(checked = layer.loop, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(loop = value) } })
                         }
-                        if (layer.kind == "video") {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(if (layer.soundMuted) "VIDEO SOUND · OFF" else "VIDEO SOUND · ${(layer.soundVolume * 100).toInt()}%", color = Color.White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                                Switch(checked = !layer.soundMuted, enabled = !layer.locked, onCheckedChange = { enabled -> updateLayer(layer.id) { it.copy(soundMuted = !enabled) } })
-                            }
-                            Slider(value = layer.soundVolume, enabled = !layer.locked && !layer.soundMuted, onValueChange = { value -> updateLayer(layer.id) { it.copy(soundVolume = value.coerceIn(0f, 1f)) } }, valueRange = 0f..1f)
-                            if (showMoreSettings) {
-                            Text(
-                                if (layer.fps == 0) "VIDEO FPS · ORIGINAL SOURCE (AUTO)" else "VIDEO FPS · ${layer.fps}",
-                                color = Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = layer.fps == 0,
-                                    onClick = { updateLayer(layer.id) { it.copy(fps = 0) } },
-                                    enabled = !layer.locked,
-                                    label = { Text("Original FPS", fontSize = 11.sp) }
-                                )
-                                FilterChip(
-                                    selected = layer.fps != 0,
-                                    onClick = { updateLayer(layer.id) { it.copy(fps = 30) } },
-                                    enabled = !layer.locked,
-                                    label = { Text("Custom FPS", fontSize = 11.sp) }
-                                )
-                            }
-                            if (layer.fps != 0) {
-                                Slider(
-                                    value = layer.fps.toFloat(),
-                                    enabled = !layer.locked,
-                                    onValueChange = { value -> updateLayer(layer.id) { it.copy(fps = (value / 5f).toInt().coerceIn(1, 12) * 5) } },
-                                    valueRange = 5f..60f,
-                                    steps = 10
-                                )
-                                if (layer.fps > 30) {
-                                    Text("⚠ High FPS can increase heat, battery use and dropped frames. Use only if your phone can sustain it.", color = Color(0xFFFFB27F), fontSize = 10.sp, lineHeight = 14.sp)
-                                }
-                            } else {
-                                Text("Uses the video's source frame rate automatically, up to 60 FPS. Device performance may limit playback.", color = Color(0xFFA6ADB5), fontSize = 10.sp, lineHeight = 14.sp)
-                            }
-                            Text("Text, image and other static overlays do not need a video FPS setting.", color = Color(0xFFFF8659), fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                            }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Sound", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                            Switch(checked = !layer.soundMuted, enabled = !layer.locked, onCheckedChange = { value -> updateLayer(layer.id) { it.copy(soundMuted = !value) } })
+                        }
+                        Text("Volume · ${(layer.soundVolume * 100).toInt()}%", color = Color(0xFFA1A8AF), fontSize = 9.sp)
+                        Slider(
+                            value = layer.soundVolume, enabled = !layer.locked && !layer.soundMuted,
+                            onValueChange = { value -> updateLayer(layer.id) { it.copy(soundVolume = value.coerceIn(0f, 1f)) } },
+                            valueRange = 0f..1f
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        OutlinedButton(onClick = { transformDialog = true }, enabled = !layer.locked, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 5.dp, vertical = 3.dp)) {
+                            Text("Size & position", fontSize = 9.sp)
+                        }
+                        OutlinedButton(onClick = { updateLayer(layer.id) { it.copy(locked = !it.locked) } }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 5.dp, vertical = 3.dp)) {
+                            Text(if (layer.locked) "Unlock" else "Lock", fontSize = 9.sp)
                         }
                     }
-                    Text("Width · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.width, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
-                    Text("Height · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.height, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
-                    if (layer.width < .999f) {
-                        Text("Position X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                        Slider(value = layer.x, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
-                    } else Text("Position X · Full width", color = Color.Gray, fontSize = 11.sp)
-                    if (layer.height < .999f) {
-                        Text("Position Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                        Slider(value = layer.y, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
-                    } else Text("Position Y · Full height", color = Color.Gray, fontSize = 11.sp)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (layer.locked) "POSITION LOCKED" else "EDITING UNLOCKED", color = if (layer.locked) Color(0xFFFFB27F) else Color(0xFF55D6A1), modifier = Modifier.weight(1f), fontSize = 10.sp)
-                        OutlinedButton(onClick = {
-                            val locking = !layer.locked
-                            updateLayer(layer.id) { it.copy(locked = locking) }
-                            if (locking) selected = layer.id
-                        }) { Text(if (layer.locked) "UNLOCK TO EDIT" else "LOCK POSITION") }
-                    }
-                    Text("Rotation · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.rotation, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
-                    Text("Crop left · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropLeft, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropLeft = v.coerceIn(0f, it.cropRight - .02f)) } }, valueRange = 0f..0.95f)
-                    Text("Crop top · ${(layer.cropTop * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropTop, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropTop = v.coerceIn(0f, it.cropBottom - .02f)) } }, valueRange = 0f..0.95f)
-                    Text("Crop right · ${(layer.cropRight * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropRight, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropRight = v.coerceIn(it.cropLeft + .02f, 1f)) } }, valueRange = .05f..1f)
-                    Text("Crop bottom · ${(layer.cropBottom * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
-                    Slider(value = layer.cropBottom, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
-                    Text("Opacity · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
-                    Slider(value = layer.opacity, enabled = !layer.locked, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } })
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        OutlinedButton(onClick = {
-                            val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
-                            if (i > 0) { val moving = items.removeAt(i); items.add(i - 1, moving); scenes[index] = scene.copy(layers = items) }
-                        }, enabled = !layer.locked, modifier = Modifier.weight(1f)) { Text("Move up") }
-                        OutlinedButton(onClick = {
-                            val items = scene.layers.toMutableList(); val i = items.indexOfFirst { it.id == layer.id }
-                            if (i >= 0 && i < items.lastIndex) { val moving = items.removeAt(i); items.add(i + 1, moving); scenes[index] = scene.copy(layers = items) }
-                        }, enabled = !layer.locked, modifier = Modifier.weight(1f)) { Text("Move down") }
-                        OutlinedButton(onClick = { scenes[index] = scene.copy(layers = scene.layers.filterNot { it.id == layer.id }); selected = -1L }, enabled = !layer.locked) { Text("Delete") }
-                    }
-                }
-            }
-        } else {
-            Surface(color = Color(0xFF15191D), shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1.2f).heightIn(min = 170.dp, max = 240.dp)) {
-                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("LAYERS SETTING", color = Color.White, fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    Text("Select any layer on the left to edit it here.", color = Color(0xFFA1A8AF), fontSize = 9.sp)
                 }
             }
         }
@@ -1224,6 +1146,39 @@ fun SceneStudio(
         }
         }
     }
+
+    if (transformDialog && layer != null) AlertDialog(
+        onDismissRequest = { transformDialog = false },
+        title = { Text("Size & position · ${layer.name}") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("WIDTH · ${(layer.width * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.width, onValueChange = { v -> updateLayer(layer.id) { it.copy(width = v.coerceIn(.08f, 1f), x = it.x.coerceAtMost(1f - v)) } }, valueRange = .08f..1f)
+                Text("HEIGHT · ${(layer.height * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.height, onValueChange = { v -> updateLayer(layer.id) { it.copy(height = v.coerceIn(.05f, 1f), y = it.y.coerceAtMost(1f - v)) } }, valueRange = .05f..1f)
+                Text("POSITION X · ${(layer.x * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.x, onValueChange = { v -> updateLayer(layer.id) { it.copy(x = v.coerceIn(0f, 1f - it.width)) } }, valueRange = 0f..(1f - layer.width).coerceAtLeast(0f))
+                Text("POSITION Y · ${(layer.y * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.y, onValueChange = { v -> updateLayer(layer.id) { it.copy(y = v.coerceIn(0f, 1f - it.height)) } }, valueRange = 0f..(1f - layer.height).coerceAtLeast(0f))
+                Text("ROTATION · ${layer.rotation.toInt()}°", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.rotation, onValueChange = { v -> updateLayer(layer.id) { it.copy(rotation = v) } }, valueRange = -180f..180f)
+                Text("OPACITY · ${(layer.opacity * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                Slider(value = layer.opacity, onValueChange = { v -> updateLayer(layer.id) { it.copy(opacity = v) } }, valueRange = 0f..1f)
+                if (layer.kind == "video" || layer.kind == "image" || layer.kind == "gif") {
+                    Text("CROP LEFT · ${(layer.cropLeft * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropLeft, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropLeft = v.coerceIn(0f, it.cropRight - .02f)) } }, valueRange = 0f..0.95f)
+                    Text("CROP TOP · ${(layer.cropTop * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropTop, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropTop = v.coerceIn(0f, it.cropBottom - .02f)) } }, valueRange = 0f..0.95f)
+                    Text("CROP RIGHT · ${(layer.cropRight * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropRight, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropRight = v.coerceIn(it.cropLeft + .02f, 1f)) } }, valueRange = .05f..1f)
+                    Text("CROP BOTTOM · ${(layer.cropBottom * 100).toInt()}%", color = Color.White, fontSize = 10.sp)
+                    Slider(value = layer.cropBottom, onValueChange = { v -> updateLayer(layer.id) { it.copy(cropBottom = v.coerceIn(it.cropTop + .02f, 1f)) } }, valueRange = .05f..1f)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { transformDialog = false }) { Text("Done") } },
+        containerColor = Color(0xFF15191D), titleContentColor = Color.White, textContentColor = Color.White
+    )
 
     if (assetsDialog) AlertDialog(
         onDismissRequest = { assetsDialog = false },
