@@ -798,7 +798,7 @@ fun SceneStudio(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("SOURCE", color = Color(0xFFFF8659), fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Box(Modifier.fillMaxWidth(.84f).align(Alignment.CenterHorizontally)) {
+                Box(Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally).padding(start = 10.dp)) {
                     StudioPreviewSurface(
                         previewReady = previewReady,
                         isStreaming = isStreaming,
@@ -821,7 +821,7 @@ fun SceneStudio(
                 }
                         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(0.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-                            modifier = Modifier.fillMaxWidth(.84f).align(Alignment.CenterHorizontally)) {
+                            modifier = Modifier.fillMaxWidth(.82f).align(Alignment.CenterHorizontally).padding(end = 10.dp)) {
                             Column(Modifier.padding(2.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518))) {
                                     SceneCompositionPreview(Modifier.fillMaxSize(), editorMode = true)
