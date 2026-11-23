@@ -379,43 +379,35 @@ private fun SceneVideoPlaybackCard(
             delay(250L)
         }
     }
-    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("VIDEO", color = Color.White, fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (state.ready.value) "READY" else if (state.error.value != null) "ERROR" else "LOADING",
-                    color = if (state.error.value != null) Color(0xFFFF8A80) else Color(0xFF9FB5CE),
-                    fontSize = 8.sp
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(formatSceneVideoTime(state.positionMs.value), color = Color.White, fontSize = 9.sp)
+    Surface(color = Color(0xFF202832), shape = RoundedCornerShape(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 4.dp, vertical = 1.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            // Line 1: timeline and play/pause.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.height(19.dp)) {
+                Text(formatSceneVideoTime(state.positionMs.value), color = Color.White, fontSize = 8.sp)
                 Slider(
                     value = state.positionMs.value.toFloat().coerceIn(0f, state.durationMs.value.toFloat().coerceAtLeast(1f)),
                     onValueChange = { onUseHardware(); SceneVideoPlayback.seek(state, it.toInt()) },
                     valueRange = 0f..state.durationMs.value.toFloat().coerceAtLeast(1f),
                     enabled = state.ready.value,
-                    modifier = Modifier.weight(1f).height(16.dp)
+                    modifier = Modifier.weight(1f).height(13.dp)
                 )
-                Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 9.sp)
+                Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 8.sp)
                 androidx.compose.material3.IconButton(
                     onClick = { onUseHardware(); SceneVideoPlayback.toggle(state) },
                     enabled = state.ready.value,
-                    modifier = Modifier.size(25.dp)
+                    modifier = Modifier.size(19.dp)
                 ) {
-                    Text(if (state.playing.value) "Ⅱ" else "▶", color = Color.White, fontSize = 12.sp)
+                    Text(if (state.playing.value) "Ⅱ" else "▶", color = Color.White, fontSize = 10.sp)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp), modifier = Modifier.height(18.dp)) {
-                    Text(if (muted) "MUTED" else "SOUND", fontSize = 8.sp)
+            // Line 2: mute and volume.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.height(17.dp)) {
+                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(16.dp)) {
+                    Text(if (muted) "MUTE" else "SOUND", fontSize = 7.sp, maxLines = 1)
                 }
-                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(16.dp), valueRange = 0f..1f)
-                Text("${(volume * 100).toInt()}%", color = Color.Gray, fontSize = 8.sp)
+                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(12.dp), valueRange = 0f..1f)
+                Text("${(volume * 100).toInt()}%", color = Color.Gray, fontSize = 7.sp)
             }
-            state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 8.sp) }
         }
     }
 }
@@ -665,17 +657,20 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             }
             if (renderMode == "hardware") {
                 scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
-                    HardwareVideoPreview(
-                        uriString = item.text,
-                        loop = item.loop,
-                        autoPlay = item.autoPlay,
-                        volume = item.soundVolume,
-                        muted = item.soundMuted,
-                        modifier = Modifier
-                            .offset(x = previewWidth * item.x, y = previewHeight * item.y)
-                            .size(width = previewWidth * item.width, height = previewHeight * item.height)
-                            .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
-                    )
+                    // Keep the AndroidView attached to its layer identity while z-order changes.
+                    key(item.id) {
+                        HardwareVideoPreview(
+                            uriString = item.text,
+                            loop = item.loop,
+                            autoPlay = item.autoPlay,
+                            volume = item.soundVolume,
+                            muted = item.soundMuted,
+                            modifier = Modifier
+                                .offset(x = previewWidth * item.x, y = previewHeight * item.y)
+                                .size(width = previewWidth * item.width, height = previewHeight * item.height)
+                                .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
+                        )
+                    }
                 }
             }
         }
