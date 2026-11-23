@@ -31,6 +31,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -46,6 +48,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.lazy.LazyListItemScope
+import androidx.compose.foundation.lazy.animateItemPlacement
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -178,12 +184,15 @@ private object SceneVideoPlayback {
     fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
         val state = states[uri] ?: get(context, uri, loop)
         if (state.surfaceTexture === texture) return
-        runCatching { state.surface?.let { state.player.setSurface(null); it.release() } }
+        val previousSurface = state.surface
         val surface = Surface(texture)
         state.surfaceTexture = texture
         state.surface = surface
         runCatching {
+            // Replace the output surface directly. Clearing it first can race decoder teardown
+            // and trigger native MediaPlayer errors when layers are reordered.
             state.player.setSurface(surface)
+            previousSurface?.release()
             if (state.ready.value && state.wantsPlayback && !state.player.isPlaying) {
                 state.player.start()
                 state.playing.value = true
@@ -213,8 +222,20 @@ private object SceneVideoPlayback {
     }
 
     @Synchronized
+    fun activateScene(activeUris: Set<String>) {
+        // A scene owns only its own videos. Keep inactive players and their positions,
+        // but pause them so they cannot continue invisibly behind the selected scene.
+        states.values.forEach { state ->
+            if (state.uri !in activeUris && state.ready.value) {
+                runCatching { if (state.player.isPlaying) state.player.pause() }
+                state.playing.value = false
+            }
+        }
+    }
+
+    @Synchronized
     fun pauseForBackground() {
-        // Keep video frames advancing while backgrounded, but silence preview audio.
+        // Do not pause playback: keep the video clock/frames advancing silently.
         appInForeground = false
         states.values.forEach(::applyVolume)
     }
@@ -302,9 +323,9 @@ private fun SceneVideoPlaybackCard(
         }
     }
     Surface(color = Color(0xFF202832), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("VIDEO", color = Color.White, fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                Text("VIDEO", color = Color.White, fontSize = 8.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 Text(
                     if (state.ready.value) "READY" else if (state.error.value != null) "ERROR" else "LOADING",
@@ -319,22 +340,22 @@ private fun SceneVideoPlaybackCard(
                     onValueChange = { onUseHardware(); SceneVideoPlayback.seek(state, it.toInt()) },
                     valueRange = 0f..state.durationMs.value.toFloat().coerceAtLeast(1f),
                     enabled = state.ready.value,
-                    modifier = Modifier.weight(1f).height(22.dp)
+                    modifier = Modifier.weight(1f).height(16.dp)
                 )
                 Text(formatSceneVideoTime(state.durationMs.value), color = Color.Gray, fontSize = 9.sp)
                 androidx.compose.material3.IconButton(
                     onClick = { onUseHardware(); SceneVideoPlayback.toggle(state) },
                     enabled = state.ready.value,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(25.dp)
                 ) {
                     Text(if (state.playing.value) "Ⅱ" else "▶", color = Color.White, fontSize = 12.sp)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp), modifier = Modifier.height(22.dp)) {
+                TextButton(onClick = { onMuteChange(!muted) }, contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp), modifier = Modifier.height(18.dp)) {
                     Text(if (muted) "MUTED" else "SOUND", fontSize = 8.sp)
                 }
-                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(20.dp), valueRange = 0f..1f)
+                Slider(value = volume, onValueChange = onVolumeChange, enabled = !muted, modifier = Modifier.weight(1f).height(16.dp), valueRange = 0f..1f)
                 Text("${(volume * 100).toInt()}%", color = Color.Gray, fontSize = 8.sp)
             }
             state.error.value?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 8.sp) }
@@ -362,8 +383,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            // Removing a preview composable is not the same as app backgrounding.
+            // Keep the active player running; the lifecycle observer handles real background mute.
             lifecycleOwner.lifecycle.removeObserver(observer)
-            SceneVideoPlayback.pauseForBackground()
         }
     }
     val prefs = remember { context.getSharedPreferences("streamforge_studio", 0) }
@@ -749,6 +771,7 @@ fun SceneStudio(
     val index = active.coerceIn(0, scenes.lastIndex)
     val scene = scenes[index]
     LaunchedEffect(index, scene) {
+        SceneVideoPlayback.activateScene(scene.layers.filter { it.kind == "video" }.map { it.text }.toSet())
         prefs.edit()
             .putString("scenes", encodeSceneList(scenes))
             .putInt("active_scene", index)
@@ -1049,67 +1072,59 @@ fun SceneStudio(
                     if (scene.layers.isEmpty()) {
                         Text("No layers yet", color = Color.Gray, fontSize = 10.sp)
                     } else {
-                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            scene.layers.asReversed().forEach { item ->
+                        val displayedLayers = scene.layers.asReversed()
+                        LazyColumn(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            items(displayedLayers, key = { it.id }) { item ->
                                 var reorderDrag by remember(item.id) { mutableFloatStateOf(0f) }
                                 Surface(
                                     color = if (item.id == selected) Color(0xFF35231D) else Color(0xFF20262B),
-                                    shape = RoundedCornerShape(5.dp),
-                                    modifier = Modifier.fillMaxWidth().pointerInput(item.id, scene.layers) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = { selected = item.id; reorderDrag = 0f },
-                                            onDragEnd = { reorderDrag = 0f },
-                                            onDragCancel = { reorderDrag = 0f },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                reorderDrag += dragAmount.y
-                                                if (reorderDrag >= 28f || reorderDrag <= -28f) {
-                                                    val currentItems = scenes[index].layers.toMutableList()
-                                                    val currentIndex = currentItems.indexOfFirst { it.id == item.id }
-                                                    val step = if (reorderDrag > 0f) -1 else 1
-                                                    val targetIndex = (currentIndex + step).coerceIn(0, currentItems.lastIndex)
-                                                    if (currentIndex >= 0 && currentIndex != targetIndex) {
-                                                        val moving = currentItems.removeAt(currentIndex)
-                                                        currentItems.add(targetIndex, moving)
-                                                        scenes[index] = scenes[index].copy(layers = currentItems)
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                        .animateItemPlacement(animationSpec = spring(dampingRatio = .82f, stiffness = 360f))
+                                        .pointerInput(item.id, scene.layers) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { selected = item.id; reorderDrag = 0f },
+                                                onDragEnd = { reorderDrag = 0f },
+                                                onDragCancel = { reorderDrag = 0f },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    reorderDrag += dragAmount.y
+                                                    val threshold = 30.dp.toPx()
+                                                    if (abs(reorderDrag) >= threshold) {
+                                                        val currentDisplay = scenes[index].layers.asReversed().toMutableList()
+                                                        val from = currentDisplay.indexOfFirst { it.id == item.id }
+                                                        val to = (from + if (reorderDrag > 0f) 1 else -1).coerceIn(0, currentDisplay.lastIndex)
+                                                        if (from >= 0 && from != to) {
+                                                            val moving = currentDisplay.removeAt(from)
+                                                            currentDisplay.add(to, moving)
+                                                            scenes[index] = scenes[index].copy(layers = currentDisplay.asReversed())
+                                                        }
+                                                        reorderDrag = 0f
                                                     }
-                                                    reorderDrag = 0f
                                                 }
-                                            }
-                                        )
-                                    },
+                                            )
+                                        },
                                     onClick = { selected = item.id }
                                 ) {
-                                    Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                                            TextButton(onClick = {
-                                                val items = scenes[index].layers.toMutableList()
-                                                val pos = items.indexOfFirst { it.id == item.id }
-                                                if (pos > 0) { val moving = items.removeAt(pos); items.add(pos - 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(17.dp)) {
-                                                Text("↑", color = Color(0xFFFFA27A), fontSize = 11.sp)
-                                            }
-                                            TextButton(onClick = {
-                                                val items = scenes[index].layers.toMutableList()
-                                                val pos = items.indexOfFirst { it.id == item.id }
-                                                if (pos >= 0 && pos < items.lastIndex) { val moving = items.removeAt(pos); items.add(pos + 1, moving); scenes[index] = scenes[index].copy(layers = items) }
-                                            }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(17.dp)) {
-                                                Text("↓", color = Color(0xFFFFA27A), fontSize = 11.sp)
-                                            }
-                                        }
-                                        Column(Modifier.weight(1f).padding(start = 3.dp)) {
-                                            Text(item.name + if (item.locked) " · 🔒" else "", color = Color.White, fontSize = 9.sp, maxLines = 1, softWrap = false)
+                                    Row(Modifier.padding(horizontal = 5.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("⠿", color = Color(0xFFFFA27A), fontSize = 17.sp)
+                                        Column(Modifier.weight(1f)) {
+                                            Text(item.name, color = Color.White, fontSize = 9.sp, maxLines = 1, softWrap = false)
+                                            Text(if (item.visible) "VISIBLE" else "HIDDEN", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 7.sp)
                                         }
                                         TextButton(onClick = { updateLayer(item.id) { it.copy(visible = !it.visible) } },
-                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(25.dp)) {
-                                            Text(if (item.visible) "●" else "○", color = if (item.visible) Color(0xFF65D6A4) else Color.Gray, fontSize = 11.sp)
+                                            contentPadding = PaddingValues(0.dp), modifier = Modifier.size(30.dp)) {
+                                            Text(if (item.visible) "👁️" else "🙈", fontSize = 15.sp)
                                         }
                                         TextButton(onClick = {
                                             val locking = !item.locked
                                             updateLayer(item.id) { it.copy(locked = locking) }
                                             if (locking) selected = item.id
-                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(25.dp)) {
-                                            Text(if (item.locked) "🔒" else "↗", fontSize = 11.sp)
+                                        }, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(30.dp)) {
+                                            Text(if (item.locked) "🔒" else "🔓", fontSize = 15.sp)
                                         }
                                     }
                                 }
