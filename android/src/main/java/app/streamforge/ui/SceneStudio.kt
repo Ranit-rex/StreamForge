@@ -805,7 +805,7 @@ fun SceneStudio(
                 }
                         Surface(color = Color(0xFF292D30), shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF665044)),
-                            modifier = Modifier.fillMaxWidth()) {
+                            modifier = Modifier.fillMaxWidth(.94f).align(Alignment.CenterHorizontally)) {
                             Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color(0xFF111518), RoundedCornerShape(9.dp))) {
                                     SceneCompositionPreview(Modifier.fillMaxSize(), editorMode = true)
