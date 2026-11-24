@@ -40,4 +40,5 @@ dependencies {
  debugImplementation("androidx.compose.ui:ui-tooling")
  implementation("com.github.pedroSG94.RootEncoder:library:2.8.1")
  implementation("com.google.android.gms:play-services-ads:25.5.0")
+ implementation("com.google.android.gms:play-services-auth:21.6.0")
 }
