@@ -237,6 +237,7 @@ fun StreamForgeApp(
                             }
                         )
                         6 -> ChatIntegrationPanel()
+                        7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
                         SettingsPanel(
@@ -492,7 +493,7 @@ fun StreamForgeApp(
                     )
                     destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..6 else selectedTab == tab,
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..7 else selectedTab == tab,
                             onClick = { selectedTab = tab },
                             icon = { Text(icon, fontSize = 17.sp) },
                             label = { Text(label, fontSize = 10.sp, maxLines = 1) },
@@ -1036,6 +1037,9 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
             QuickTile("✦", "AI Copilot", "Connect your AI model", Modifier.weight(1f)) { onNavigate(5) }
             QuickTile("☷", "Live Chat", "YouTube chat setup", Modifier.weight(1f)) { onNavigate(6) }
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("◎", "Destinations", "Link creator accounts", Modifier.weight(1f)) { onNavigate(7) }
+        }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("STREAMFORGE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
@@ -1043,5 +1047,82 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
                 Text("Your stream key stays on this device. Platform chat and AI integrations require their own connection.", color = Muted, fontSize = 10.sp)
             }
         }
+    }
+}
+
+
+@Composable
+private fun DestinationsPanel() {
+    var provider by remember { mutableStateOf("YouTube") }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var visibility by remember { mutableStateOf("Unlisted") }
+    var info by remember { mutableStateOf("") }
+    val providers = listOf(
+        "YouTube" to "Create and manage scheduled broadcasts",
+        "Twitch" to "Link channel and prepare stream",
+        "Facebook Live" to "Connect a Page for live video",
+        "Kick" to "RTMP destination; API access pending",
+        "TikTok Live" to "LIVE access approval may be required"
+    )
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeading("CREATOR WORKSPACE", "Destinations")
+        Text("Link your streaming accounts once, then manage broadcasts from StreamForge.", color = Muted, fontSize = 11.sp)
+        Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("ACCOUNT CONNECTIONS", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                providers.forEach { item ->
+                    Surface(
+                        color = if (provider == item.first) Color(0xFF2B211D) else PanelRaised,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (provider == item.first) Accent else Color.Transparent),
+                        modifier = Modifier.fillMaxWidth().clickable { provider = item.first }
+                    ) {
+                        Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(item.first, color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text(item.second, color = Muted, fontSize = 9.sp)
+                                Text(if (provider == item.first) "SELECTED · NOT CONNECTED" else "NOT CONNECTED", color = if (provider == item.first) Accent else Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text("›", color = Accent, fontSize = 20.sp)
+                        }
+                    }
+                }
+                Button(onClick = { info = "The " + provider + " OAuth connection is not active yet. It needs provider developer credentials and secure token storage on the StreamForge backend. No account is connected in this build." }, modifier = Modifier.fillMaxWidth()) {
+                    Text("CONNECT " + provider.uppercase(), fontWeight = FontWeight.Black, fontSize = 11.sp)
+                }
+            }
+        }
+        Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("BROADCAST MANAGER", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                Text("Load an existing scheduled broadcast or create a new one after linking your account.", color = Muted, fontSize = 10.sp)
+                OutlinedButton(onClick = { info = "Existing broadcasts can be loaded after OAuth account linking is configured." }, modifier = Modifier.fillMaxWidth()) {
+                    Text("LOAD EXISTING / SCHEDULED BROADCASTS")
+                }
+                Divider(color = PanelRaised)
+                Text("CREATE NEW BROADCAST", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                OutlinedTextField(value = title, onValueChange = { title = it.take(100) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Broadcast title") })
+                OutlinedTextField(value = description, onValueChange = { description = it.take(5000) }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 4, label = { Text("Description") })
+                Text("Visibility", color = Muted, fontSize = 10.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Public", "Unlisted", "Private").forEach { v ->
+                        FilterChip(selected = visibility == v, onClick = { visibility = v }, label = { Text(v, fontSize = 10.sp) })
+                    }
+                }
+                OutlinedButton(onClick = { info = "Broadcast creation is waiting for a linked " + provider + " account. Your draft has not been uploaded." }, enabled = title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
+                    Text("CREATE BROADCAST")
+                }
+                Text("Thumbnail upload and scheduling will appear after the provider connection is enabled.", color = Muted, fontSize = 9.sp)
+            }
+        }
+        Surface(color = PanelRaised, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
+            Text("Current encoder streams to one RTMP destination. Simultaneous multi-platform output is not enabled yet.", Modifier.padding(12.dp), color = Muted, fontSize = 9.sp)
+        }
+    }
+    if (info.isNotBlank()) {
+        AlertDialog(onDismissRequest = { info = "" }, title = { Text("Destinations") }, text = { Text(info) },
+            confirmButton = { TextButton(onClick = { info = "" }) { Text("OK") } },
+            containerColor = Panel, titleContentColor = AppText, textContentColor = Muted)
     }
 }
