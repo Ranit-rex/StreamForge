@@ -356,6 +356,12 @@ private object SceneVideoPlayback {
     @Synchronized
     fun refresh(state: State) {
         if (state.ready.value) runCatching {
+            // Program/Live preview can remain mounted after the editor playback card
+            // is removed. Keep the retained MediaPlayer clock advancing independently
+            // of that card and recover if Android silently stopped playback.
+            if (state.wantsPlayback && !state.player.isPlaying) {
+                state.player.start()
+            }
             state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
             state.playing.value = state.player.isPlaying
         }.onFailure { recover(state, it.message ?: "Playback refresh recovery") }
@@ -499,10 +505,13 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         try {
             while (isActive && sources.isNotEmpty()) {
                 val currentPositions = videoPlayers.mapValues { (_, state) ->
+                    // Refresh playback from the program preview itself; it must not
+                    // depend on the editor's playback controls remaining composed.
+                    SceneVideoPlayback.refresh(state)
                     if (state.ready.value) {
                         runCatching { state.player.currentPosition.toLong() }
                             .getOrDefault(state.positionMs.value.toLong())
-                    } else 0L
+                    } else state.positionMs.value.toLong()
                 }
                 val frames = withContext(Dispatchers.IO) {
                     sources.mapNotNull { (id, retriever, settings) ->
