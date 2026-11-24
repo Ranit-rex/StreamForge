@@ -516,13 +516,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     // detached by page navigation. The player itself is held by SceneVideoPlayback.
     LaunchedEffect(videoPlayers, renderMode, videoSources) {
         while (isActive) {
-            if (renderMode != "hardware") {
-                videoSources.forEach { source -> videoPlayers[source.first]?.let { state ->
-                    SceneVideoPlayback.setAutoPlay(state, source.third.third.first)
-                    SceneVideoPlayback.setAudio(state, source.third.third.second.first, source.third.third.second.second)
-                    SceneVideoPlayback.refresh(state)
-                } }
-            }
+            videoSources.forEach { source -> videoPlayers[source.first]?.let { state ->
+                val hardwareActive = renderMode == "hardware"
+                SceneVideoPlayback.setAutoPlay(state, source.third.third.first && !hardwareActive)
+                SceneVideoPlayback.setAudio(
+                    state,
+                    if (hardwareActive) 0f else source.third.third.second.first,
+                    source.third.third.second.second || hardwareActive
+                )
+                if (!hardwareActive) SceneVideoPlayback.refresh(state)
+            } }
             delay(100L)
         }
     }
