@@ -3,6 +3,7 @@ package app.streamforge.stream
 import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
+import app.streamforge.ui.YouTubeApiKeyStore
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -21,6 +22,7 @@ object YouTubeLiveChat {
         if (running) return
         val prefs = context.getSharedPreferences("streamforge_chat", Context.MODE_PRIVATE)
         val videoId = extractVideoId(prefs.getString("youtube_video_id", "").orEmpty())
+        val userApiKey = YouTubeApiKeyStore.read(context)
         if (videoId.isBlank()) {
             connectionState.value = "Add your YouTube LIVE video link in Chat settings"
             return
@@ -35,8 +37,27 @@ object YouTubeLiveChat {
                 var conn: HttpURLConnection? = null
                 var delay = 7000L
                 try {
-                    val query = "videoId=" + enc(videoId) + if (pageToken.isNotBlank()) "&pageToken=" + enc(pageToken) else ""
-                    conn = (URL("$API_BASE/api/youtube/live-chat?$query").openConnection() as HttpURLConnection).apply {
+                    val requestUrl: String
+                    if (userApiKey.isNotBlank()) {
+                        var chatId = prefs.getString("youtube_active_chat_id", "").orEmpty()
+                        if (chatId.isBlank()) {
+                            val videoConn = URL("https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=" + enc(videoId) + "&key=" + enc(userApiKey)).openConnection() as HttpURLConnection
+                            videoConn.connectTimeout = 12000
+                            videoConn.readTimeout = 18000
+                            val videoCode = videoConn.responseCode
+                            val videoBody = (if (videoCode in 200..299) videoConn.inputStream else videoConn.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+                            videoConn.disconnect()
+                            if (videoCode !in 200..299) throw IllegalStateException(runCatching { JSONObject(videoBody).getJSONObject("error").optString("message") }.getOrNull().orEmpty().ifBlank { "YouTube API key error ($videoCode)" })
+                            chatId = JSONObject(videoBody).optJSONArray("items")?.optJSONObject(0)?.optJSONObject("liveStreamingDetails")?.optString("activeLiveChatId").orEmpty()
+                            if (chatId.isBlank()) throw IllegalStateException("No active Live Chat found. Check that the broadcast is live and chat is enabled.")
+                            prefs.edit().putString("youtube_active_chat_id", chatId).apply()
+                        }
+                        requestUrl = "https://www.googleapis.com/youtube/v3/liveChat/messages?liveChatId=" + enc(chatId) + "&part=snippet%2CauthorDetails&maxResults=200&key=" + enc(userApiKey) + if (pageToken.isNotBlank()) "&pageToken=" + enc(pageToken) else ""
+                    } else {
+                        val query = "videoId=" + enc(videoId) + if (pageToken.isNotBlank()) "&pageToken=" + enc(pageToken) else ""
+                        requestUrl = "$API_BASE/api/youtube/live-chat?$query"
+                    }
+                    conn = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
                         requestMethod = "GET"
                         connectTimeout = 12000
                         readTimeout = 18000
