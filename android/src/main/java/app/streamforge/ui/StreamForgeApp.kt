@@ -249,7 +249,8 @@ fun StreamForgeApp(
                                 }
                             }
                         )
-                        6 -> LiveChatPanel()\n                        10 -> ChatIntegrationPanel()
+                        6 -> LiveChatPanel()
+                        10 -> ChatIntegrationPanel()
                         9 -> PartyVoicePanel()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
