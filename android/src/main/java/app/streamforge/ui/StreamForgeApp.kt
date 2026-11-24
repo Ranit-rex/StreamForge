@@ -41,7 +41,7 @@ private val Good = Color(0xFF55D6A1)
 private fun applyAppPalette(mode: String, accentHex: String) {
     val light = mode == "light"
     Background = if (light) Color(0xFFF3F5F7) else Color(0xFF0D0F11)
-    Panel = if (light) AppText else Color(0xFF15191D)
+    Panel = if (light) Color.White else Color(0xFF15191D)
     PanelRaised = if (light) Color(0xFFE7EBEF) else Color(0xFF20262B)
     Muted = if (light) Color(0xFF626C75) else Color(0xFFA1A8AF)
     AppText = if (light) Color(0xFF171A1D) else Color(0xFFF3F1EE)
