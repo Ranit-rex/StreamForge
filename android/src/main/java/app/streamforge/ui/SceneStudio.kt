@@ -243,14 +243,18 @@ private object SceneVideoPlayback {
     @Synchronized
     fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
         val state = states[uri] ?: get(context, uri, loop)
-        if (state.surfaceTexture === texture && state.surface?.isValid == true) return
+        val sameSurface = state.surfaceTexture === texture && state.surface?.isValid == true
         val previous = state.surface
-        val next = Surface(texture)
+        val next = if (sameSurface) previous!! else Surface(texture)
         state.surfaceTexture = texture
         state.surface = next
         runCatching {
+            // A layer z-order change can detach/reorder the TextureView without
+            // destroying its SurfaceTexture. Rebind even when the Surface object
+            // is still valid; otherwise MediaPlayer can keep rendering to the
+            // old, no-longer-visible output and the program preview freezes.
             state.player.setSurface(next)
-            previous?.release()
+            if (!sameSurface) previous?.release()
             if (state.ready.value && state.wantsPlayback) {
                 val isPlaying = runCatching { state.player.isPlaying }.getOrDefault(false)
                 if (!isPlaying) {
@@ -259,7 +263,7 @@ private object SceneVideoPlayback {
                 }
             }
         }.onFailure {
-            runCatching { previous?.release() }
+            if (!sameSurface) runCatching { previous?.release() }
             recover(state, it.message ?: "Could not attach video surface")
         }
     }
