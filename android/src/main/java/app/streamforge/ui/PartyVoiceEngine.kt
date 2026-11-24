@@ -17,7 +17,7 @@ import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
-import org.webrtc.JavaAudioDeviceModule
+import org.webrtc.audio.JavaAudioDeviceModule
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
