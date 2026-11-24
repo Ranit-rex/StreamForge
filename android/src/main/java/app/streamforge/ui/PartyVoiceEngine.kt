@@ -178,13 +178,14 @@ internal class PartyVoiceEngine(
                 pc.setRemoteDescription(object : SdpObserverAdapter() {
                     override fun onSetSuccess() {
                         pc.createAnswer(object : SdpObserverAdapter() {
-                            override fun onCreateSuccess(answer: SessionDescription) {
+                            override fun onCreateSuccess(answer: SessionDescription?) {
+                                val answerDescription = answer ?: return
                                 pc.setLocalDescription(object : SdpObserverAdapter() {
                                     override fun onSetSuccess() {
                                         send(JSONObject().put("type", "answer").put("to", id)
                                             .put("description", JSONObject().put("type", "answer").put("sdp", answer.description)))
                                     }
-                                }, answer)
+                                }, answerDescription)
                             }
                         }, MediaConstraints())
                     }
@@ -262,7 +263,8 @@ internal class PartyVoiceEngine(
         localTrack?.let { pc.addTrack(it, listOf("streamforge-party-audio")) }
         if (initiate) {
             pc.createOffer(object : SdpObserverAdapter() {
-                override fun onCreateSuccess(offer: SessionDescription) {
+                override fun onCreateSuccess(offer: SessionDescription?) {
+                    val offerDescription = offer ?: return
                     pc.setLocalDescription(object : SdpObserverAdapter() {
                         override fun onSetSuccess() {
                             send(JSONObject().put("type", "offer").put("to", id)
@@ -376,7 +378,7 @@ internal class PartyVoiceEngine(
         client.connectionPool.evictAll()
     }
 
-    private abstract class SdpObserverAdapter : SdpObserver {
+    private class SdpObserverAdapter : SdpObserver {
         override fun onCreateSuccess(description: SessionDescription?) {}
         override fun onSetSuccess() {}
         override fun onCreateFailure(error: String?) {}
