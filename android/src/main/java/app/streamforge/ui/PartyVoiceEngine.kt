@@ -95,8 +95,10 @@ internal class PartyVoiceEngine(
             val wsBase = endpoint.trimEnd('/')
                 .replaceFirst("https://", "wss://")
                 .replaceFirst("http://", "ws://")
-            val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId&token=$token"
-            socket = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
+            val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId"
+            socket = client.newWebSocket(
+                Request.Builder().url(url).header("Authorization", "Bearer $token").build(),
+                object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     signalingConnected = true
                     publish("Voice connected · joining peers")
@@ -112,7 +114,8 @@ internal class PartyVoiceEngine(
                     signalingConnected = false
                     if (!closed) publish("Voice disconnected")
                 }
-            })
+                }
+            )
             startStatsMonitor()
         } catch (t: Throwable) {
             publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
