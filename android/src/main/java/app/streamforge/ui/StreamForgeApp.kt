@@ -464,6 +464,25 @@ fun StreamForgeApp(
                                         else -> ""
                                     }
                                 }
+                                if (platform == "YouTube") {
+                                    val youtubePrefs = remember { context.getSharedPreferences("streamforge_youtube_link", android.content.Context.MODE_PRIVATE) }
+                                    val youtubeLinked = remember { mutableStateOf(youtubePrefs.getBoolean("linked", false)) }
+                                    LaunchedEffect(selectedTab) {
+                                        youtubeLinked.value = youtubePrefs.getBoolean("linked", false)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { selectedTab = 7 },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(if (youtubeLinked.value) "YOUTUBE ACCOUNT LINKED · MANAGE" else "CONNECT YOUTUBE ACCOUNT")
+                                    }
+                                    Text(
+                                        if (youtubeLinked.value) "Your channel is linked on this device. Open to manage the connection."
+                                        else "Link your Google / YouTube account first. RTMP server and stream key below are still used for the actual broadcast.",
+                                        color = Muted,
+                                        fontSize = 10.sp
+                                    )
+                                }
                                 OutlinedTextField(value = server, onValueChange = { server = it }, modifier = Modifier.fillMaxWidth(), label = { Text("RTMP / RTMPS server") }, singleLine = true)
                                 OutlinedTextField(
                                     value = streamKey, onValueChange = { streamKey = it }, modifier = Modifier.fillMaxWidth(),
@@ -1188,12 +1207,6 @@ private fun DestinationsPanel() {
             } finally {
                 busy = false
             }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        if (linked) {
-            requestYouTubeAccess { token -> loadChannel(token, false) }
         }
     }
 
