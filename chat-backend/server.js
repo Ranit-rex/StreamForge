@@ -29,7 +29,7 @@ async function readJson(req) {
   }
   return raw ? JSON.parse(raw) : {};
 }
-function validRoomId(value) { return /^\\d{6}$/.test(String(value || "")); }
+function validRoomId(value) { return /^\d{6}$/.test(String(value || "")); }
 
 function send(res, status, body) {
   res.writeHead(status, {
@@ -117,7 +117,7 @@ const server = http.createServer(async (req, res) => {
         if (room.members.length === 0) voiceRooms.delete(room.roomId);
         return send(res, 200, { ok: true });
       }
-      if (req.method === "GET" && /^\\/api\\/voice\\/rooms\\/\\d{6}$/.test(url.pathname)) {
+      if (req.method === "GET" && /^\/api\/voice\/rooms\/\d{6}$/.test(url.pathname)) {
         const room = voiceRooms.get(url.pathname.split("/").pop());
         return room ? send(res, 200, { room: publicRoom(room) }) : send(res, 404, { error: "Room not found." });
       }
