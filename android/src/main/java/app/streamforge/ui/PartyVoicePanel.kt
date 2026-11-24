@@ -52,8 +52,8 @@ private val VoiceMuted = Color(0xFF9AA6B2)
 private val VoiceAccent = Color(0xFF5865F2)
 private data class VoiceRoom(val id: String, val name: String, val visibility: String, val count: Int, val members: List<String>)
 
-private suspend fun voiceRequest(path: String, method: String = "GET", payload: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
-    val connection = URL(VOICE_API + path).openConnection() as HttpURLConnection
+private suspend fun voiceRequest(baseUrl: String, path: String, method: String = "GET", payload: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    val connection = URL(baseUrl.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
     try {
         connection.requestMethod = method
         connection.connectTimeout = 10000
@@ -87,6 +87,7 @@ fun PartyVoicePanel() {
     val prefs = remember { context.getSharedPreferences("streamforge_party", 0) }
     val memberId = remember { prefs.getString("member_id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("member_id", it).apply() } }
     var displayName by remember { mutableStateOf(prefs.getString("display_name", "Streamer") ?: "Streamer") }
+    var serverUrl by remember { mutableStateOf(prefs.getString("voice_server_url", VOICE_API) ?: VOICE_API) }
     var roomName by remember { mutableStateOf("Gaming Party") }
     var roomIdInput by remember { mutableStateOf("") }
     var visibility by remember { mutableStateOf("public") }
@@ -100,7 +101,7 @@ fun PartyVoicePanel() {
 
     suspend fun refreshRooms() {
         runCatching {
-            val response = voiceRequest("/api/voice/rooms")
+            val response = voiceRequest(serverUrl, "/api/voice/rooms")
             val array = response.optJSONArray("rooms")
             val list = mutableListOf<VoiceRoom>()
             if (array != null) for (i in 0 until array.length()) {
@@ -119,7 +120,7 @@ fun PartyVoicePanel() {
         error = ""
         runCatching {
             val body = JSONObject().put("roomId", id).put("memberId", memberId).put("displayName", displayName.ifBlank { "Guest" })
-            joined = parseVoiceRoom(voiceRequest("/api/voice/rooms/join", "POST", body))
+            joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
             prefs.edit().putString("display_name", displayName).putString("room_id", id).apply()
             roomIdInput = ""
         }.onFailure { error = it.message ?: "Could not join room" }
@@ -131,7 +132,7 @@ fun PartyVoicePanel() {
         val room = joined ?: return@LaunchedEffect
         while (true) {
             delay(4000)
-            runCatching { joined = parseVoiceRoom(voiceRequest("/api/voice/rooms/${room.id}")) }
+            runCatching { joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/${room.id}")) }
                 .onFailure { error = it.message ?: "Room update failed" }
         }
     }
@@ -148,6 +149,14 @@ fun PartyVoicePanel() {
         }
 
         if (joined == null) {
+            Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("VOICE SERVER", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Signaling server URL") }, singleLine = true)
+                    TextButton(onClick = { prefs.edit().putString("voice_server_url", serverUrl.trim().trimEnd('/')).apply(); scope.launch { refreshRooms() } }) { Text("SAVE SERVER") }
+                    Text("Server endpoint is configurable. Additional independent voice servers can be added to the server picker later.", color = VoiceMuted, fontSize = 10.sp)
+                }
+            }
             Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text("Join with Room ID", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -216,7 +225,7 @@ fun PartyVoicePanel() {
                     Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are not enabled yet.", color = Color(0xFFFFC46B), fontSize = 10.sp)
                     Button(onClick = {
                         scope.launch {
-                            runCatching { voiceRequest("/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
+                            runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
                             joined = null
                             micEnabled = false
                             prefs.edit().remove("room_id").apply()
@@ -254,7 +263,7 @@ fun PartyVoicePanel() {
                         loading = true
                         runCatching {
                             val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
-                            joined = parseVoiceRoom(voiceRequest("/api/voice/rooms", "POST", payload))
+                            joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms", "POST", payload))
                             prefs.edit().putString("display_name", displayName).putString("room_id", joined?.id).apply()
                         }.onFailure { error = it.message ?: "Room creation failed" }
                         loading = false
