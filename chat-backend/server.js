@@ -182,7 +182,8 @@ server.on("upgrade", (req, socket, head) => {
   }
   const roomId = url.searchParams.get("roomId") || "";
   const memberId = url.searchParams.get("memberId") || "";
-  const token = url.searchParams.get("token") || "";
+  const authHeader = String(req.headers.authorization || "");
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   const room = voiceRooms.get(roomId);
   const member = room?.members.find(m => m.memberId === memberId);
   const expected = Buffer.from(member?.voiceToken || "");
