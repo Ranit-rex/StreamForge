@@ -197,45 +197,66 @@ fun PartyVoicePanel() {
             }
         } else {
             val room = joined!!
-            Surface(color = VoiceCard, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(room.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Text(if (room.visibility == "public") "PUBLIC ROOM" else "PRIVATE ROOM", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Text("${room.count}/6", color = Color(0xFFB8C7FF), fontWeight = FontWeight.Bold)
-                    }
-                    Surface(color = Color(0xFF10151D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("ROOM ID", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE CODE" else "SHOW CODE") }
-                            }
-                            Text(if (showRoomCode) room.id else "••••••", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-                            Text(if (showRoomCode) "Share this one ID with friends to invite them." else "Your room code is hidden from view.", color = VoiceMuted, fontSize = 10.sp)
-                        }
-                    }
-                    Text("IN THE ROOM", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                    room.members.forEach { name ->
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = Color(0xFF2A3443), shape = CircleShape) { Text(name.take(1).uppercase(), color = Color.White, modifier = Modifier.padding(horizontal = 11.dp, vertical = 8.dp), fontWeight = FontWeight.Bold) }
-                            Text(name, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(start = 9.dp))
+                            Surface(color = VoiceAccent, shape = RoundedCornerShape(12.dp)) { Text("🎙", modifier = Modifier.padding(11.dp), fontSize = 20.sp) }
+                            Column(Modifier.weight(1f).padding(start = 11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(room.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(color = Color(0xFF245D4A), shape = RoundedCornerShape(20.dp)) { Text("● ROOM ACTIVE", color = Color(0xFF8CE0B8), fontSize = 8.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) }
+                                    Text("  ·  ${room.visibility.uppercase()} VOICE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Text("${room.count}/6", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("VOICE CHANNEL", color = Color(0xFFB8C7FF), fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE ID" else "INVITE / ID") }
+                        }
+                        Surface(color = Color(0xFF171C2A), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(if (showRoomCode) room.id else "••••••", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+                                    Text("Share this code with friends to join", color = VoiceMuted, fontSize = 9.sp)
+                                }
+                                TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE" else "SHOW") }
+                            }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { selectedAudioControl = "MIC"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("MIC") }
-                        OutlinedButton(onClick = { selectedAudioControl = "SPEAKER"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("SPEAKER") }
-                    }
-                    Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are the next implementation stage; voice controls are disabled until the audio path is real.", color = Color(0xFFFFC46B), fontSize = 10.sp)
-                    Button(onClick = {
-                        scope.launch {
-                            runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
-                            joined = null
-                            prefs.edit().remove("room_id").apply()
-                            refreshRooms()
+                }
+                Surface(color = Color(0xFF181D29), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { Text("VOICE MEMBERS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("${room.members.size} HERE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                        val displayMembers = room.members.ifEmpty { listOf(displayName.ifBlank { "You" }) }
+                        displayMembers.chunked(2).forEach { pair ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                                pair.forEach { name ->
+                                    Surface(color = Color(0xFF242B3B), shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                                        Column(Modifier.padding(vertical = 16.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                            Surface(color = VoiceAccent, shape = CircleShape) { Text(name.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp)) }
+                                            Text(name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                            Text(if (name == displayName) "YOU · CONNECTED" else "CONNECTED", color = VoiceMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
                         }
-                    }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB63F4B))) { Text("LEAVE ROOM", fontWeight = FontWeight.Bold) }
+                        Text("Speaking activity will appear here when live voice is enabled.", color = VoiceMuted, fontSize = 9.sp)
+                    }
+                }
+                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { selectedAudioControl = "MIC"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("🎙 MIC", fontWeight = FontWeight.Bold) }
+                            OutlinedButton(onClick = { selectedAudioControl = "SPEAKER"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("🔊 SPEAKER", fontWeight = FontWeight.Bold) }
+                            Button(onClick = { scope.launch { runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }; joined = null; showRoomCode = false; prefs.edit().remove("room_id").apply(); refreshRooms() } }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black) }
+                        }
+                        Text("Mic and speaker controls are visible but live audio is not connected yet.", color = Color(0xFFFFC46B), fontSize = 9.sp)
+                    }
                 }
             }
         }
