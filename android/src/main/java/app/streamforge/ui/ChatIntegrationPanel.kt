@@ -1,8 +1,10 @@
 package app.streamforge.ui
 
 import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,6 +13,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.streamforge.stream.StreamService
@@ -35,51 +40,71 @@ fun ChatIntegrationPanel() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_chat", Context.MODE_PRIVATE) }
     var videoUrl by remember { mutableStateOf(prefs.getString("youtube_video_id", "").orEmpty()) }
+    var apiKey by remember { mutableStateOf(YouTubeApiKeyStore.read(context)) }
+    var showKey by remember { mutableStateOf(false) }
+    var showGuide by remember { mutableStateOf(false) }
     val state by YouTubeLiveChat.connectionState.collectAsState()
     val messages by YouTubeLiveChat.messages.collectAsState()
-
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("LIVE CHAT", color = ChatAccent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
-        Text("Connect platform chat to your floating LIVE controls.", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Bring your viewers into StreamForge.", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Surface(color = ChatBg, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("YouTube Live", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text("Paste your public or unlisted YouTube LIVE video link. StreamForge finds the active chat automatically. No API key needed in the app.", color = ChatMuted, fontSize = 11.sp)
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text("YouTube Live Chat", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("Paste your public or unlisted YouTube LIVE video link. Chat is read-only inside StreamForge.", color = ChatMuted, fontSize = 11.sp)
+                OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, modifier = Modifier.fillMaxWidth(), label = { Text("YouTube LIVE video URL or ID") }, singleLine = true)
                 OutlinedTextField(
-                    value = videoUrl,
-                    onValueChange = { videoUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("YouTube LIVE video URL or ID") },
-                    singleLine = true
+                    value = apiKey, onValueChange = { apiKey = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Your YouTube API key (optional)") }, singleLine = true,
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "HIDE" else "SHOW") } }
                 )
+                Text("Optional: use your own Google Cloud API key and quota. It is encrypted on this device and sent directly to Google, never to StreamForge's server.", color = ChatMuted, fontSize = 10.sp)
+                TextButton(onClick = { showGuide = !showGuide }) { Text(if (showGuide) "Hide setup guide" else "How to get your free API key  ·  Step-by-step") }
+                if (showGuide) {
+                    Surface(color = Color(0xFF1B2634), shape = RoundedCornerShape(12.dp)) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text("Create your YouTube API key", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("1. Open console.cloud.google.com and sign in with your Google account.", color = ChatMuted, fontSize = 11.sp)
+                            Text("2. Create/select a project, then open APIs & Services → Library.", color = ChatMuted, fontSize = 11.sp)
+                            Text("3. Search for YouTube Data API v3 and tap Enable.", color = ChatMuted, fontSize = 11.sp)
+                            Text("4. Open APIs & Services → Credentials → Create credentials → API key.", color = ChatMuted, fontSize = 11.sp)
+                            Text("5. Open that key's restrictions. Set API restrictions to YouTube Data API v3, then Save.", color = ChatMuted, fontSize = 11.sp)
+                            Text("6. Copy the key and paste it above. No OAuth client or YouTube sign-in inside StreamForge is required for public live chat.", color = ChatMuted, fontSize = 11.sp)
+                            Text("Use only your own key. Never share it publicly. Google may require billing/profile setup and applies its own quota and policies.", color = Color(0xFFFFC46B), fontSize = 10.sp)
+                        }
+                    }
+                }
                 Text(state, color = if (state == "YouTube chat connected") Color(0xFF55D6A1) else ChatMuted, fontSize = 11.sp)
-                Button(
-                    onClick = {
-                        prefs.edit().putString("youtube_video_id", videoUrl.trim()).remove("youtube_api_key").remove("youtube_live_chat_id").apply()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            prefs.edit().putString("youtube_video_id", videoUrl.trim()).remove("youtube_active_chat_id").apply()
+                            if (apiKey.isBlank()) YouTubeApiKeyStore.clear(context) else YouTubeApiKeyStore.save(context, apiKey)
+                            YouTubeLiveChat.stop()
+                            YouTubeLiveChat.clear()
+                            if (StreamService.streaming.value) YouTubeLiveChat.start(context)
+                        },
+                        enabled = videoUrl.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ChatAccent, contentColor = Color(0xFF101827))
+                    ) { Text("SAVE & CONNECT", fontWeight = FontWeight.Black) }
+                    TextButton(onClick = {
                         YouTubeLiveChat.stop()
                         YouTubeLiveChat.clear()
-                        if (StreamService.streaming.value) YouTubeLiveChat.start(context)
-                    },
-                    enabled = videoUrl.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ChatAccent, contentColor = Color(0xFF101827))
-                ) { Text("SAVE YOUTUBE LIVE", fontWeight = FontWeight.Black) }
-                Text("After saving, chat connects automatically when you go LIVE. Your API credentials stay on StreamForge's secure server.", color = ChatMuted, fontSize = 10.sp)
+                    }) { Text("STOP") }
+                }
+                Text("When you go LIVE, StreamForge connects automatically. If you leave the API key blank, the configured StreamForge chat service is used when available.", color = ChatMuted, fontSize = 10.sp)
             }
         }
-
         Surface(color = ChatBg, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("Other platforms", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                Text("Twitch · OAuth + IRC", color = ChatMuted, fontSize = 12.sp)
-                Text("Kick · authenticated chat connection", color = ChatMuted, fontSize = 12.sp)
-                Text("Facebook Live · Graph API permissions", color = ChatMuted, fontSize = 12.sp)
-                Text("TikTok LIVE · approved LIVE access / integration", color = ChatMuted, fontSize = 12.sp)
-                Text("These platforms are not connected yet. Each requires its own approved account authorization.", color = Color(0xFFFFC46B), fontSize = 11.sp)
+                Text("Twitch · OAuth + IRC  |  Kick · authenticated chat  |  Facebook / TikTok · approved integrations", color = ChatMuted, fontSize = 11.sp)
+                Text("These integrations are not connected yet.", color = Color(0xFFFFC46B), fontSize = 11.sp)
             }
         }
-
         Surface(color = ChatBg, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("Recent messages · ${messages.size}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
