@@ -248,15 +248,21 @@ private object SceneVideoPlayback {
         state.surfaceTexture = texture
         state.surface = next
         runCatching {
-            // A layer z-order change can detach/reorder the TextureView without
-            // destroying its SurfaceTexture. Rebind even when the Surface object
-            // is still valid; otherwise MediaPlayer can keep rendering to the
-            // old, no-longer-visible output and the program preview freezes.
+            // Rebind the retained player to the newly-created TextureView surface.
+            // Navigation can destroy the old view; the media player and its clock stay alive.
             state.player.setSurface(next)
             if (!sameSurface) previous?.release()
-            if (state.ready.value && state.wantsPlayback) {
-                val isPlaying = runCatching { state.player.isPlaying }.getOrDefault(false)
-                if (!isPlaying) {
+            if (state.ready.value) {
+                val resumeAt = state.positionMs.value.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
+                if (resumeAt > 0) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        state.player.seekTo(resumeAt.toLong(), MediaPlayer.SEEK_CLOSEST)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        state.player.seekTo(resumeAt)
+                    }
+                }
+                if (state.wantsPlayback && !state.player.isPlaying) {
                     state.player.start()
                     state.playing.value = true
                 }
@@ -271,8 +277,13 @@ private object SceneVideoPlayback {
     fun detach(uri: String, texture: SurfaceTexture) {
         val state = states[uri] ?: return
         if (state.surfaceTexture !== texture) return
-        // Do not call setSurface(null): TextureView reorder/detach can race the decoder and
-        // put MediaPlayer into Error state (-38). Replace the output on the next attach.
+        // Navigation is a temporary surface detach, not the end of playback.
+        // Snapshot the real decoder position and pause before releasing the view surface.
+        if (state.ready.value) runCatching {
+            state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
+            if (state.player.isPlaying) state.player.pause()
+            state.playing.value = false
+        }
         runCatching { state.surface?.release() }
         state.surface = null
         state.surfaceTexture = null
@@ -491,10 +502,22 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             id to player
         }
     }
-    // Program/Live preview deliberately uses a monotonic decode clock. It does not
-    // depend on MediaPlayer surface attachment, which can stall when Android reorders views.
+    // Keep the retained native player clock fresh even while its TextureView is temporarily
+    // detached by page navigation. The player itself is held by SceneVideoPlayback.
+    LaunchedEffect(videoPlayers) {
+        while (isActive) {
+            videoPlayers.values.forEach { SceneVideoPlayback.refresh(it) }
+            delay(100L)
+        }
+    }
+    // Decode mode remains available as a compatibility preview. Hardware mode below uses
+    // the actual MediaPlayer output surface instead of repeatedly extracting still frames.
     val previewClockEpoch = remember(videoSources) { SystemClock.elapsedRealtime() }
-    LaunchedEffect(videoSources) {
+    LaunchedEffect(videoSources, renderMode) {
+        if (renderMode == "hardware") {
+            videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
+            videoFrames.clear()
+        } else {
         val sources = videoSources.mapNotNull { (id, uriString, settings) ->
             runCatching {
                 val retriever = MediaMetadataRetriever()
@@ -550,6 +573,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             sources.forEach { runCatching { it.second.release() } }
             videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
             videoFrames.clear()
+        }
         }
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -626,7 +650,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                         paint.style = Paint.Style.FILL
                         native.drawBitmap(bitmap, src, rect, paint)
                     }
-                    "video" -> {
+                    "video" -> if (renderMode != "hardware") {
                         val decoded = videoFrames[item.id]?.takeIf { !it.isRecycled }
                         if (decoded != null) {
                             val src = android.graphics.Rect(
@@ -656,6 +680,23 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                 native.restore()
             }
         }
+            }
+            if (renderMode == "hardware" && !editorMode) {
+                scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
+                    key(item.id, item.text) {
+                        HardwareVideoPreview(
+                            uriString = item.text,
+                            loop = item.loop,
+                            autoPlay = item.autoPlay,
+                            volume = item.soundVolume,
+                            muted = item.soundMuted,
+                            modifier = Modifier
+                                .offset(x = previewWidth * item.x, y = previewHeight * item.y)
+                                .size(width = previewWidth * item.width, height = previewHeight * item.height)
+                                .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
+                        )
+                    }
+                }
             }
             scene.layers.filter { it.visible && it.kind == "website" && it.text.isNotBlank() }.forEach { item ->
                 key(item.id, item.text) {
