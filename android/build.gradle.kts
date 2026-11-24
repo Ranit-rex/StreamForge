@@ -14,7 +14,15 @@ android {
   versionCode = streamforgeBuildNumber
   versionName = "Alpha build $streamforgeBuildNumber"
  }
- buildTypes { release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
+ buildTypes { release { isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
+ splits {
+  abi {
+   isEnable = true
+   reset()
+   include("arm64-v8a")
+   isUniversalApk = false
+  }
+ }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
  buildFeatures { compose = true }
