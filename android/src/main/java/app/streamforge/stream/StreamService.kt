@@ -528,10 +528,18 @@ class StreamService : Service(), ConnectChecker {
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
+        var activeVideoLayerCount = 0
         for (i in 0 until layers.length()) {
             val item = layers.optJSONObject(i) ?: continue
             if (!item.optBoolean("visible", true)) continue
             val kind = item.optString("kind")
+            if (kind == "video") {
+                activeVideoLayerCount += 1
+                // Most phones expose only one or two reliable simultaneous
+                // flexible-YUV decoders. Keep extra clips in the editable scene,
+                // but don't allocate codecs for them during live composition.
+                if (activeVideoLayerCount > 2) continue
+            }
             if (kind == "screen") continue
             val left = item.optDouble("x", .08).toFloat().coerceIn(0f, 1f) * outputWidth
             val top = item.optDouble("y", .08).toFloat().coerceIn(0f, 1f) * outputHeight
@@ -936,28 +944,44 @@ class StreamService : Service(), ConnectChecker {
 
     private fun stopRecording() {
         val activeStream = stream
-        if (recording.value) activeStream?.stopRecord()
+        if (recording.value) runCatching { activeStream?.stopRecord() }
         recording.value = false
         recordingPaused.value = false
         recordingPauseStartedAt = 0L
         recordingStartedAt.value = 0L
         status.value = if (streaming.value) "LIVE" else "Recording saved"
-        if (streaming.value) updateOngoingNotification("LIVE · Streaming active")
-        if (!streaming.value && projection != null) {
+        if (streaming.value) {
+            updateOngoingNotification("LIVE · Streaming active")
+        } else {
+            // Stop the capture graph only after the recorder has been asked to
+            // finalize its MP4. All teardown calls are guarded because Android's
+            // projection/GL callbacks can arrive while the service is stopping.
             runCatching { activeStream?.let { if (it.isOnPreview) it.stopPreview() } }
-            projection?.stop()
+            runCatching { projection?.stop() }
             projection = null
+            activeScreenSource = null
             studioPreviewReady.value = false
             colorGradingFilter = null
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
             stopSelf()
         }
     }
 
     private fun stopStream(finalStatus: String = "Stream stopped") {
-        stream?.let {
-            if (it.isStreaming) it.stopStream()
-            if (it.isOnPreview) it.stopPreview()
+        // If live and local recording are active together, finalize the recording
+        // before tearing down MediaProjection and the GL/encoder graph.
+        if (recording.value) {
+            runCatching { stream?.stopRecord() }
+            recording.value = false
+            recordingPaused.value = false
+            recordingPauseStartedAt = 0L
+            recordingStartedAt.value = 0L
+        }
+        runCatching {
+            stream?.let {
+                if (it.isStreaming) it.stopStream()
+                if (it.isOnPreview) it.stopPreview()
+            }
         }
         streaming.value = false
         studioPreviewReady.value = false
@@ -965,11 +989,12 @@ class StreamService : Service(), ConnectChecker {
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         hideFloatingControls()
         YouTubeLiveChat.stop()
-        projection?.stop()
+        runCatching { projection?.stop() }
         projection = null
         activeScreenSource = null
+        colorGradingFilter = null
         status.value = finalStatus
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
 
@@ -1347,12 +1372,25 @@ class StreamService : Service(), ConnectChecker {
     override fun onAuthSuccess() { status.value = "Destination authenticated" }
 
     override fun onDestroy() {
-        stopRecording()
+        // Do not call stopRecording() here: it can call stopSelf() and tear down
+        // MediaProjection a second time while Android is already destroying us.
+        if (recording.value) runCatching { stream?.stopRecord() }
+        recording.value = false
+        recordingPaused.value = false
+        recordingStartedAt.value = 0L
+        if (streaming.value) runCatching { stream?.let { if (it.isStreaming) it.stopStream() } }
+        streaming.value = false
+        streamStartedAt.value = 0L
         YouTubeLiveChat.stop()
         hideFloatingControls()
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         gifMovies.clear()
         gifStartedAt.clear()
+
+        // Stop the worker before releasing its MediaCodec instances. Waiting briefly
+        // prevents a decode task from touching a codec while it is being released.
+        videoDecodeExecutor.shutdownNow()
+        runCatching { videoDecodeExecutor.awaitTermination(750, java.util.concurrent.TimeUnit.MILLISECONDS) }
         videoDecoders.values.forEach { runCatching { it.close() } }
         videoDecoders.clear()
         videoFallbackRetrievers.values.forEach { runCatching { it.release() } }
@@ -1361,7 +1399,6 @@ class StreamService : Service(), ConnectChecker {
         videoLastPts.clear()
         videoLastPtsProgressAt.clear()
         videoHardwareRestartCounts.clear()
-        videoDecodeExecutor.shutdownNow()
         synchronized(videoFrameLock) {
             videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
             videoFrameBitmaps.clear()
@@ -1372,11 +1409,11 @@ class StreamService : Service(), ConnectChecker {
         videoSourceFps.clear()
         sceneImages.values.forEach { if (!it.isRecycled) it.recycle() }
         sceneImages.clear()
-        stream?.let { if (it.isStreaming) it.stopStream(); if (it.isOnPreview) it.stopPreview(); it.release() }
+        runCatching { stream?.let { if (it.isOnPreview) it.stopPreview(); it.release() } }
         stream = null
         previewView = null
         colorGradingFilter = null
-        projection?.stop()
+        runCatching { projection?.stop() }
         projection = null
         activeScreenSource = null
         studioPreviewReady.value = false
