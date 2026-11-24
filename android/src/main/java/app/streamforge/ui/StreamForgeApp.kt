@@ -14,6 +14,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.identity.AuthorizationRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.api.Scope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -1051,78 +1064,210 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
 }
 
 
+private const val STREAMFORGE_YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
+
+private suspend fun fetchYouTubeChannel(accessToken: String): Pair<String, String> = withContext(Dispatchers.IO) {
+    val connection = (URL("https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true").openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15000
+        readTimeout = 20000
+        setRequestProperty("Authorization", "Bearer $accessToken")
+        setRequestProperty("Accept", "application/json")
+    }
+    try {
+        val code = connection.responseCode
+        val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+        val body = stream.bufferedReader().use { it.readText() }
+        if (code !in 200..299) {
+            val message = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
+            throw IllegalStateException(message?.takeIf { it.isNotBlank() } ?: "YouTube authorization failed (HTTP $code)")
+        }
+        val items = JSONObject(body).optJSONArray("items")
+        if (items == null || items.length() == 0) throw IllegalStateException("This Google account does not have an accessible YouTube channel.")
+        val item = items.getJSONObject(0)
+        val snippet = item.optJSONObject("snippet")
+        val title = snippet?.optString("title")?.takeIf { it.isNotBlank() } ?: "YouTube channel"
+        val id = item.optString("id")
+        if (id.isBlank()) throw IllegalStateException("YouTube did not return a channel ID.")
+        title to id
+    } finally {
+        connection.disconnect()
+    }
+}
+
 @Composable
 private fun DestinationsPanel() {
-    var provider by remember { mutableStateOf("YouTube") }
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var visibility by remember { mutableStateOf("Unlisted") }
-    var info by remember { mutableStateOf("") }
-    val providers = listOf(
-        "YouTube" to "Create and manage scheduled broadcasts",
-        "Twitch" to "Link channel and prepare stream",
-        "Facebook Live" to "Connect a Page for live video",
-        "Kick" to "RTMP destination; API access pending",
-        "TikTok Live" to "LIVE access approval may be required"
-    )
+    val context = LocalContext.current
+    val activity = context as? android.app.Activity
+    val prefs = remember { context.getSharedPreferences("streamforge_youtube_link", android.content.Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
+    var linked by remember { mutableStateOf(prefs.getBoolean("linked", false)) }
+    var channelName by remember { mutableStateOf(prefs.getString("channel_name", "") ?: "") }
+    var channelId by remember { mutableStateOf(prefs.getString("channel_id", "") ?: "") }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var pendingAction by remember { mutableStateOf<((String) -> Unit)?>(null) }
+
+    val authorizationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        try {
+            val authorization = Identity.getAuthorizationClient(context).getAuthorizationResultFromIntent(result.data)
+            val token = authorization.accessToken
+            val action = pendingAction
+            pendingAction = null
+            if (!token.isNullOrBlank() && action != null) action(token)
+            else {
+                busy = false
+                message = "YouTube permission was not granted."
+            }
+        } catch (error: Exception) {
+            pendingAction = null
+            busy = false
+            message = error.message ?: "YouTube authorization was cancelled."
+        }
+    }
+
+    fun requestYouTubeAccess(action: (String) -> Unit) {
+        if (activity == null) {
+            message = "Open StreamForge on an Android activity to connect YouTube."
+            return
+        }
+        busy = true
+        message = "Opening Google's secure permission screen…"
+        pendingAction = action
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(STREAMFORGE_YOUTUBE_SCOPE)))
+            .build()
+        Identity.getAuthorizationClient(activity).authorize(request)
+            .addOnSuccessListener { authorization ->
+                if (authorization.hasResolution()) {
+                    val pendingIntent = authorization.pendingIntent
+                    if (pendingIntent != null) {
+                        authorizationLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
+                    } else {
+                        pendingAction = null
+                        busy = false
+                        message = "Google could not start the permission screen. Please try again."
+                    }
+                } else {
+                    val token = authorization.accessToken
+                    val next = pendingAction
+                    pendingAction = null
+                    if (!token.isNullOrBlank() && next != null) next(token)
+                    else {
+                        busy = false
+                        message = "Google did not return an access token."
+                    }
+                }
+            }
+            .addOnFailureListener { error ->
+                pendingAction = null
+                busy = false
+                message = error.message ?: "Could not connect to Google."
+            }
+    }
+
+    fun loadChannel(token: String, announce: Boolean) {
+        scope.launch {
+            try {
+                val result = fetchYouTubeChannel(token)
+                channelName = result.first
+                channelId = result.second
+                linked = true
+                prefs.edit()
+                    .putBoolean("linked", true)
+                    .putString("channel_name", result.first)
+                    .putString("channel_id", result.second)
+                    .apply()
+                message = if (announce) "YouTube connected on this device." else ""
+            } catch (error: Exception) {
+                linked = false
+                prefs.edit().putBoolean("linked", false).apply()
+                message = error.message ?: "Could not read your YouTube channel."
+            } finally {
+                busy = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (linked) {
+            requestYouTubeAccess { token -> loadChannel(token, false) }
+        }
+    }
+
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeading("CREATOR WORKSPACE", "Destinations")
-        Text("Link your streaming accounts once, then manage broadcasts from StreamForge.", color = Muted, fontSize = 11.sp)
+        Text("Connect your YouTube channel directly from this phone. StreamForge does not receive or store your Google password or refresh token.", color = Muted, fontSize = 11.sp)
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ACCOUNT CONNECTIONS", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                providers.forEach { item ->
-                    Surface(
-                        color = if (provider == item.first) Color(0xFF2B211D) else PanelRaised,
-                        shape = RoundedCornerShape(12.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (provider == item.first) Accent else Color.Transparent),
-                        modifier = Modifier.fillMaxWidth().clickable { provider = item.first }
-                    ) {
-                        Row(Modifier.padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(item.first, color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Text(item.second, color = Muted, fontSize = 9.sp)
-                                Text(if (provider == item.first) "SELECTED · NOT CONNECTED" else "NOT CONNECTED", color = if (provider == item.first) Accent else Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Text("›", color = Accent, fontSize = 20.sp)
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("YOUTUBE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Text(if (linked) "CONNECTED ON THIS DEVICE" else "NOT CONNECTED", color = if (linked) Good else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Surface(color = if (linked) Color(0xFF17372B) else PanelRaised, shape = RoundedCornerShape(50)) {
+                        Text(if (linked) "● LINKED" else "○ OFFLINE", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = if (linked) Good else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (linked && channelName.isNotBlank()) {
+                    Surface(color = PanelRaised, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(channelName, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Channel ID: $channelId", color = Muted, fontSize = 9.sp)
                         }
                     }
                 }
-                Button(onClick = { info = "The " + provider + " OAuth connection is not active yet. It needs provider developer credentials and secure token storage on the StreamForge backend. No account is connected in this build." }, modifier = Modifier.fillMaxWidth()) {
-                    Text("CONNECT " + provider.uppercase(), fontWeight = FontWeight.Black, fontSize = 11.sp)
+                Button(
+                    onClick = {
+                        requestYouTubeAccess { token -> loadChannel(token, true) }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (busy) "CONNECTING…" else if (linked) "REFRESH YOUTUBE CONNECTION" else "CONNECT YOUTUBE")
+                }
+                if (linked) {
+                    OutlinedButton(
+                        onClick = {
+                            busy = true
+                            val request = RevokeAccessRequest.builder()
+                                .setScopes(listOf(Scope(STREAMFORGE_YOUTUBE_SCOPE)))
+                                .build()
+                            Identity.getAuthorizationClient(context).revokeAccess(request)
+                                .addOnSuccessListener {
+                                    linked = false
+                                    channelName = ""
+                                    channelId = ""
+                                    prefs.edit().clear().apply()
+                                    busy = false
+                                    message = "YouTube access revoked and disconnected."
+                                }
+                                .addOnFailureListener { error ->
+                                    busy = false
+                                    message = error.message ?: "Google could not revoke access. Remove StreamForge from your Google Account permissions too."
+                                }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("DISCONNECT & REVOKE ACCESS") }
                 }
             }
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Text("BROADCAST MANAGER", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black)
-                Text("Load an existing scheduled broadcast or create a new one after linking your account.", color = Muted, fontSize = 10.sp)
-                OutlinedButton(onClick = { info = "Existing broadcasts can be loaded after OAuth account linking is configured." }, modifier = Modifier.fillMaxWidth()) {
-                    Text("LOAD EXISTING / SCHEDULED BROADCASTS")
-                }
-                Divider(color = PanelRaised)
-                Text("CREATE NEW BROADCAST", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                OutlinedTextField(value = title, onValueChange = { title = it.take(100) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Broadcast title") })
-                OutlinedTextField(value = description, onValueChange = { description = it.take(5000) }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 4, label = { Text("Description") })
-                Text("Visibility", color = Muted, fontSize = 10.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Public", "Unlisted", "Private").forEach { v ->
-                        FilterChip(selected = visibility == v, onClick = { visibility = v }, label = { Text(v, fontSize = 10.sp) })
-                    }
-                }
-                OutlinedButton(onClick = { info = "Broadcast creation is waiting for a linked " + provider + " account. Your draft has not been uploaded." }, enabled = title.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                    Text("CREATE BROADCAST")
-                }
-                Text("Thumbnail upload and scheduling will appear after the provider connection is enabled.", color = Muted, fontSize = 9.sp)
+            Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("DEVICE-ONLY PRIVACY", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Text("Google Play services manages the device authorization grant and short-lived access-token cache. StreamForge stores only your channel name and channel ID locally; it does not save OAuth access or refresh tokens, and no StreamForge database is used for this connection.", color = Muted, fontSize = 10.sp)
+                Text("Disconnect revokes the app's granted Google access. You can also remove StreamForge anytime from your Google Account's third-party connections.", color = Muted, fontSize = 10.sp)
             }
         }
         Surface(color = PanelRaised, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("Current encoder streams to one RTMP destination. Simultaneous multi-platform output is not enabled yet.", Modifier.padding(12.dp), color = Muted, fontSize = 9.sp)
+            Text("Broadcast creation, scheduled-stream selection and thumbnail upload will be enabled after the YouTube connection is verified in your Google Cloud project.", Modifier.padding(12.dp), color = Muted, fontSize = 9.sp)
         }
-    }
-    if (info.isNotBlank()) {
-        AlertDialog(onDismissRequest = { info = "" }, title = { Text("Destinations") }, text = { Text(info) },
-            confirmButton = { TextButton(onClick = { info = "" }) { Text("OK") } },
-            containerColor = Panel, titleContentColor = AppText, textContentColor = Muted)
+        if (message.isNotBlank()) {
+            Text(message, color = if (message.contains("connected", true) || message.contains("revoked", true)) Good else Muted, fontSize = 10.sp)
+        }
+        Text("Other destinations will be added after YouTube is working end-to-end.", color = Muted, fontSize = 9.sp)
     }
 }
