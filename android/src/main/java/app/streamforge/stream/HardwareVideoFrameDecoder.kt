@@ -77,9 +77,9 @@ internal class HardwareVideoFrameDecoder(
     fun nextFrame(loop: Boolean): Bitmap? {
         if (closed || outputEnded) return null
         val info = MediaCodec.BufferInfo()
-        repeat(80) {
+        repeat(8) {
             if (!inputEnded) {
-                val inputIndex = decoder.dequeueInputBuffer(5_000)
+                val inputIndex = decoder.dequeueInputBuffer(0)
                 if (inputIndex >= 0) {
                     val input = decoder.getInputBuffer(inputIndex) ?: return@repeat
                     input.clear()
@@ -94,7 +94,7 @@ internal class HardwareVideoFrameDecoder(
                 }
             }
 
-            val outputIndex = decoder.dequeueOutputBuffer(info, 10_000)
+            val outputIndex = decoder.dequeueOutputBuffer(info, 0)
             if (outputIndex >= 0) {
                 var bitmap: Bitmap? = null
                 if (info.size > 0 && (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) == 0) {
@@ -173,7 +173,7 @@ internal class HardwareVideoFrameDecoder(
         // Scene overlays are composited into a preview-sized layer, not shown
         // full-screen as a source clip. Convert directly to a bounded bitmap so
         // 4K clips do not allocate and walk 8 million pixels on every frame.
-        val scale = minOf(1f, 960f / width.coerceAtLeast(1), 540f / height.coerceAtLeast(1))
+        val scale = minOf(1f, 640f / width.coerceAtLeast(1), 360f / height.coerceAtLeast(1))
         val outWidth = (width * scale).toInt().coerceAtLeast(1)
         val outHeight = (height * scale).toInt().coerceAtLeast(1)
         val pixels = IntArray(outWidth * outHeight)
@@ -199,6 +199,7 @@ internal class HardwareVideoFrameDecoder(
         return Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
     }
 
+    @Synchronized
     override fun close() {
         if (closed) return
         closed = true
