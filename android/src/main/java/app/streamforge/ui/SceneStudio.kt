@@ -500,6 +500,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     val videoErrors = remember { androidx.compose.runtime.mutableStateMapOf<Long, String>() }
     val videoSources = remember(editorMode, scene.layers.filter { it.kind == "video" }.map { it.id to (it.text to (it.loop to it.fps)) }) {
         if (editorMode) emptyList() else scene.layers.filter { it.kind == "video" && it.visible && it.text.isNotBlank() }
+            // Keep two simultaneous native decoders as a safe mobile baseline.
+            // Extra video layers remain in the scene and can still be edited.
+            .take(2)
             .map { Triple(it.id, it.text, Triple(it.loop, it.fps, Triple(it.autoPlay, it.soundVolume to it.soundMuted, Unit))) }
     }
     // The retained native player is the persistent playback clock in both modes.
