@@ -491,12 +491,10 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             id to player
         }
     }
-    LaunchedEffect(videoSources, renderMode) {
-        if (renderMode != "decode") {
-            videoFrames.values.toList().forEach { if (!it.isRecycled) it.recycle() }
-            videoFrames.clear()
-            return@LaunchedEffect
-        }
+    // Program/Live preview deliberately uses a monotonic decode clock. It does not
+    // depend on MediaPlayer surface attachment, which can stall when Android reorders views.
+    val previewClockEpoch = remember(videoSources) { SystemClock.elapsedRealtime() }
+    LaunchedEffect(videoSources) {
         val sources = videoSources.mapNotNull { (id, uriString, settings) ->
             runCatching {
                 val retriever = MediaMetadataRetriever()
@@ -507,19 +505,15 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         }
         try {
             while (isActive && sources.isNotEmpty()) {
-                val currentPositions = videoPlayers.mapValues { (_, state) ->
-                    // Refresh playback from the program preview itself; it must not
-                    // depend on the editor's playback controls remaining composed.
-                    SceneVideoPlayback.refresh(state)
-                    if (state.ready.value) {
-                        runCatching { state.player.currentPosition.toLong() }
-                            .getOrDefault(state.positionMs.value.toLong())
-                    } else state.positionMs.value.toLong()
-                }
+                val now = SystemClock.elapsedRealtime()
                 val frames = withContext(Dispatchers.IO) {
                     sources.mapNotNull { (id, retriever, settings) ->
                         val duration = settings.first
-                        val timeMs = (currentPositions[id] ?: 0L).coerceIn(0L, (duration - 1L).coerceAtLeast(0L))
+                        val autoPlay = settings.second.third.first
+                        val loop = settings.second.first
+                        val elapsed = if (autoPlay) (now - previewClockEpoch).coerceAtLeast(0L) else 0L
+                        val rawPosition = if (loop && duration > 0L) elapsed % duration else elapsed.coerceAtMost((duration - 1L).coerceAtLeast(0L))
+                        val timeMs = rawPosition.coerceIn(0L, (duration - 1L).coerceAtLeast(0L))
                         // Program Preview is a small thumbnail surface. Never decode the
                         // source at its native resolution (large 4K clips can exhaust heap).
                         runCatching {
@@ -527,16 +521,16 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                                 retriever.getScaledFrameAtTime(
                                     timeMs * 1000L,
                                     MediaMetadataRetriever.OPTION_CLOSEST,
-                                    1920,
-                                    1080
+                                    960,
+                                    540
                                 )
                             } else {
                                 retriever.getFrameAtTime(timeMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                     ?.let { full ->
                                         Bitmap.createScaledBitmap(
                                             full,
-                                            1920,
-                                            (full.height * (1920f / full.width)).toInt().coerceAtLeast(1),
+                                            960,
+                                            (full.height * (960f / full.width)).toInt().coerceAtLeast(1),
                                             true
                                         ).also { if (it !== full && !full.isRecycled) full.recycle() }
                                     }
@@ -548,9 +542,9 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                     val previous = videoFrames.put(id, frame)
                     if (previous !== frame && previous?.isRecycled == false) previous.recycle()
                 }
-                // Target a 60 FPS preview refresh cadence. Actual decode FPS depends on
-                // device decoder throughput and source frame rate.
-                delay(16L)
+                // A steady 30 FPS decode loop keeps the clip moving independently
+                // of the native video surface and avoids 4K-sized bitmap churn.
+                delay(33L)
             }
         } finally {
             sources.forEach { runCatching { it.second.release() } }
@@ -569,7 +563,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
             }
-            scene.layers.filter { it.visible && it.kind != "camera" && it.kind != "website" && !(renderMode == "hardware" && it.kind == "video") }.forEach { item ->
+            scene.layers.filter { it.visible && it.kind != "camera" && it.kind != "website" }.forEach { item ->
                 val rect = RectF(item.x * size.width, item.y * size.height,
                     (item.x + item.width) * size.width, (item.y + item.height) * size.height)
                 native.save()
@@ -633,7 +627,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                         native.drawBitmap(bitmap, src, rect, paint)
                     }
                     "video" -> {
-                        val decoded = if (renderMode == "decode") videoFrames[item.id]?.takeIf { !it.isRecycled } else null
+                        val decoded = videoFrames[item.id]?.takeIf { !it.isRecycled }
                         if (decoded != null) {
                             val src = android.graphics.Rect(
                                 (decoded.width * item.cropLeft).toInt().coerceIn(0, decoded.width - 1),
@@ -683,24 +677,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                             .size(width = previewWidth * item.width, height = previewHeight * item.height)
                             .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
                     )
-                }
-            }
-            if (renderMode == "hardware") {
-                scene.layers.filter { it.visible && it.kind == "video" && it.text.isNotBlank() }.forEach { item ->
-                    // Keep the AndroidView attached to its layer identity while z-order changes.
-                    key(item.id, item.text) {
-                        HardwareVideoPreview(
-                            uriString = item.text,
-                            loop = item.loop,
-                            autoPlay = item.autoPlay,
-                            volume = item.soundVolume,
-                            muted = item.soundMuted,
-                            modifier = Modifier
-                                .offset(x = previewWidth * item.x, y = previewHeight * item.y)
-                                .size(width = previewWidth * item.width, height = previewHeight * item.height)
-                                .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
-                        )
-                    }
                 }
             }
         }
