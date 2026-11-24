@@ -95,7 +95,8 @@ fun PartyVoicePanel() {
     var joined by remember { mutableStateOf<VoiceRoom?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var showCreate by remember { mutableStateOf(false) }\n    var showRoomCode by remember { mutableStateOf(false) }
+    var showCreate by remember { mutableStateOf(false) }
+    var showRoomCode by remember { mutableStateOf(false) }
 
     suspend fun refreshRooms() {
         runCatching {
