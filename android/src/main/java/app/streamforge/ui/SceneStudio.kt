@@ -20,8 +20,6 @@ import android.view.TextureView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -800,6 +798,7 @@ private object HardwareScenePlayback {
         val error = mutableStateOf<String?>(null)
         var wantsPlayback: Boolean = true
         var attached: Boolean = false
+        var textureView: TextureView? = null
     }
 
     private val states = mutableMapOf<String, State>()
@@ -850,16 +849,23 @@ private object HardwareScenePlayback {
     }
 
     @Synchronized
-    fun attach(state: State) {
+    fun attach(state: State, view: TextureView) {
+        if (state.textureView !== view) {
+            state.textureView = view
+            state.player.setVideoTextureView(view)
+        }
         state.attached = true
         state.player.playWhenReady = state.wantsPlayback
     }
 
     @Synchronized
-    fun detach(state: State) {
+    fun detach(state: State, view: TextureView) {
+        if (state.textureView !== view) return
         state.positionMs.value = state.player.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         state.wantsPlayback = state.player.playWhenReady || state.player.isPlaying || state.wantsPlayback
         state.attached = false
+        state.player.clearVideoTextureView(view)
+        state.textureView = null
         state.player.playWhenReady = false
         state.playing.value = false
     }
@@ -915,22 +921,13 @@ private fun HardwareVideoPreview(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setKeepContentOnPlayerReset(true)
-                    player = state.player
-                    HardwareScenePlayback.attach(state)
+                TextureView(viewContext).apply {
+                    isOpaque = false
+                    HardwareScenePlayback.attach(state, this)
                 }
             },
-            update = { view ->
-                if (view.player !== state.player) view.player = state.player
-                HardwareScenePlayback.attach(state)
-            },
-            onRelease = { view ->
-                view.player = null
-                HardwareScenePlayback.detach(state)
-            }
+            update = { view -> HardwareScenePlayback.attach(state, view) },
+            onRelease = { view -> HardwareScenePlayback.detach(state, view) }
         )
         state.error.value?.let { Text(it, color = Color.White, fontSize = 9.sp, modifier = Modifier.align(Alignment.Center)) }
     }
