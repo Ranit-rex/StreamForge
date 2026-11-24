@@ -141,7 +141,12 @@ internal class HardwareVideoFrameDecoder(
     }
 
     private fun restartAtBeginning() {
-        runCatching { decoder.flush() }
+        // MediaCodec must be started again after flush() before dequeue calls
+        // can resume. Without this, looping clips can freeze on their final frame.
+        runCatching {
+            decoder.flush()
+            decoder.start()
+        }
         extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
         inputEnded = false
         outputEnded = false
