@@ -804,6 +804,10 @@ class StreamService : Service(), ConnectChecker {
                 recordingStartedAt.value = System.currentTimeMillis()
                 status.value = if (streaming.value) "Recording locally" else "Recording screen locally"
                 updateOngoingNotification(if (streaming.value) "LIVE · Local recording active" else "Local screen recording active")
+                // The scene was initially composed while recording=false, so animated
+                // overlays had no frame ticker. Start the ticker as soon as the recorder
+                // is live; this advances video overlays beyond their first decoded frame.
+                applyScene(activeSceneIndex)
                 startPreviewIfAvailable()
             }
             .onFailure { error ->
