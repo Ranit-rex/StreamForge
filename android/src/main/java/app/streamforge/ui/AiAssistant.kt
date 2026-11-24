@@ -148,6 +148,72 @@ fun AiAssistantPanel(){
  }
 }
 
+@Composable
+fun MiniAiAssistant(appContext: String, onOpenFull: () -> Unit, onAction: (String) -> Unit) {
+ val context=androidx.compose.ui.platform.LocalContext.current
+ val scope=rememberCoroutineScope()
+ var apiKey by remember{mutableStateOf("")}
+ var provider by remember{mutableStateOf<Provider?>(null)}
+ var model by remember{mutableStateOf<Model?>(null)}
+ var messages by remember{mutableStateOf(listOf<ChatMsg>())}
+ var prompt by remember{mutableStateOf("")}
+ var busy by remember{mutableStateOf(false)}
+ var status by remember{mutableStateOf("Connecting to your saved AI model…")}
+ LaunchedEffect(Unit){
+  val saved=KeyVault.read(context)
+  apiKey=saved
+  val p=providers.firstOrNull{saved.startsWith(it.prefix)}
+  if(p==null){status="Connect an AI provider in AI Assistant settings first."}
+  else{
+   provider=p;busy=true
+   try{model=fetchModels(p,saved).firstOrNull();status=if(model!=null)"Ready · "+model!!.name else "No models available for this key."}
+   catch(e:Exception){status=e.message?:"Could not connect to the saved model."}
+   finally{busy=false}
+  }
+ }
+ if(provider==null||model==null){
+  Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+   Text(status,color=Color(0xFF91A0B4),fontSize=12.sp)
+   Button(onClick=onOpenFull,modifier=Modifier.fillMaxWidth()){Text("SET UP AI ASSISTANT")}
+  }
+ }else{
+  Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+   Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically){
+    Text(status,color=Color(0xFF55D6A1),fontSize=9.sp,modifier=Modifier.weight(1f))
+    Text("APP-AWARE",color=Color(0xFF9DB4FF),fontSize=9.sp,fontWeight=FontWeight.Bold)
+   }
+   LazyColumn(Modifier.fillMaxWidth().heightIn(min=120.dp,max=310.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
+    items(messages){msg->
+     Surface(color=if(msg.role=="user")Color(0xFF26354B) else Color(0xFF192331),shape=RoundedCornerShape(10.dp)){
+      Text(msg.text,Modifier.fillMaxWidth().padding(9.dp),color=Color.White,fontSize=11.sp)
+     }
+    }
+   }
+   OutlinedTextField(prompt,{prompt=it},modifier=Modifier.fillMaxWidth(),singleLine=false,minLines=1,maxLines=3,label={Text("Ask StreamForge AI…")})
+   Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
+    OutlinedButton(onClick={messages=emptyList()},enabled=messages.isNotEmpty()&&!busy,modifier=Modifier.weight(1f)){Text("CLEAR")}
+    Button(onClick={
+     val q=prompt.trim();val p=provider;val m=model
+     if(q.isNotEmpty()&&p!=null&&m!=null){
+      prompt="";val history=messages+ChatMsg("user",q);messages=history;busy=true
+      val instructions="""You are StreamForge Mini Assistant, an app-aware AI copilot. Think carefully, make practical decisions, explain trade-offs, and help operate StreamForge. Current app context: $appContext. You may guide the user and navigate within the app. If the user explicitly asks to open a section, append exactly one action token at the very end: [[SF_ACTION:STUDIO]], [[SF_ACTION:SCENES]], [[SF_ACTION:SETTINGS]], [[SF_ACTION:RECORDINGS]], or [[SF_ACTION:FULL_AI]]. Never invent actions outside this list. Do not claim you changed a setting, started/stopped a stream, accessed the phone, or performed an operation unless the app confirms it. Streaming/recording, permissions, external accounts, and arbitrary phone actions require explicit user interaction and Android permission."""
+      scope.launch{
+       try{
+        val answer=sendChat(p,apiKey,m,history,instructions)
+        val action=Regex("""\[\[SF_ACTION:(STUDIO|SCENES|SETTINGS|RECORDINGS|FULL_AI)]]""").find(answer)?.groupValues?.getOrNull(1)
+        val clean=answer.replace(Regex("""\s*\[\[SF_ACTION:(STUDIO|SCENES|SETTINGS|RECORDINGS|FULL_AI)]]\s*"""),"").trim()
+        messages=history+ChatMsg("assistant",clean)
+        if(action!=null)onAction(action)
+       }catch(e:Exception){messages=history+ChatMsg("assistant","Error: "+(e.message?:"Request failed"))}
+       finally{busy=false}
+      }
+     }
+    },enabled=prompt.isNotBlank()&&!busy,modifier=Modifier.weight(1f)){Text(if(busy)"THINKING…" else "SEND")}
+   }
+  }
+ }
+}
+
 private suspend fun fetchModels(p:Provider,key:String):List<Model> = withContext(Dispatchers.IO){
  val c=URL(p.url+"/models").openConnection() as HttpURLConnection
  try{
@@ -168,16 +234,16 @@ private suspend fun fetchModels(p:Provider,key:String):List<Model> = withContext
  }finally{c.disconnect()}
 }
 
-private suspend fun sendChat(p:Provider,key:String,model:Model,history:List<ChatMsg>):String=withContext(Dispatchers.IO){
+private suspend fun sendChat(p:Provider,key:String,model:Model,history:List<ChatMsg>,systemPrompt:String=""):String=withContext(Dispatchers.IO){
  val endpoint=when(p.kind){"gemini"->p.url+"/"+model.id+":generateContent";"anthropic"->p.url+"/messages";else->p.url+"/chat/completions"}
  val c=URL(endpoint).openConnection() as HttpURLConnection
  try{
   c.requestMethod="POST";c.doOutput=true;c.connectTimeout=20000;c.readTimeout=90000;c.setRequestProperty("Content-Type","application/json")
   when(p.kind){"gemini"->c.setRequestProperty("x-goog-api-key",key);"anthropic"->{c.setRequestProperty("x-api-key",key);c.setRequestProperty("anthropic-version","2023-06-01")};else->c.setRequestProperty("Authorization","Bearer "+key)}
   val body=when(p.kind){
-   "gemini"->{val a=JSONArray();history.forEach{a.put(JSONObject().put("role",if(it.role=="assistant")"model" else "user").put("parts",JSONArray().put(JSONObject().put("text",it.text)) ))};JSONObject().put("contents",a)}
-   "anthropic"->{val a=JSONArray();history.forEach{a.put(JSONObject().put("role",it.role).put("content",it.text))};JSONObject().put("model",model.id).put("max_tokens",2048).put("messages",a)}
-   else->{val a=JSONArray();history.forEach{a.put(JSONObject().put("role",it.role).put("content",it.text))};JSONObject().put("model",model.id).put("messages",a)}
+   "gemini"->{val a=JSONArray();history.forEach{a.put(JSONObject().put("role",if(it.role=="assistant")"model" else "user").put("parts",JSONArray().put(JSONObject().put("text",it.text)) ))};JSONObject().put("systemInstruction",JSONObject().put("parts",JSONArray().put(JSONObject().put("text",systemPrompt)))).put("contents",a)}
+   "anthropic"->{val a=JSONArray();history.forEach{a.put(JSONObject().put("role",it.role).put("content",it.text))};JSONObject().put("model",model.id).put("max_tokens",2048).put("system",systemPrompt).put("messages",a)}
+   else->{val a=JSONArray();if(systemPrompt.isNotBlank())a.put(JSONObject().put("role","system").put("content",systemPrompt));history.forEach{a.put(JSONObject().put("role",it.role).put("content",it.text))};JSONObject().put("model",model.id).put("messages",a)}
   }
   c.outputStream.use{it.write(body.toString().toByteArray())}
   val code=c.responseCode;val response=(if(code in 200..299)c.inputStream else c.errorStream).bufferedReader().use{it.readText()}
