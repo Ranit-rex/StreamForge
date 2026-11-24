@@ -50,7 +50,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -563,7 +562,7 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
         BoxWithConstraints(modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)) {
             val previewWidth = maxWidth
             val previewHeight = maxHeight
-            Canvas(Modifier.matchParentSize().zIndex(scene.layers.indexOfLast { it.visible && it.kind != "camera" && it.kind != "website" && !(renderMode == "hardware" && it.kind == "video") }.coerceAtLeast(0).toFloat())) {
+            Canvas(Modifier.matchParentSize()) {
         drawRect(Color(0xFF101316))
         drawIntoCanvas { canvas ->
             val native = canvas.nativeCanvas
@@ -672,7 +671,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                             .offset(x = previewWidth * item.x, y = previewHeight * item.y)
                             .size(width = previewWidth * item.width, height = previewHeight * item.height)
                             .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
-                            .zIndex(scene.layers.indexOfFirst { it.id == item.id }.toFloat())
                     )
                 }
             }
@@ -684,7 +682,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                             .offset(x = previewWidth * item.x, y = previewHeight * item.y)
                             .size(width = previewWidth * item.width, height = previewHeight * item.height)
                             .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
-                            .zIndex(scene.layers.indexOfFirst { it.id == item.id }.toFloat())
                     )
                 }
             }
@@ -702,7 +699,6 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
                                 .offset(x = previewWidth * item.x, y = previewHeight * item.y)
                                 .size(width = previewWidth * item.width, height = previewHeight * item.height)
                                 .graphicsLayer(rotationZ = item.rotation, alpha = item.opacity.coerceIn(0f, 1f))
-                                .zIndex(scene.layers.indexOfFirst { it.id == item.id }.toFloat())
                         )
                     }
                 }
