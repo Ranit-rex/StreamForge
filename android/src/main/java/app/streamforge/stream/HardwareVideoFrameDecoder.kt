@@ -164,25 +164,34 @@ internal class HardwareVideoFrameDecoder(
         val vRow = vPlane.rowStride
         val uPixel = uPlane.pixelStride
         val vPixel = vPlane.pixelStride
-        val pixels = IntArray(width * height)
+
+        // Scene overlays are composited into a preview-sized layer, not shown
+        // full-screen as a source clip. Convert directly to a bounded bitmap so
+        // 4K clips do not allocate and walk 8 million pixels on every frame.
+        val scale = minOf(1f, 960f / width.coerceAtLeast(1), 540f / height.coerceAtLeast(1))
+        val outWidth = (width * scale).toInt().coerceAtLeast(1)
+        val outHeight = (height * scale).toInt().coerceAtLeast(1)
+        val pixels = IntArray(outWidth * outHeight)
         var out = 0
-        for (row in 0 until height) {
-            val yRowOffset = row * yRow
-            val uvRowU = (row / 2) * uRow
-            val uvRowV = (row / 2) * vRow
-            for (col in 0 until width) {
-                val y = (yBuffer.get(yRowOffset + col).toInt() and 0xff) - 16
-                val uvCol = col / 2
+        for (row in 0 until outHeight) {
+            val sourceY = (row * height / outHeight).coerceIn(0, height - 1)
+            val yRowOffset = sourceY * yRow
+            val uvRowU = (sourceY / 2) * uRow
+            val uvRowV = (sourceY / 2) * vRow
+            for (col in 0 until outWidth) {
+                val sourceX = (col * width / outWidth).coerceIn(0, width - 1)
+                val y = (yBuffer.get(yRowOffset + sourceX).toInt() and 0xff) - 16
+                val uvCol = sourceX / 2
                 val u = (uBuffer.get(uvRowU + uvCol * uPixel).toInt() and 0xff) - 128
                 val v = (vBuffer.get(uvRowV + uvCol * vPixel).toInt() and 0xff) - 128
-                val yy = (y.coerceAtLeast(0) * 1192)
+                val yy = y.coerceAtLeast(0) * 1192
                 val r = ((yy + 1634 * v) shr 10).coerceIn(0, 255)
                 val g = ((yy - 833 * v - 400 * u) shr 10).coerceIn(0, 255)
                 val b = ((yy + 2066 * u) shr 10).coerceIn(0, 255)
                 pixels[out++] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
-        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        return Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
     }
 
     override fun close() {
