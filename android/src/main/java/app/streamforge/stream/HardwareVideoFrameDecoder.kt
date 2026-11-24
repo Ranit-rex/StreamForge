@@ -26,6 +26,8 @@ internal class HardwareVideoFrameDecoder(
     private val trackIndex: Int
     val durationMs: Long
     val frameRate: Int
+    @Volatile var lastFramePresentationTimeUs: Long = -1L
+        private set
     private var inputEnded = false
     private var outputEnded = false
     private var closed = false
@@ -99,7 +101,10 @@ internal class HardwareVideoFrameDecoder(
                     runCatching { decoder.getOutputImage(outputIndex)?.use { bitmap = imageToBitmap(it) } }
                 }
                 decoder.releaseOutputBuffer(outputIndex, false)
-                if (bitmap != null) return bitmap
+                if (bitmap != null) {
+                    lastFramePresentationTimeUs = info.presentationTimeUs
+                    return bitmap
+                }
                 if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     if (!loop) {
                         outputEnded = true
@@ -123,6 +128,7 @@ internal class HardwareVideoFrameDecoder(
         extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
         inputEnded = false
         outputEnded = false
+        lastFramePresentationTimeUs = -1L
     }
 
     private fun imageToBitmap(image: android.media.Image): Bitmap {
