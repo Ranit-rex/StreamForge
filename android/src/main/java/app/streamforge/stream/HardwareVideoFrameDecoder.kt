@@ -56,7 +56,7 @@ internal class HardwareVideoFrameDecoder(
                 } else {
                     runCatching {
                         info.getCapabilitiesForType(mime).colorFormats
-                            .contains(COLOR_FORMAT_YUV420_FLEXIBLE)
+                            .contains(MediaCodecInfo.COLOR_FORMAT_YUV420_FLEXIBLE)
                     }.getOrDefault(false)
                 }
             }
