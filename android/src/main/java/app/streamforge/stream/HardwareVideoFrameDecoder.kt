@@ -123,6 +123,17 @@ internal class HardwareVideoFrameDecoder(
         return null
     }
 
+    /** Restart this same selected hardware codec without changing the source format. */
+    @Synchronized
+    fun restartPlayback() {
+        if (closed) return
+        runCatching { decoder.flush() }
+        extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+        inputEnded = false
+        outputEnded = false
+        lastFramePresentationTimeUs = -1L
+    }
+
     private fun restartAtBeginning() {
         runCatching { decoder.flush() }
         extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
