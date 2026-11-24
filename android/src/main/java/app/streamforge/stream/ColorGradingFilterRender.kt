@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.opengl.GLUtils
 import android.opengl.GLES20
 import android.opengl.Matrix
-import com.pedro.encoder.R
 import com.pedro.encoder.input.gl.render.filters.BaseFilterRender
 import com.pedro.encoder.utils.gl.GlUtil
 import java.nio.ByteBuffer
@@ -65,7 +64,19 @@ class ColorGradingFilterRender : BaseFilterRender() {
         Matrix.setIdentityM(MVPMatrix, 0)
         Matrix.setIdentityM(STMatrix, 0)
 
-        val vertexShader = GlUtil.getStringFromRaw(context, R.raw.simple_vertex)
+        // Keep raw UVs for the screen crop/rotation transform. The stock
+        // simple_vertex shader already applies uSTMatrix, so applying it again
+        // in the fragment shader double-transforms the SurfaceTexture coordinates.
+        val vertexShader = """
+            attribute vec4 aPosition;
+            attribute vec4 aTextureCoord;
+            uniform mat4 uMVPMatrix;
+            varying vec2 vTextureCoord;
+            void main() {
+                gl_Position = uMVPMatrix * aPosition;
+                vTextureCoord = aTextureCoord.xy;
+            }
+        """.trimIndent()
         val fragmentShader = """
             precision highp float;
             uniform sampler2D uSampler;
@@ -91,8 +102,9 @@ class ColorGradingFilterRender : BaseFilterRender() {
                 vec2 centered = localTop - vec2(0.5);
                 vec2 rotated = vec2(centered.x * cos(angle) - centered.y * sin(angle), centered.x * sin(angle) + centered.y * cos(angle)) + vec2(0.5);
                 vec2 cropped = mix(uScreenCrop.xy, uScreenCrop.zw, rotated);
-                vec2 transformedUv = (uSTMatrix * vec4(cropped.x, 1.0 - cropped.y, 0.0, 1.0)).xy;
-                vec2 sourceUv = mix(vTextureCoord, transformedUv, 0.99999);
+                // Apply SurfaceTexture's transform exactly once, after the
+                // scene crop/rotation has been calculated in raw texture space.
+                vec2 sourceUv = (uSTMatrix * vec4(cropped.x, 1.0 - cropped.y, 0.0, 1.0)).xy;
                 vec4 center = insideScreen ? texture2D(uSampler, sourceUv) : vec4(0.025, 0.035, 0.055, 1.0);
                 vec3 up = insideScreen ? texture2D(uSampler, sourceUv + vec2(0.0, texel.y)).rgb : center.rgb;
                 vec3 down = insideScreen ? texture2D(uSampler, sourceUv - vec2(0.0, texel.y)).rgb : center.rgb;
