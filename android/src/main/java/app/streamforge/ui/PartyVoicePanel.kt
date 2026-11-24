@@ -97,6 +97,8 @@ fun PartyVoicePanel() {
     var loading by remember { mutableStateOf(false) }
     var showCreate by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
+    var showAudioInfo by remember { mutableStateOf(false) }
+    var selectedAudioControl by remember { mutableStateOf("MIC") }
 
     suspend fun refreshRooms() {
         runCatching {
@@ -222,8 +224,8 @@ fun PartyVoicePanel() {
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("MIC") }
-                        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("SPEAKER") }
+                        OutlinedButton(onClick = { selectedAudioControl = "MIC"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("MIC") }
+                        OutlinedButton(onClick = { selectedAudioControl = "SPEAKER"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("SPEAKER") }
                     }
                     Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are the next implementation stage; voice controls are disabled until the audio path is real.", color = Color(0xFFFFC46B), fontSize = 10.sp)
                     Button(onClick = {
@@ -239,6 +241,22 @@ fun PartyVoicePanel() {
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
         Text("Rooms are temporary and stored only in server memory. They disappear after the server restarts or expires inactive rooms.", color = VoiceMuted, fontSize = 10.sp)
+    }
+
+    if (showAudioInfo) {
+        AlertDialog(
+            onDismissRequest = { showAudioInfo = false },
+            title = { Text(if (selectedAudioControl == "MIC") "Microphone unavailable" else "Speaker unavailable") },
+            text = {
+                Text(
+                    if (selectedAudioControl == "MIC")
+                        "The room is created, but live voice capture and WebRTC transmission are not connected yet. This button is now clickable, but it cannot send your microphone audio until the voice engine is implemented."
+                    else
+                        "The room is created, but remote voice playback is not connected yet. This button is now clickable, but there is no incoming participant audio to play until the voice engine is implemented."
+                )
+            },
+            confirmButton = { TextButton(onClick = { showAudioInfo = false }) { Text("OK") } }
+        )
     }
 
     if (showCreate) {
