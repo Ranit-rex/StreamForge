@@ -209,7 +209,7 @@ wss.on("connection", (ws, _req, identity) => {
       const active = Boolean(message.active);
       for (const [id, peer] of peers) {
         if (id !== memberId && peer.readyState === WebSocket.OPEN) {
-          peer.send(JSON.stringify({ type: message.type, memberId, active }));
+          peer.send(JSON.stringify({ type: message.type, memberId, displayName: ws.displayName, active }));
         }
       }
       return;
