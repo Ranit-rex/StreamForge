@@ -829,7 +829,7 @@ class StreamService : Service(), ConnectChecker {
         val requestedVideoFps = (0 until layers.length()).mapNotNull { i ->
             layers.optJSONObject(i)?.takeIf { it.optBoolean("visible", true) && it.optString("kind") == "video" }?.let { item ->
                 val manual = item.optInt("fps", 0)
-                (if (manual == 0) videoSourceFps[item.optString("text")] ?: 30 else manual).coerceIn(5, 30)
+                (if (manual == 0) videoSourceFps[item.optString("text")] ?: 30 else manual).coerceIn(5, 60)
             }
         }.maxOrNull() ?: 5
         val hasAnimatedLayer = (0 until layers.length()).any { i ->
