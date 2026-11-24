@@ -127,7 +127,13 @@ internal class HardwareVideoFrameDecoder(
     @Synchronized
     fun restartPlayback() {
         if (closed) return
-        runCatching { decoder.flush() }
+        // MediaCodec enters the Flushed state after flush(). In synchronous
+        // dequeue mode it must be started again before input/output buffers
+        // can flow; otherwise playback can remain frozen on the first frame.
+        runCatching {
+            decoder.flush()
+            decoder.start()
+        }
         extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
         inputEnded = false
         outputEnded = false
