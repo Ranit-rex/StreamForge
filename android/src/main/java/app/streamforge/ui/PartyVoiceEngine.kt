@@ -378,7 +378,7 @@ internal class PartyVoiceEngine(
         client.connectionPool.evictAll()
     }
 
-    private class SdpObserverAdapter : SdpObserver {
+    private open class SdpObserverAdapter : SdpObserver {
         override fun onCreateSuccess(description: SessionDescription?) {}
         override fun onSetSuccess() {}
         override fun onCreateFailure(error: String?) {}
