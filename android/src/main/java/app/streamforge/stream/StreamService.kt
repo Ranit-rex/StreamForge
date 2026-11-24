@@ -659,7 +659,12 @@ class StreamService : Service(), ConnectChecker {
                                 videoStartedAt.putIfAbsent(uriString, nowElapsed)
                                 val elapsed = (nowElapsed - (videoStartedAt[uriString] ?: nowElapsed)).coerceAtLeast(0L)
                                 var frame: Bitmap? = null
-                                if (!videoFallbackActive.contains(uriString)) {
+                                // Stream overlay playback must honor the user's selected mode.
+                                // Recovery is mode-local: Hardware restarts/recreates MediaCodec;
+                                // Decode resets/recreates MediaMetadataRetriever. Never cross-switch.
+                                val selectedMode = getSharedPreferences("streamforge_studio", 0)
+                                    .getString("video_preview_mode", "decode") ?: "decode"
+                                if (selectedMode == "hardware") {
                                     try {
                                         val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
                                             this@StreamService, Uri.parse(uriString)
@@ -684,35 +689,36 @@ class StreamService : Service(), ConnectChecker {
                                         val currentDecoder = videoDecoders[uriString]
                                         val restartCount = videoHardwareRestartCounts[uriString] ?: 0
                                         if (currentDecoder != null && restartCount < 1) {
-                                            // Keep HARDWARE mode: restart the same codec and seek to
-                                            // the beginning of the same source; do not switch to
-                                            // the slower timestamp/Decode path on the first stall.
+                                            // First recovery: reset the currently selected hardware codec.
                                             runCatching { currentDecoder.restartPlayback() }
                                             videoHardwareRestartCounts[uriString] = restartCount + 1
-                                            videoLastPts.remove(uriString)
-                                            videoLastPtsProgressAt[uriString] = nowElapsed
                                         } else {
+                                            // Second recovery: recreate a hardware decoder for the same source.
                                             videoDecoders.remove(uriString)?.let { runCatching { it.close() } }
-                                            // All hardware recovery attempts exhausted. Keep the
-                                            // current fallback as a last-resort compatibility path.
-                                            videoFallbackActive.add(uriString)
-                                            videoLastPts.remove(uriString)
-                                            videoLastPtsProgressAt.remove(uriString)
+                                            videoHardwareRestartCounts[uriString] = 0
                                         }
+                                        videoLastPts.remove(uriString)
+                                        videoLastPtsProgressAt[uriString] = nowElapsed
                                     }
-                                }
-                                if (videoFallbackActive.contains(uriString)) {
-                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
-                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
-                                        videoFallbackRetrievers[uriString] = it
-                                        val durationText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                        val fpsText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                                        videoDurationMs[uriString] = durationText?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                                        videoSourceFps[uriString] = fpsText?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
+                                } else {
+                                    try {
+                                        val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
+                                            it.setDataSource(this@StreamService, Uri.parse(uriString))
+                                            videoFallbackRetrievers[uriString] = it
+                                            val durationText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                            val fpsText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                                            videoDurationMs[uriString] = durationText?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                            videoSourceFps[uriString] = fpsText?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
+                                        }
+                                        val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
+                                        val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                                        frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                            ?: throw IllegalStateException("Decode returned no frame")
+                                    } catch (_: Exception) {
+                                        // Decode recovery stays in Decode: release the failed retriever
+                                        // so the next refresh creates a fresh one for this same URI.
+                                        videoFallbackRetrievers.remove(uriString)?.let { runCatching { it.release() } }
                                     }
-                                    val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
-                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                                    frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                 }
                                 if (frame != null) {
                                     synchronized(videoFrameLock) {
