@@ -49,6 +49,9 @@ internal class PartyVoiceEngine(
     private val onState: (VoiceEngineState) -> Unit
 ) {
     private val appContext = context.applicationContext
+    // Serialize WebRTC creation and teardown. Compose can dispose the engine while
+    // the init thread is still creating native audio/peer-connection resources.
+    private val lifecycleLock = Any()
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     // Reuse one dispatcher across room sessions. Shutting it down while a WebSocket
     // callback is queued causes RejectedExecutionException on reconnect/leave races.
@@ -71,53 +74,66 @@ internal class PartyVoiceEngine(
 
     fun connect() {
         Thread({
-        try {
-            PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
-            )
-            val audioModule = JavaAudioDeviceModule.builder(appContext)
-                .setUseHardwareAcousticEchoCanceler(true)
-                .setUseHardwareNoiseSuppressor(true)
-                .createAudioDeviceModule()
-            factory = PeerConnectionFactory.builder()
-                .setAudioDeviceModule(audioModule)
-                .createPeerConnectionFactory()
-            audioSource = factory?.createAudioSource(MediaConstraints())
-            localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
-                .also { it?.setEnabled(true) }
+            synchronized(lifecycleLock) {
+                if (closed) return@synchronized
+                try {
+                    PeerConnectionFactory.initialize(
+                        PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
+                    )
+                    if (closed) return@synchronized
+                    val audioModule = JavaAudioDeviceModule.builder(appContext)
+                        .setUseHardwareAcousticEchoCanceler(true)
+                        .setUseHardwareNoiseSuppressor(true)
+                        .createAudioDeviceModule()
+                    if (closed) return@synchronized
+                    factory = PeerConnectionFactory.builder()
+                        .setAudioDeviceModule(audioModule)
+                        .createPeerConnectionFactory()
+                    audioSource = factory?.createAudioSource(MediaConstraints())
+                    localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
+                        .also { it?.setEnabled(true) }
 
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-            @Suppress("DEPRECATION")
-            run { audioManager.isSpeakerphoneOn = true }
+                    audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+                    @Suppress("DEPRECATION")
+                    run { audioManager.isSpeakerphoneOn = true }
 
-            val wsBase = endpoint.trimEnd('/')
-                .replaceFirst("https://", "wss://")
-                .replaceFirst("http://", "ws://")
-            val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId"
-            socket = client.newWebSocket(
-                Request.Builder().url(url).header("Authorization", "Bearer $token").build(),
-                object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    signalingConnected = true
-                    publish("Voice connected · joining peers")
+                    val wsBase = endpoint.trimEnd('/')
+                        .replaceFirst("https://", "wss://")
+                        .replaceFirst("http://", "ws://")
+                    val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId"
+                    socket = client.newWebSocket(
+                        Request.Builder().url(url).header("Authorization", "Bearer $token").build(),
+                        object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) {
+                                if (closed) return
+                                signalingConnected = true
+                                publish("Voice connected · joining peers")
+                            }
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                if (!closed) handleSignal(runCatching { JSONObject(text) }.getOrNull() ?: return)
+                            }
+                            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                                signalingConnected = false
+                                if (!closed) publish("Voice connection lost: ${t.message ?: "network error"}")
+                            }
+                            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                                signalingConnected = false
+                                if (!closed) publish("Voice disconnected")
+                            }
+                        }
+                    )
+                    startStatsMonitor()
+                } catch (t: Throwable) {
+                    if (!closed) publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
+                    // Release any partially-created native resources before another attempt.
+                    runCatching { localTrack?.dispose() }
+                    runCatching { audioSource?.dispose() }
+                    runCatching { factory?.dispose() }
+                    localTrack = null
+                    audioSource = null
+                    factory = null
                 }
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    handleSignal(runCatching { JSONObject(text) }.getOrNull() ?: return)
-                }
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    signalingConnected = false
-                    if (!closed) publish("Voice connection lost: ${t.message ?: "network error"}")
-                }
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    signalingConnected = false
-                    if (!closed) publish("Voice disconnected")
-                }
-                }
-            )
-            startStatsMonitor()
-        } catch (t: Throwable) {
-            if (!closed) publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
-        }
+            }
         }, "streamforge-voice-init").start()
     }
 
@@ -364,25 +380,27 @@ internal class PartyVoiceEngine(
     }
 
     fun close() {
-        closed = true
-        socket?.close(1000, "Leaving voice room")
-        socket = null
-        signalingConnected = false
-        statsExecutor.shutdownNow()
-        peers.values.forEach { it.close() }
-        peers.clear()
-        remoteTracks.clear()
-        localTrack?.dispose()
-        audioSource?.dispose()
-        factory?.dispose()
-        localTrack = null
-        audioSource = null
-        factory = null
-        audioManager.mode = AudioManager.MODE_NORMAL
-        @Suppress("DEPRECATION")
-        run { audioManager.isSpeakerphoneOn = false }
-        // Do not shut down the shared OkHttp dispatcher: WebSocket close/failure
-        // callbacks may still be queued and must be allowed to finish.
+        synchronized(lifecycleLock) {
+            if (closed) return
+            closed = true
+            socket?.close(1000, "Leaving voice room")
+            socket = null
+            signalingConnected = false
+            statsExecutor.shutdownNow()
+            peers.values.forEach { runCatching { it.close() } }
+            peers.clear()
+            remoteTracks.clear()
+            runCatching { localTrack?.dispose() }
+            runCatching { audioSource?.dispose() }
+            runCatching { factory?.dispose() }
+            localTrack = null
+            audioSource = null
+            factory = null
+            audioManager.mode = AudioManager.MODE_NORMAL
+            @Suppress("DEPRECATION")
+            run { audioManager.isSpeakerphoneOn = false }
+            // Do not shut down the shared OkHttp dispatcher: callbacks may still be queued.
+        }
     }
 
     private companion object {
