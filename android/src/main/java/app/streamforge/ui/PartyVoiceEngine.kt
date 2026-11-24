@@ -183,7 +183,7 @@ internal class PartyVoiceEngine(
                                 pc.setLocalDescription(object : SdpObserverAdapter() {
                                     override fun onSetSuccess() {
                                         send(JSONObject().put("type", "answer").put("to", id)
-                                            .put("description", JSONObject().put("type", "answer").put("sdp", answer.description)))
+                                            .put("description", JSONObject().put("type", "answer").put("sdp", answerDescription.description)))
                                     }
                                 }, answerDescription)
                             }
@@ -268,7 +268,7 @@ internal class PartyVoiceEngine(
                     pc.setLocalDescription(object : SdpObserverAdapter() {
                         override fun onSetSuccess() {
                             send(JSONObject().put("type", "offer").put("to", id)
-                                .put("description", JSONObject().put("type", "offer").put("sdp", offer.description)))
+                                .put("description", JSONObject().put("type", "offer").put("sdp", offerDescription.description)))
                         }
                     }, offer)
                 }
