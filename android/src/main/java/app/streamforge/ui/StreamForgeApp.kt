@@ -223,7 +223,19 @@ fun StreamForgeApp(
                             }
                         )
                         3 -> RecordingLibrary()
-                        5 -> AiAssistantPanel()
+                        5 -> MiniAiAssistant(
+                            appContext = "section=AI Assistant, streaming=$isStreaming, recording=$isRecording, bitrateKbps=$bitrate, resolution=$liveResolution, fps=$liveFps, quality=${selectedQuality.label}",
+                            onOpenFull = {},
+                            onAction = { action ->
+                                selectedTab = when (action) {
+                                    "STUDIO" -> 0
+                                    "SCENES" -> 2
+                                    "SETTINGS" -> 4
+                                    "RECORDINGS" -> 3
+                                    else -> selectedTab
+                                }
+                            }
+                        )
                         6 -> ChatIntegrationPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
