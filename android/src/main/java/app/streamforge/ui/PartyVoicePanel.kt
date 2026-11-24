@@ -176,7 +176,7 @@ fun PartyVoicePanel() {
         runCatching {
             val body = JSONObject().put("roomId", id).put("memberId", memberId).put("displayName", displayName.ifBlank { "Guest" })
             val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
-            if (room.voiceToken.isBlank()) error("Voice security token missing. Update the voice server.")
+            if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
             joined = room
             requestVoice(room)
             prefs.edit().putString("display_name", displayName).putString("room_id", id).apply()
@@ -386,7 +386,7 @@ fun PartyVoicePanel() {
                         runCatching {
                             val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
                             val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms", "POST", payload))
-                            if (room.voiceToken.isBlank()) error("Voice security token missing. Update the voice server.")
+                            if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
                             joined = room
                             requestVoice(room)
                             prefs.edit().putString("display_name", displayName).putString("room_id", room.id).apply()
