@@ -250,6 +250,7 @@ fun StreamForgeApp(
                             }
                         )
                         6 -> ChatIntegrationPanel()
+                        9 -> PartyVoicePanel()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
@@ -520,12 +521,13 @@ fun StreamForgeApp(
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth().background(Panel)) {
                     val destinations = listOf(
                         Triple(0, "Studio", "●"),
-                        Triple(2, "Scenes", "▦"),
+                        Triple(9, "Party", "◉"),
+                        Triple(6, "Chat", "▤"),
                         Triple(8, "More", "•••")
                     )
                     destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..7 else selectedTab == tab,
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 2..5 || selectedTab == 7 else selectedTab == tab,
                             onClick = { selectedTab = tab },
                             icon = { Text(icon, fontSize = 17.sp) },
                             label = { Text(label, fontSize = 10.sp, maxLines = 1) },
