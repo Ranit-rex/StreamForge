@@ -150,6 +150,8 @@ class StreamService : Service(), ConnectChecker {
     private val videoNullFrameCounts = ConcurrentHashMap<String, Int>()
     private val videoLastPts = ConcurrentHashMap<String, Long>()
     private val videoLastPtsProgressAt = ConcurrentHashMap<String, Long>()
+    // Allow one in-place hardware decoder restart before considering any alternate path.
+    private val videoHardwareRestartCounts = ConcurrentHashMap<String, Int>()
     private val videoFrameLock = Any()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
@@ -679,10 +681,24 @@ class StreamService : Service(), ConnectChecker {
                                             throw IllegalStateException("Hardware decoder stopped producing frames")
                                         }
                                     } catch (_: Exception) {
-                                        videoDecoders.remove(uriString)?.let { runCatching { it.close() } }
-                                        videoFallbackActive.add(uriString)
-                                        videoLastPts.remove(uriString)
-                                        videoLastPtsProgressAt.remove(uriString)
+                                        val currentDecoder = videoDecoders[uriString]
+                                        val restartCount = videoHardwareRestartCounts[uriString] ?: 0
+                                        if (currentDecoder != null && restartCount < 1) {
+                                            // Keep HARDWARE mode: restart the same codec and seek to
+                                            // the beginning of the same source; do not switch to
+                                            // the slower timestamp/Decode path on the first stall.
+                                            runCatching { currentDecoder.restartPlayback() }
+                                            videoHardwareRestartCounts[uriString] = restartCount + 1
+                                            videoLastPts.remove(uriString)
+                                            videoLastPtsProgressAt[uriString] = nowElapsed
+                                        } else {
+                                            videoDecoders.remove(uriString)?.let { runCatching { it.close() } }
+                                            // All hardware recovery attempts exhausted. Keep the
+                                            // current fallback as a last-resort compatibility path.
+                                            videoFallbackActive.add(uriString)
+                                            videoLastPts.remove(uriString)
+                                            videoLastPtsProgressAt.remove(uriString)
+                                        }
                                     }
                                 }
                                 if (videoFallbackActive.contains(uriString)) {
@@ -1320,6 +1336,7 @@ class StreamService : Service(), ConnectChecker {
         videoNullFrameCounts.clear()
         videoLastPts.clear()
         videoLastPtsProgressAt.clear()
+        videoHardwareRestartCounts.clear()
         videoDecodeExecutor.shutdownNow()
         synchronized(videoFrameLock) {
             videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
