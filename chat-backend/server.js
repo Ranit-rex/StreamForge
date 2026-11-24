@@ -128,9 +128,16 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req);
         const room = voiceRooms.get(String(body.roomId || ""));
         if (!room) return send(res, 200, { ok: true });
-        room.members = room.members.filter(m => m.memberId !== String(body.memberId || ""));
+        const leavingId = String(body.memberId || "");
+        const activeSocket = voiceSockets.get(room.roomId)?.get(leavingId);
+        if (activeSocket) activeSocket.close(1000, "Member left room");
+        room.members = room.members.filter(m => m.memberId !== leavingId);
         room.updatedAt = Date.now();
-        if (room.members.length === 0) voiceRooms.delete(room.roomId);
+        if (room.members.length === 0) {
+          voiceRooms.delete(room.roomId);
+          for (const peer of voiceSockets.get(room.roomId)?.values() || []) peer.close(1000, "Room closed");
+          voiceSockets.delete(room.roomId);
+        }
         return send(res, 200, { ok: true });
       }
       if (req.method === "GET" && /^\/api\/voice\/rooms\/\d{6}$/.test(url.pathname)) {
