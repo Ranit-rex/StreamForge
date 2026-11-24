@@ -146,7 +146,6 @@ class StreamService : Service(), ConnectChecker {
     // after the first output; in that case use timestamp-based frame extraction
     // for this overlay only, without changing the stream encoder or quality.
     private val videoFallbackRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
-    private val videoFallbackActive = ConcurrentHashMap.newKeySet<String>()
     private val videoNullFrameCounts = ConcurrentHashMap<String, Int>()
     private val videoLastPts = ConcurrentHashMap<String, Long>()
     private val videoLastPtsProgressAt = ConcurrentHashMap<String, Long>()
@@ -665,6 +664,7 @@ class StreamService : Service(), ConnectChecker {
                                 val selectedMode = getSharedPreferences("streamforge_studio", 0)
                                     .getString("video_preview_mode", "decode") ?: "decode"
                                 if (selectedMode == "hardware") {
+                                    videoFallbackRetrievers.remove(uriString)?.let { runCatching { it.release() } }
                                     try {
                                         val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
                                             this@StreamService, Uri.parse(uriString)
@@ -701,6 +701,9 @@ class StreamService : Service(), ConnectChecker {
                                         videoLastPtsProgressAt[uriString] = nowElapsed
                                     }
                                 } else {
+                                    videoDecoders.remove(uriString)?.let { runCatching { it.close() } }
+                                    videoLastPts.remove(uriString)
+                                    videoLastPtsProgressAt.remove(uriString)
                                     try {
                                         val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
                                             it.setDataSource(this@StreamService, Uri.parse(uriString))
@@ -1338,7 +1341,6 @@ class StreamService : Service(), ConnectChecker {
         videoDecoders.clear()
         videoFallbackRetrievers.values.forEach { runCatching { it.release() } }
         videoFallbackRetrievers.clear()
-        videoFallbackActive.clear()
         videoNullFrameCounts.clear()
         videoLastPts.clear()
         videoLastPtsProgressAt.clear()
