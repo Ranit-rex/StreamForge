@@ -5,6 +5,7 @@ import android.graphics.SurfaceTexture
 import android.view.TextureView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -24,16 +25,28 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import app.streamforge.stream.StreamService
 import kotlinx.coroutines.delay
 
-private val Background = Color(0xFF0D0F11)
-private val Panel = Color(0xFF15191D)
-private val PanelRaised = Color(0xFF20262B)
-private val Accent = Color(0xFFFF6A35)
-private val Muted = Color(0xFFA1A8AF)
+private var Background by mutableStateOf(Color(0xFF0D0F11))
+private var Panel by mutableStateOf(Color(0xFF15191D))
+private var PanelRaised by mutableStateOf(Color(0xFF20262B))
+private var Accent by mutableStateOf(Color(0xFFFF6A35))
+private var Muted by mutableStateOf(Color(0xFFA1A8AF))
+private var AppText by mutableStateOf(Color(0xFFF3F1EE))
 private val LiveRed = Color(0xFFFF5263)
 private val Good = Color(0xFF55D6A1)
+
+private fun applyAppPalette(mode: String, accentHex: String) {
+    val light = mode == "light"
+    Background = if (light) Color(0xFFF3F5F7) else Color(0xFF0D0F11)
+    Panel = if (light) AppText else Color(0xFF15191D)
+    PanelRaised = if (light) Color(0xFFE7EBEF) else Color(0xFF20262B)
+    Muted = if (light) Color(0xFF626C75) else Color(0xFFA1A8AF)
+    AppText = if (light) Color(0xFF171A1D) else Color(0xFFF3F1EE)
+    Accent = runCatching { Color(android.graphics.Color.parseColor(accentHex)) }.getOrDefault(Color(0xFFFF6A35))
+}
 
 private fun saveProgramPreviewScreenshot(context: android.content.Context): Boolean {
     val bitmap = runCatching { StreamService.previewView?.bitmap }.getOrNull() ?: return false
@@ -96,6 +109,10 @@ fun StreamForgeApp(
     var captureMode by remember { mutableStateOf(if (android.os.Build.VERSION.SDK_INT >= 34) "GAME" else "FULL") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showMiniAssistant by remember { mutableStateOf(false) }
+    var uiThemeMode by remember { mutableStateOf(prefs.getString("ui_theme_mode", "dark") ?: "dark") }
+    var uiAccent by remember { mutableStateOf(prefs.getString("ui_accent", "#FF6A35") ?: "#FF6A35") }
+    LaunchedEffect(uiThemeMode, uiAccent) { applyAppPalette(uiThemeMode, uiAccent) }
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     var colorBrightness by remember { mutableFloatStateOf(prefs.getFloat("color_brightness", 1f)) }
     var colorContrast by remember { mutableFloatStateOf(prefs.getFloat("color_contrast", 1f)) }
@@ -156,7 +173,7 @@ fun StreamForgeApp(
         } else elapsedSeconds = 0L
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(primary = Accent, onPrimary = Color(0xFF1B100B), secondary = Color(0xFFFFB27F), background = Background, surface = Panel, onSurface = Color(0xFFF3F1EE))) {
+    MaterialTheme(colorScheme = if (uiThemeMode == "light") lightColorScheme(primary = Accent, onPrimary = Color.White, secondary = Accent, background = Background, surface = Panel, onSurface = AppText) else darkColorScheme(primary = Accent, onPrimary = Color(0xFF1B100B), secondary = Accent, background = Background, surface = Panel, onSurface = AppText)) {
         Surface(Modifier.fillMaxSize(), color = Background) {
             if (compactMode) {
                 Row(
@@ -166,7 +183,7 @@ fun StreamForgeApp(
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(if (isStreaming) "● STREAMFORGE LIVE" else if (isRecording) "● RECORDING" else "STREAMFORGE", color = if (isStreaming) LiveRed else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                        Text(if (isStreaming) "${formatDuration(elapsedSeconds)}  ·  ${bitrate} kbps" else status, color = Color.White, fontSize = 10.sp, maxLines = 1)
+                        Text(if (isStreaming) "${formatDuration(elapsedSeconds)}  ·  ${bitrate} kbps" else status, color = AppText, fontSize = 10.sp, maxLines = 1)
                     }
                     TextButton(onClick = {
                         context.startService(Intent(context, StreamService::class.java).setAction(StreamService.ACTION_TOGGLE_MIC))
@@ -211,6 +228,16 @@ fun StreamForgeApp(
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
                         SettingsPanel(
+                            uiThemeMode = uiThemeMode,
+                            onThemeMode = { mode ->
+                                uiThemeMode = mode
+                                prefs.edit().putString("ui_theme_mode", mode).apply()
+                            },
+                            uiAccent = uiAccent,
+                            onAccent = { hex ->
+                                uiAccent = hex
+                                prefs.edit().putString("ui_accent", hex).apply()
+                            },
                             quality = selectedQuality,
                             onQuality = {
                                 selectedQuality = it
@@ -281,7 +308,7 @@ fun StreamForgeApp(
                         ProblemReporterPanel()
                         }
                         else -> {
-                            Text("PROGRAM PREVIEW", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                            Text("PROGRAM PREVIEW", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Black)
                             StudioPreviewSurface(
                                 previewReady = studioPreviewReady,
                                 isStreaming = isStreaming || isRecording,
@@ -297,7 +324,7 @@ fun StreamForgeApp(
                                 ) else Surface(color = Color(0xFF2A1B17), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                                     Row(Modifier.fillMaxWidth().clickable { showLiveDashboard = true }.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                         LiveDot()
-                                        Text("LIVE  ·  ${formatDuration(elapsedSeconds)}", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                        Text("LIVE  ·  ${formatDuration(elapsedSeconds)}", color = AppText, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                                         Text("VIEW STATS  ↗", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
@@ -343,7 +370,7 @@ fun StreamForgeApp(
                                 Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
-                                            Text("SOURCE & LIVE", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Text("SOURCE & LIVE", color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                                 }
                                         Surface(color = PanelRaised, shape = RoundedCornerShape(14.dp)) {
                                             Text("▣", Modifier.padding(15.dp), color = Accent, fontSize = 26.sp)
@@ -372,14 +399,14 @@ fun StreamForgeApp(
                                             },
                                             modifier = Modifier.weight(1.25f).height(52.dp),
                                             enabled = isStreaming || (!isRecording && streamKey.isNotBlank() && (server.startsWith("rtmp://") || server.startsWith("rtmps://"))),
-                                            colors = ButtonDefaults.buttonColors(containerColor = if (isStreaming) Color(0xFF57271F) else Accent, contentColor = if (isStreaming) Color.White else Color(0xFF1B100B)),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (isStreaming) Color(0xFF57271F) else Accent, contentColor = if (isStreaming) AppText else Color(0xFF1B100B)),
                                             shape = RoundedCornerShape(14.dp)
                                         ) { Text(if (isStreaming) "■  END LIVE" else "●  GO LIVE", fontWeight = FontWeight.Black, fontSize = 13.sp) }
                                         OutlinedButton(
                                             onClick = { if (isRecording) onStopRecording() else showRecordingConfirm = true },
                                             modifier = Modifier.weight(1f).height(52.dp),
                                             shape = RoundedCornerShape(14.dp),
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isRecording) LiveRed else Color.White)
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isRecording) LiveRed else AppText)
                                         ) { Text(if (isRecording) "■  STOP REC" else "◉  RECORD", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                                     }
                                     if (isRecording) Text("Local MP4 recording is active · ${formatDuration(recordingElapsedSeconds)}", color = LiveRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -462,13 +489,53 @@ fun StreamForgeApp(
                     }
                 }
             }
+            FloatingActionButton(
+                onClick = { showMiniAssistant = true },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 78.dp),
+                containerColor = Accent,
+                contentColor = Color(0xFF17120F)
+            ) { Text("AI", fontWeight = FontWeight.Black, fontSize = 13.sp) }
+            if (showMiniAssistant) {
+                Dialog(onDismissRequest = { showMiniAssistant = false }) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 680.dp),
+                        color = Panel,
+                        shape = RoundedCornerShape(20.dp)
+                    ) {
+                        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("STREAMFORGE MINI", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                    Text("AI Assistant", color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                }
+                                TextButton(onClick = { showMiniAssistant = false }) { Text("CLOSE") }
+                            }
+                            MiniAiAssistant(
+                                appContext = "section=${when(selectedTab){0->"Studio";2->"Scenes";3->"Recordings";4->"Settings";5->"AI Assistant";else->"More"}}, streaming=$isStreaming, recording=$isRecording, bitrateKbps=$bitrate, resolution=$liveResolution, fps=$liveFps, quality=${selectedQuality.label}",
+                                onOpenFull = { showMiniAssistant = false; selectedTab = 5 },
+                                onAction = { action ->
+                                    selectedTab = when(action) {
+                                        "STUDIO" -> 0
+                                        "SCENES" -> 2
+                                        "SETTINGS" -> 4
+                                        "RECORDINGS" -> 3
+                                        "FULL_AI" -> 5
+                                        else -> selectedTab
+                                    }
+                                    showMiniAssistant = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
             if (showRecordingStarted) {
                 AlertDialog(
                     onDismissRequest = { showRecordingStarted = false },
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             LiveDot()
-                            Text("Recording started", color = Color.White)
+                            Text("Recording started", color = AppText)
                         }
                     },
                     text = {
@@ -503,7 +570,7 @@ fun StreamForgeApp(
                     },
                     dismissButton = { TextButton(onClick = { showRecordingStarted = false }) { Text("CONTINUE") } },
                     containerColor = Panel,
-                    titleContentColor = Color.White,
+                    titleContentColor = AppText,
                     textContentColor = Muted
                 )
             }
@@ -522,7 +589,7 @@ fun StreamForgeApp(
                     },
                     dismissButton = { TextButton(onClick = { showRecordingConfirm = false }) { Text("CANCEL") } },
                     containerColor = Panel,
-                    titleContentColor = Color.White,
+                    titleContentColor = AppText,
                     textContentColor = Muted
                 )
             }
@@ -604,7 +671,7 @@ private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> 
         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(color = LiveRed, shape = CircleShape, modifier = Modifier.size(9.dp)) {}
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("RECORDING  ·  ${formatDuration(elapsed)}", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                Text("RECORDING  ·  ${formatDuration(elapsed)}", color = AppText, fontWeight = FontWeight.Black, fontSize = 13.sp)
                 Text("MP4 · $resolution · saved locally", color = Muted, fontSize = 10.sp)
             }
             TextButton(onClick = onStop) { Text("STOP", color = LiveRed, fontWeight = FontWeight.Black) }
@@ -617,7 +684,7 @@ private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings:
     Row(verticalAlignment = Alignment.CenterVertically) {
         Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(25.dp).padding(end = 5.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("STREAMFORGE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+            Text("STREAMFORGE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
             Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 6.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .8.sp)
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -634,7 +701,7 @@ private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings:
 private fun SectionHeading(kicker: String, title: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(kicker, color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.35.sp)
-        Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -664,7 +731,7 @@ private fun StudioAccordion(
                 Text(number, color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(title, color = AppText, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Text(summary, color = Muted, fontSize = 10.sp, maxLines = 1)
                 }
                 Text(if (expanded) "−" else "+", color = Accent, fontSize = 22.sp)
@@ -679,7 +746,7 @@ private fun QuickTile(icon: String, title: String, subtitle: String, modifier: M
     Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = modifier.clickable(onClick = onClick)) {
         Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(icon, color = Accent, fontSize = 17.sp)
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            Text(title, color = AppText, fontWeight = FontWeight.Bold, fontSize = 11.sp)
             if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 8.sp, maxLines = 1)
         }
     }
@@ -687,6 +754,8 @@ private fun QuickTile(icon: String, title: String, subtitle: String, modifier: M
 
 @Composable
 private fun SettingsPanel(
+    uiThemeMode: String, onThemeMode: (String) -> Unit,
+    uiAccent: String, onAccent: (String) -> Unit,
     quality: StreamQuality, onQuality: (StreamQuality) -> Unit,
     bitrateMbps: Float, onBitrate: (Float) -> Unit,
     adaptiveBitrate: Boolean, onAdaptiveBitrate: (Boolean) -> Unit,
@@ -696,20 +765,47 @@ private fun SettingsPanel(
     brightness: Float, contrast: Float, saturation: Float, sharpness: Float,
     onColor: (Float, Float, Float, Float) -> Unit
 ) {
+    SectionHeading("APPEARANCE", "Theme & colour bank")
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Interface theme", color = AppText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = uiThemeMode == "dark", onClick = { onThemeMode("dark") }, label = { Text("Dark") })
+                FilterChip(selected = uiThemeMode == "light", onClick = { onThemeMode("light") }, label = { Text("Light") })
+            }
+            Text("Accent colour", color = AppText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            val colourBank = listOf("#FF6A35", "#4F8CFF", "#8B5CF6", "#D946EF", "#EC4899", "#EF4444", "#F59E0B", "#10B981", "#14B8A6", "#06B6D4", "#64748B", "#E5E7EB")
+            colourBank.chunked(6).forEach { rowColours ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    rowColours.forEach { hex ->
+                        val swatch = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Accent)
+                        Surface(
+                            color = swatch,
+                            shape = CircleShape,
+                            modifier = Modifier.size(30.dp)
+                                .then(if (uiAccent.equals(hex, true)) Modifier.border(3.dp, AppText, CircleShape) else Modifier)
+                                .clickable { onAccent(hex) }
+                        ) {}
+                    }
+                }
+            }
+            Text("Your theme and accent are saved on this device.", color = Muted, fontSize = 10.sp)
+        }
+    }
     SectionHeading("OUTPUT", "Video & encoder settings")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Resolution & frame rate", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text("Resolution & frame rate", color = AppText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             QualityPicker(quality, onQuality)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 InfoTile("REQUESTED OUTPUT", "${quality.width}×${quality.height}", Modifier.weight(1f))
                 InfoTile("FRAME RATE", "${quality.fps} FPS", Modifier.weight(1f))
             }
-            Text("Target video bitrate · ${"%.1f".format(bitrateMbps)} Mbps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Target video bitrate · ${"%.1f".format(bitrateMbps)} Mbps", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Slider(value = bitrateMbps, onValueChange = onBitrate, valueRange = 0.8f..35f, steps = 169)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Adaptive bitrate", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Adaptive bitrate", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Text("Reduce bitrate on congestion, then recover gradually.", color = Muted, fontSize = 10.sp)
                 }
                 Switch(checked = adaptiveBitrate, onCheckedChange = onAdaptiveBitrate)
@@ -721,7 +817,7 @@ private fun SettingsPanel(
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Live output colour controls", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("Live output colour controls", color = AppText, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 TextButton(onClick = { onColor(1f, 1f, 1f, 0f) }) { Text("RESET") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -743,18 +839,18 @@ private fun SettingsPanel(
     SectionHeading("APP", "Recording & behaviour")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Audio bitrate · ${audioBitrateKbps.toInt()} kbps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Audio bitrate · ${audioBitrateKbps.toInt()} kbps", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Slider(value = audioBitrateKbps, onValueChange = onAudioBitrate, valueRange = 64f..320f, steps = 11)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Mic noise suppression & echo cancellation", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Mic noise suppression & echo cancellation", color = AppText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     Text("Applied when the audio encoder starts.", color = Muted, fontSize = 10.sp)
                 }
                 Switch(checked = audioEnhancements, onCheckedChange = onAudioEnhancements)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Keep screen awake", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Keep screen awake", color = AppText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     Text("Prevent screen sleep while using StreamForge.", color = Muted, fontSize = 10.sp)
                 }
                 Switch(checked = keepScreenAwake, onCheckedChange = onKeepScreenAwake)
@@ -779,24 +875,24 @@ private fun SoundPanel(
     isStreaming: Boolean
 ) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
-        Text("AUDIO", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text("AUDIO", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         Text(if (isStreaming) "LIVE" else "MIX", color = if (isStreaming) LiveRed else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         Text(if (expanded) "−" else "+", color = Accent, fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
     }
     if (expanded) Surface(color = Panel, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("MIC", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("MIC", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text("${(microphoneGain * 100).toInt()}%", color = Accent, fontSize = 10.sp)
             }
             Slider(value = microphoneGain, onValueChange = onMicrophoneGain, valueRange = 0f..2f)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("GAME / APP", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("GAME / APP", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text("${(gameGain * 100).toInt()}%", color = Accent, fontSize = 10.sp)
             }
             Slider(value = gameGain, onValueChange = onGameGain, valueRange = 0f..2f)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Noise cancellation", color = Color.White, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Text("Noise cancellation", color = AppText, fontSize = 10.sp, modifier = Modifier.weight(1f))
                 Switch(checked = noiseCancellation, onCheckedChange = onNoiseCancellation)
             }
         }
@@ -805,7 +901,7 @@ private fun SoundPanel(
 
 @Composable
 private fun ColourSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Text("$label  ${(value * 100).toInt()}%", color = Color.White, fontSize = 11.sp)
+    Text("$label  ${(value * 100).toInt()}%", color = AppText, fontSize = 11.sp)
     Slider(value = value, onValueChange = onChange, valueRange = range)
 }
 
@@ -818,10 +914,10 @@ private fun LiveDashboard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(color = LiveRed, shape = RoundedCornerShape(50)) {
-                    Text("● LIVE", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("● LIVE", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = AppText, fontSize = 10.sp, fontWeight = FontWeight.Black)
                 }
                 Spacer(Modifier.width(9.dp))
-                Text(formatDuration(elapsed), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(formatDuration(elapsed), color = AppText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onHide) { Text("HIDE", color = Muted, fontSize = 10.sp) }
             }
@@ -841,7 +937,7 @@ private fun LiveMetric(label: String, value: String, modifier: Modifier = Modifi
     Surface(modifier, color = Color(0xFF35201C), shape = RoundedCornerShape(10.dp)) {
         Column(Modifier.padding(9.dp)) {
             Text(label, color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            Text(value, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(value, color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }
@@ -887,7 +983,7 @@ private fun InfoTile(label: String, value: String, modifier: Modifier = Modifier
     Surface(modifier, color = PanelRaised, shape = RoundedCornerShape(11.dp)) {
         Column(Modifier.padding(10.dp)) {
             Text(label, color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-            Text(value, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
+            Text(value, color = AppText, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
         }
     }
 }
@@ -907,7 +1003,7 @@ private fun CaptureModeCard(title: String, detail: String, selected: Boolean, mo
         border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) Accent else Color(0xFF3B302A))
     ) {
         Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(if (selected) "●  $title" else "○  $title", color = if (selected) Accent else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text(if (selected) "●  $title" else "○  $title", color = if (selected) Accent else AppText, fontSize = 10.sp, fontWeight = FontWeight.Black)
             Text(detail, color = Muted, fontSize = 9.sp, lineHeight = 13.sp)
         }
     }
@@ -928,7 +1024,7 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("STREAMFORGE", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+                Text("STREAMFORGE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
                 Text("Direct-to-platform streaming · Android-native capture · Local MP4 recordings", color = Muted, fontSize = 10.sp)
                 Text("Your stream key stays on this device. Platform chat and AI integrations require their own connection.", color = Muted, fontSize = 10.sp)
             }
