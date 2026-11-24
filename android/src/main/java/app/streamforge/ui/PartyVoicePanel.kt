@@ -1,6 +1,11 @@
 package app.streamforge.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,7 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -23,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +57,14 @@ private val VoiceBg = Color(0xFF11151A)
 private val VoiceCard = Color(0xFF1A2028)
 private val VoiceMuted = Color(0xFF9AA6B2)
 private val VoiceAccent = Color(0xFF5865F2)
-private data class VoiceRoom(val id: String, val name: String, val visibility: String, val count: Int, val members: List<String>)
+private data class VoiceRoom(
+    val id: String,
+    val name: String,
+    val visibility: String,
+    val count: Int,
+    val members: List<String>,
+    val voiceToken: String = ""
+)
 
 private suspend fun voiceRequest(baseUrl: String, path: String, method: String = "GET", payload: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
     val connection = URL(baseUrl.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -77,8 +90,15 @@ private fun parseVoiceRoom(json: JSONObject): VoiceRoom {
     val room = json.optJSONObject("room") ?: JSONObject()
     val members = room.optJSONArray("members")
     val names = mutableListOf<String>()
-    if (members != null) for (i in 0 until members.length()) names.add(members.optJSONObject(i)?.optString("displayName", "Guest") ?: "Guest")
-    return VoiceRoom(room.optString("roomId"), room.optString("name", "Voice Room"), room.optString("visibility", "public"), room.optInt("memberCount", names.size), names)
+    if (members != null) for (i in 0 until members.length()) {
+        names.add(members.optJSONObject(i)?.optString("displayName", "Guest") ?: "Guest")
+    }
+    val you = json.optJSONObject("you") ?: JSONObject()
+    return VoiceRoom(
+        room.optString("roomId"), room.optString("name", "Voice Room"),
+        room.optString("visibility", "public"), room.optInt("memberCount", names.size),
+        names, you.optString("voiceToken")
+    )
 }
 
 @Composable
@@ -94,12 +114,43 @@ fun PartyVoicePanel() {
     var visibility by remember { mutableStateOf("public") }
     var rooms by remember { mutableStateOf<List<VoiceRoom>>(emptyList()) }
     var joined by remember { mutableStateOf<VoiceRoom?>(null) }
+    var pendingVoiceRoom by remember { mutableStateOf<VoiceRoom?>(null) }
+    var voiceEngine by remember { mutableStateOf<PartyVoiceEngine?>(null) }
+    var voiceState by remember { mutableStateOf(VoiceEngineState()) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var showCreate by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
-    var showAudioInfo by remember { mutableStateOf(false) }
-    var selectedAudioControl by remember { mutableStateOf("MIC") }
+
+    fun startVoice(room: VoiceRoom) {
+        voiceEngine?.close()
+        val engine = PartyVoiceEngine(
+            context, serverUrl, room.id, memberId, room.voiceToken,
+            displayName.ifBlank { "Guest" }
+        ) { state -> voiceState = state }
+        voiceEngine = engine
+        engine.connect()
+    }
+
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val target = pendingVoiceRoom
+        if (granted && target != null) {
+            startVoice(target)
+        } else {
+            voiceState = VoiceEngineState(status = "Microphone permission is required for voice chat")
+        }
+        pendingVoiceRoom = null
+    }
+
+    fun requestVoice(room: VoiceRoom) {
+        pendingVoiceRoom = room
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            startVoice(room)
+            pendingVoiceRoom = null
+        } else {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     suspend fun refreshRooms() {
         runCatching {
@@ -110,7 +161,9 @@ fun PartyVoicePanel() {
                 val item = array.optJSONObject(i) ?: continue
                 val memberNames = mutableListOf<String>()
                 val members = item.optJSONArray("members")
-                if (members != null) for (j in 0 until members.length()) memberNames.add(members.optJSONObject(j)?.optString("displayName", "Guest") ?: "Guest")
+                if (members != null) for (j in 0 until members.length()) {
+                    memberNames.add(members.optJSONObject(j)?.optString("displayName", "Guest") ?: "Guest")
+                }
                 list.add(VoiceRoom(item.optString("roomId"), item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), memberNames))
             }
             rooms = list
@@ -122,7 +175,10 @@ fun PartyVoicePanel() {
         error = ""
         runCatching {
             val body = JSONObject().put("roomId", id).put("memberId", memberId).put("displayName", displayName.ifBlank { "Guest" })
-            joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
+            val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
+            if (room.voiceToken.isBlank()) error("Voice security token missing. Update the voice server.")
+            joined = room
+            requestVoice(room)
             prefs.edit().putString("display_name", displayName).putString("room_id", id).apply()
             roomIdInput = ""
         }.onFailure { error = it.message ?: "Could not join room" }
@@ -134,9 +190,14 @@ fun PartyVoicePanel() {
         val room = joined ?: return@LaunchedEffect
         while (true) {
             delay(4000)
-            runCatching { joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/${room.id}")) }
-                .onFailure { error = it.message ?: "Room update failed" }
+            runCatching {
+                val updated = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/${room.id}"))
+                joined = updated.copy(voiceToken = room.voiceToken)
+            }.onFailure { error = it.message ?: "Room update failed" }
         }
+    }
+    DisposableEffect(Unit) {
+        onDispose { voiceEngine?.close() }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -146,7 +207,7 @@ fun PartyVoicePanel() {
                 Text("Hang out while you stream.", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
             Surface(color = Color(0xFF202B3B), shape = RoundedCornerShape(30.dp)) {
-                Text("BETA", color = Color(0xFFB8C7FF), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                Text("LIVE VOICE", color = Color(0xFFB8C7FF), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
             }
         }
 
@@ -154,10 +215,10 @@ fun PartyVoicePanel() {
             Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("SECURE CONNECTION", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Server address is hidden and encrypted on this device. Connection uses HTTPS.", color = VoiceMuted, fontSize = 10.sp)
+                        Text("PRIVATE, TEMPORARY ROOMS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Room presence and connection signaling stay in server memory. No voice database.", color = VoiceMuted, fontSize = 10.sp)
                     }
-                    Text("● PRIVATE", color = Color(0xFF75D9AE), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    Text("● RAM ONLY", color = Color(0xFF75D9AE), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
             Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
@@ -168,7 +229,7 @@ fun PartyVoicePanel() {
                     Button(onClick = { scope.launch { joinRoom(roomIdInput) } }, enabled = roomIdInput.length == 6 && !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
                         Text(if (loading) "Joining…" else "JOIN VOICE ROOM", fontWeight = FontWeight.Bold)
                     }
-                    Text("Private rooms are accessible only by entering their Room ID. Public rooms also appear below.", color = VoiceMuted, fontSize = 10.sp)
+                    Text("Public rooms appear below. Private rooms are joined by Room ID.", color = VoiceMuted, fontSize = 10.sp)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -229,56 +290,75 @@ fun PartyVoicePanel() {
                 }
                 Surface(color = Color(0xFF181D29), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Text("VOICE MEMBERS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.weight(1f)); Text("${room.members.size} HERE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("VOICE MEMBERS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            Text("${room.members.size} HERE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
                         val displayMembers = room.members.ifEmpty { listOf(displayName.ifBlank { "You" }) }
                         displayMembers.chunked(2).forEach { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                                 pair.forEach { name ->
-                                    Surface(color = Color(0xFF242B3B), shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                                    val active = name in voiceState.speaking
+                                    Surface(
+                                        color = Color(0xFF242B3B),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).border(
+                                            width = if (active) 2.dp else 0.dp,
+                                            color = if (active) Color(0xFF48E39A) else Color.Transparent,
+                                            shape = RoundedCornerShape(14.dp)
+                                        )
+                                    ) {
                                         Column(Modifier.padding(vertical = 16.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                            Surface(color = VoiceAccent, shape = CircleShape) { Text(name.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp)) }
+                                            Surface(
+                                                color = if (active) Color(0xFF237D5B) else VoiceAccent,
+                                                shape = CircleShape,
+                                                modifier = Modifier.border(if (active) 2.dp else 0.dp, if (active) Color(0xFF65FFB2) else Color.Transparent, CircleShape)
+                                            ) { Text(name.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp)) }
                                             Text(name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                            Text(if (name == displayName) "YOU · CONNECTED" else "CONNECTED", color = VoiceMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                            Text(if (active) "● SPEAKING" else if (name == displayName) "YOU · CONNECTED" else "CONNECTED", color = if (active) Color(0xFF65FFB2) else VoiceMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        Text("Speaking activity will appear here when live voice is enabled.", color = VoiceMuted, fontSize = 9.sp)
+                        Text(voiceState.status, color = if (voiceState.connected) Color(0xFF75D9AE) else Color(0xFFFFC46B), fontSize = 9.sp)
                     }
                 }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(onClick = { selectedAudioControl = "MIC"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("🎙 MIC", fontWeight = FontWeight.Bold) }
-                            OutlinedButton(onClick = { selectedAudioControl = "SPEAKER"; showAudioInfo = true }, modifier = Modifier.weight(1f)) { Text("🔊 SPEAKER", fontWeight = FontWeight.Bold) }
-                            Button(onClick = { scope.launch { runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }; joined = null; showRoomCode = false; prefs.edit().remove("room_id").apply(); refreshRooms() } }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black) }
+                            OutlinedButton(
+                                onClick = { val next = !voiceState.micEnabled; voiceEngine?.setMicEnabled(next); voiceState = voiceState.copy(micEnabled = next) },
+                                modifier = Modifier.weight(1f),
+                                enabled = voiceEngine != null
+                            ) { Text(if (voiceState.micEnabled) "🎙 MIC ON" else "🔇 MUTED", fontWeight = FontWeight.Bold) }
+                            OutlinedButton(
+                                onClick = { val next = !voiceState.speakerEnabled; voiceEngine?.setSpeakerEnabled(next); voiceState = voiceState.copy(speakerEnabled = next) },
+                                modifier = Modifier.weight(1f),
+                                enabled = voiceEngine != null
+                            ) { Text(if (voiceState.speakerEnabled) "🔊 SPEAKER" else "🔈 OFF", fontWeight = FontWeight.Bold) }
+                            Button(onClick = {
+                                voiceEngine?.close()
+                                voiceEngine = null
+                                voiceState = VoiceEngineState(status = "Left voice room")
+                                scope.launch {
+                                    runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
+                                    joined = null
+                                    showRoomCode = false
+                                    prefs.edit().remove("room_id").apply()
+                                    refreshRooms()
+                                }
+                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black) }
                         }
-                        Text("Mic and speaker controls are visible but live audio is not connected yet.", color = Color(0xFFFFC46B), fontSize = 9.sp)
+                        Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
             }
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
-        Text("Rooms are temporary and stored only in server memory. They disappear after the server restarts or expires inactive rooms.", color = VoiceMuted, fontSize = 10.sp)
-    }
-
-    if (showAudioInfo) {
-        AlertDialog(
-            onDismissRequest = { showAudioInfo = false },
-            title = { Text(if (selectedAudioControl == "MIC") "Microphone unavailable" else "Speaker unavailable") },
-            text = {
-                Text(
-                    if (selectedAudioControl == "MIC")
-                        "The room is created, but live voice capture and WebRTC transmission are not connected yet. This button is now clickable, but it cannot send your microphone audio until the voice engine is implemented."
-                    else
-                        "The room is created, but remote voice playback is not connected yet. This button is now clickable, but there is no incoming participant audio to play until the voice engine is implemented."
-                )
-            },
-            confirmButton = { TextButton(onClick = { showAudioInfo = false }) { Text("OK") } }
-        )
+        Text("Rooms and live connection state are temporary. A server restart clears them.", color = VoiceMuted, fontSize = 10.sp)
     }
 
     if (showCreate) {
@@ -305,12 +385,15 @@ fun PartyVoicePanel() {
                         loading = true
                         runCatching {
                             val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
-                            joined = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms", "POST", payload))
-                            prefs.edit().putString("display_name", displayName).putString("room_id", joined?.id).apply()
+                            val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms", "POST", payload))
+                            if (room.voiceToken.isBlank()) error("Voice security token missing. Update the voice server.")
+                            joined = room
+                            requestVoice(room)
+                            prefs.edit().putString("display_name", displayName).putString("room_id", room.id).apply()
                         }.onFailure { error = it.message ?: "Room creation failed" }
                         loading = false
                     }
-                }) { Text("CREATE") }
+                }, enabled = !loading) { Text("CREATE") }
             },
             dismissButton = { TextButton(onClick = { showCreate = false }) { Text("CANCEL") } }
         )
