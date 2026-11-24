@@ -2,6 +2,8 @@ package app.streamforge.ui
 
 import android.content.Context
 import android.media.AudioManager
+import java.net.HttpURLConnection
+import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.AudioSource
@@ -23,6 +25,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 
 internal data class VoiceEngineState(
     val connected: Boolean = false,
@@ -55,6 +58,10 @@ internal class PartyVoiceEngine(
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
     private val speaking = ConcurrentHashMap.newKeySet<String>()
+    private val peerNames = ConcurrentHashMap<String, String>()
+    private val statsExecutor = Executors.newSingleThreadScheduledExecutor()
+    @Volatile private var localSpeaking = false
+    @Volatile private var signalingConnected = false
     private var factory: PeerConnectionFactory? = null
     private var audioSource: AudioSource? = null
     private var localTrack: AudioTrack? = null
@@ -64,6 +71,7 @@ internal class PartyVoiceEngine(
     @Volatile private var closed = false
 
     fun connect() {
+        Thread({
         try {
             PeerConnectionFactory.initialize(
                 PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
@@ -88,21 +96,26 @@ internal class PartyVoiceEngine(
             val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId&token=$token"
             socket = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    signalingConnected = true
                     publish("Voice connected · joining peers")
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     handleSignal(runCatching { JSONObject(text) }.getOrNull() ?: return)
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    signalingConnected = false
                     publish("Voice connection lost: ${t.message ?: "network error"}")
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    signalingConnected = false
                     if (!closed) publish("Voice disconnected")
                 }
             })
+            startStatsMonitor()
         } catch (t: Throwable) {
             publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
         }
+        }, "streamforge-voice-init").start()
     }
 
     fun setMicEnabled(enabled: Boolean) {
@@ -127,19 +140,25 @@ internal class PartyVoiceEngine(
                 for (i in 0 until list.length()) {
                     val peer = list.optJSONObject(i) ?: continue
                     val id = peer.optString("memberId")
-                    if (id.isNotBlank()) ensurePeer(id, initiate = memberId < id)
+                    if (id.isNotBlank()) {
+                        peerNames[id] = peer.optString("displayName", id)
+                        ensurePeer(id, initiate = memberId < id)
+                    }
                 }
                 publish("Live voice connected")
             }
             "peer-joined" -> {
                 val id = message.optString("memberId")
-                if (id.isNotBlank()) ensurePeer(id, initiate = memberId < id)
+                if (id.isNotBlank()) {
+                    peerNames[id] = message.optString("displayName", id)
+                    ensurePeer(id, initiate = memberId < id)
+                }
             }
             "peer-left" -> {
                 val id = message.optString("memberId")
                 peers.remove(id)?.close()
                 remoteTracks.remove(id)
-                speaking.remove(id)
+                peerNames.remove(id)?.let { speaking.remove(it) }
                 publish("Participant left")
             }
             "offer" -> {
@@ -191,9 +210,7 @@ internal class PartyVoiceEngine(
     private fun ensurePeer(id: String, initiate: Boolean): PeerConnection? {
         peers[id]?.let { return it }
         val f = factory ?: return null
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
-        )
+        val iceServers = loadIceServers()
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
@@ -249,13 +266,76 @@ internal class PartyVoiceEngine(
         return pc
     }
 
+    private fun loadIceServers(): List<PeerConnection.IceServer> {
+        val result = mutableListOf<PeerConnection.IceServer>()
+        try {
+            val connection = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers").openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            try {
+                val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                val list = json.optJSONArray("iceServers") ?: JSONArray()
+                for (i in 0 until list.length()) {
+                    val item = list.optJSONObject(i) ?: continue
+                    val urls = item.optJSONArray("urls") ?: JSONArray().put(item.optString("urls"))
+                    val username = item.optString("username")
+                    val credential = item.optString("credential")
+                    for (j in 0 until urls.length()) {
+                        val uri = urls.optString(j)
+                        if (uri.isBlank()) continue
+                        val builder = PeerConnection.IceServer.builder(uri)
+                        if (username.isNotBlank()) builder.setUsername(username).setPassword(credential)
+                        result.add(builder.createIceServer())
+                    }
+                }
+            } finally { connection.disconnect() }
+        } catch (_: Throwable) { }
+        if (result.none { it.uri.startsWith("stun:") }) {
+            result.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        }
+        return result
+    }
+
+    private fun startStatsMonitor() {
+        statsExecutor.scheduleAtFixedRate({
+            if (closed) return@scheduleAtFixedRate
+            peers.forEach { (id, peer) ->
+                runCatching {
+                    peer.getStats { report ->
+                        val stats = report.statsMap.values
+                        val inboundLevel = stats.asSequence()
+                            .filter { it.type == "inbound-rtp" && (it.members["kind"] == "audio" || it.members["mediaType"] == "audio") }
+                            .mapNotNull { it.members["audioLevel"] as? Number }
+                            .maxOfOrNull { it.toDouble() } ?: 0.0
+                        val name = peerNames[id] ?: id
+                        val active = inboundLevel > 0.035
+                        val changed = if (active) speaking.add(name) else speaking.remove(name)
+                        val localLevel = stats.asSequence()
+                            .filter { it.type == "media-source" && it.members["kind"] == "audio" }
+                            .mapNotNull { it.members["audioLevel"] as? Number }
+                            .maxOfOrNull { it.toDouble() } ?: 0.0
+                        val localActive = micEnabled && localLevel > 0.035
+                        if (localActive != localSpeaking) {
+                            localSpeaking = localActive
+                            if (localActive) speaking.add(displayName) else speaking.remove(displayName)
+                            send(JSONObject().put("type", "speaking").put("active", localActive))
+                            publish("Live voice connected")
+                        } else if (changed) {
+                            publish("Live voice connected")
+                        }
+                    }
+                }
+            }
+        }, 350, 300, TimeUnit.MILLISECONDS)
+    }
+
     private fun send(message: JSONObject) {
         socket?.send(message.toString())
     }
 
     private fun publish(status: String) {
         onState(VoiceEngineState(
-            connected = socket != null && !closed,
+            connected = signalingConnected && !closed,
             micEnabled = micEnabled,
             speakerEnabled = speakerEnabled,
             speaking = speaking.toSet(),
@@ -267,6 +347,8 @@ internal class PartyVoiceEngine(
         closed = true
         socket?.close(1000, "Leaving voice room")
         socket = null
+        signalingConnected = false
+        statsExecutor.shutdownNow()
         peers.values.forEach { it.close() }
         peers.clear()
         remoteTracks.clear()
