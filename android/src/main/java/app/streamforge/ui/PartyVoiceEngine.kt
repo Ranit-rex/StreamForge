@@ -66,6 +66,7 @@ internal class PartyVoiceEngine(
     private var audioSource: AudioSource? = null
     private var localTrack: AudioTrack? = null
     private var socket: WebSocket? = null
+    @Volatile private var cachedIceServers: List<PeerConnection.IceServer>? = null
     @Volatile private var micEnabled = true
     @Volatile private var speakerEnabled = true
     @Volatile private var closed = false
@@ -84,7 +85,8 @@ internal class PartyVoiceEngine(
                 .setAudioDeviceModule(audioModule)
                 .createPeerConnectionFactory()
             audioSource = factory?.createAudioSource(MediaConstraints())
-            localTrack = factory?.createAudioTrack("streamforge-mic", audioSource).also { it?.setEnabled(true) }
+            localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
+                .also { it?.setEnabled(true) }
 
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             @Suppress("DEPRECATION")
@@ -121,6 +123,10 @@ internal class PartyVoiceEngine(
     fun setMicEnabled(enabled: Boolean) {
         micEnabled = enabled
         localTrack?.setEnabled(enabled)
+        if (!enabled) {
+            localSpeaking = false
+            speaking.remove(displayName)
+        }
         send(JSONObject().put("type", "mute").put("active", !enabled))
         publish(if (enabled) "Microphone on" else "Microphone muted")
     }
@@ -267,6 +273,7 @@ internal class PartyVoiceEngine(
     }
 
     private fun loadIceServers(): List<PeerConnection.IceServer> {
+        cachedIceServers?.let { return it }
         val result = mutableListOf<PeerConnection.IceServer>()
         try {
             val connection = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers").openConnection() as HttpURLConnection
@@ -293,6 +300,7 @@ internal class PartyVoiceEngine(
         if (result.none { it.uri.startsWith("stun:") }) {
             result.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
         }
+        cachedIceServers = result
         return result
     }
 
