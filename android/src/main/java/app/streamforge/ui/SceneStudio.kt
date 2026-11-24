@@ -17,6 +17,11 @@ import android.os.SystemClock
 import android.view.Surface
 import android.graphics.SurfaceTexture
 import android.view.TextureView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -456,8 +461,8 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> SceneVideoPlayback.resumeInForeground()
-                Lifecycle.Event.ON_STOP -> SceneVideoPlayback.pauseForBackground()
+                Lifecycle.Event.ON_START -> { SceneVideoPlayback.resumeInForeground(); HardwareScenePlayback.resumeInForeground() }
+                Lifecycle.Event.ON_STOP -> { SceneVideoPlayback.pauseForBackground(); HardwareScenePlayback.pauseForBackground() }
                 else -> Unit
             }
         }
@@ -503,17 +508,23 @@ fun SceneCompositionPreview(modifier: Modifier = Modifier, compact: Boolean = fa
     // Frame-decode preview samples this clock instead of restarting at zero on navigation.
     val videoPlayers = remember(videoSources) {
         videoSources.associate { (id, uriString, settings) ->
-            val player = SceneVideoPlayback.get(context, uriString, settings.first, settings.third.first)
-            SceneVideoPlayback.setAutoPlay(player, settings.third.first)
-            SceneVideoPlayback.setAudio(player, settings.third.second.first, settings.third.second.second)
+            val player = SceneVideoPlayback.get(context, uriString, settings.first, settings.third.first && renderMode != "hardware")
+            SceneVideoPlayback.setAutoPlay(player, settings.third.first && renderMode != "hardware")
+            SceneVideoPlayback.setAudio(player, if (renderMode == "hardware") 0f else settings.third.second.first, settings.third.second.second || renderMode == "hardware")
             id to player
         }
     }
     // Keep the retained native player clock fresh even while its TextureView is temporarily
     // detached by page navigation. The player itself is held by SceneVideoPlayback.
-    LaunchedEffect(videoPlayers) {
+    LaunchedEffect(videoPlayers, renderMode, videoSources) {
         while (isActive) {
-            videoPlayers.values.forEach { SceneVideoPlayback.refresh(it) }
+            if (renderMode != "hardware") {
+                videoSources.forEach { source -> videoPlayers[source.first]?.let { state ->
+                    SceneVideoPlayback.setAutoPlay(state, source.third.third.first)
+                    SceneVideoPlayback.setAudio(state, source.third.third.second.first, source.third.third.second.second)
+                    SceneVideoPlayback.refresh(state)
+                } }
+            }
             delay(100L)
         }
     }
@@ -780,37 +791,145 @@ private fun WebsiteLayerPreview(url: String, modifier: Modifier = Modifier) {
     }
 }
 
+private object HardwareScenePlayback {
+    class State(val uri: String, val player: ExoPlayer) {
+        val ready = mutableStateOf(false)
+        val playing = mutableStateOf(false)
+        val positionMs = mutableIntStateOf(0)
+        val durationMs = mutableIntStateOf(0)
+        val error = mutableStateOf<String?>(null)
+        var wantsPlayback: Boolean = true
+        var attached: Boolean = false
+    }
+
+    private val states = mutableMapOf<String, State>()
+
+    @Synchronized
+    fun get(context: android.content.Context, uri: String, loop: Boolean, autoPlay: Boolean): State {
+        states[uri]?.let { state ->
+            state.wantsPlayback = autoPlay
+            state.player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            if (!state.attached) state.player.playWhenReady = false
+            return state
+        }
+        val player = ExoPlayer.Builder(context.applicationContext).build()
+        val state = State(uri, player)
+        state.wantsPlayback = autoPlay
+        player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                state.ready.value = playbackState == Player.STATE_READY
+                state.durationMs.value = player.duration.takeIf { it > 0L }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0
+                state.positionMs.value = player.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                if (playbackState == Player.STATE_ENDED) state.playing.value = false
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                state.playing.value = isPlaying
+                state.positionMs.value = player.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                state.error.value = error.errorCodeName
+                state.ready.value = false
+                state.playing.value = false
+            }
+        })
+        player.setMediaItem(MediaItem.fromUri(Uri.parse(uri)))
+        player.volume = 1f
+        player.prepare()
+        player.playWhenReady = autoPlay
+        states[uri] = state
+        return state
+    }
+
+    @Synchronized
+    fun update(state: State, loop: Boolean, autoPlay: Boolean, volume: Float, muted: Boolean) {
+        state.wantsPlayback = autoPlay
+        state.player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        state.player.volume = if (muted) 0f else volume.coerceIn(0f, 1f)
+        state.player.playWhenReady = state.attached && autoPlay
+    }
+
+    @Synchronized
+    fun attach(state: State) {
+        state.attached = true
+        state.player.playWhenReady = state.wantsPlayback
+    }
+
+    @Synchronized
+    fun detach(state: State) {
+        state.positionMs.value = state.player.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        state.wantsPlayback = state.player.playWhenReady || state.player.isPlaying || state.wantsPlayback
+        state.attached = false
+        state.player.playWhenReady = false
+        state.playing.value = false
+    }
+
+    @Synchronized
+    fun toggle(state: State) {
+        state.wantsPlayback = !state.wantsPlayback
+        state.player.playWhenReady = state.attached && state.wantsPlayback
+    }
+
+    @Synchronized
+    fun seek(state: State, positionMs: Int) {
+        state.positionMs.value = positionMs.coerceAtLeast(0)
+        state.player.seekTo(state.positionMs.value.toLong())
+    }
+
+    @Synchronized
+    fun refresh(state: State) {
+        state.positionMs.value = state.player.currentPosition.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        state.durationMs.value = state.player.duration.takeIf { it > 0L }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0
+        state.playing.value = state.player.isPlaying
+    }
+
+    @Synchronized
+    fun pauseForBackground() {
+        states.values.forEach { state ->
+            state.wantsPlayback = state.player.playWhenReady || state.player.isPlaying || state.wantsPlayback
+            state.player.playWhenReady = false
+        }
+    }
+
+    @Synchronized
+    fun resumeInForeground() {
+        states.values.filter { it.attached && it.wantsPlayback }.forEach { it.player.playWhenReady = true }
+    }
+}
+
 @Composable
 private fun HardwareVideoPreview(
     uriString: String, loop: Boolean, autoPlay: Boolean, volume: Float, muted: Boolean,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val state = remember(uriString) { SceneVideoPlayback.get(context, uriString, loop, autoPlay) }
-    LaunchedEffect(state, autoPlay, volume, muted) {
-        SceneVideoPlayback.setAutoPlay(state, autoPlay)
-        SceneVideoPlayback.setAudio(state, volume, muted)
+    val state = remember(uriString) { HardwareScenePlayback.get(context, uriString, loop, autoPlay) }
+    LaunchedEffect(state, autoPlay, volume, muted, loop) {
+        HardwareScenePlayback.update(state, loop, autoPlay, volume, muted)
+        while (isActive) {
+            HardwareScenePlayback.refresh(state)
+            delay(100L)
+        }
     }
     Box(modifier.background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { viewContext ->
-                TextureView(viewContext).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-                            SceneVideoPlayback.attach(viewContext, uriString, loop, surfaceTexture)
-                        }
-                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) = Unit
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
-                        override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-                            SceneVideoPlayback.detach(uriString, surfaceTexture)
-                            return true
-                        }
-                    }
+                PlayerView(viewContext).apply {
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setKeepContentOnPlayerReset(true)
+                    player = state.player
+                    HardwareScenePlayback.attach(state)
                 }
             },
             update = { view ->
-                view.surfaceTexture?.let { SceneVideoPlayback.attach(context, uriString, loop, it) }
+                if (view.player !== state.player) view.player = state.player
+                HardwareScenePlayback.attach(state)
+            },
+            onRelease = { view ->
+                view.player = null
+                HardwareScenePlayback.detach(state)
             }
         )
         state.error.value?.let { Text(it, color = Color.White, fontSize = 9.sp, modifier = Modifier.align(Alignment.Center)) }
