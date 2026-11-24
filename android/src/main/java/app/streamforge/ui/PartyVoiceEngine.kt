@@ -50,11 +50,9 @@ internal class PartyVoiceEngine(
 ) {
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
+    // Reuse one dispatcher across room sessions. Shutting it down while a WebSocket
+    // callback is queued causes RejectedExecutionException on reconnect/leave races.
+    private val client = sharedClient
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
     private val speaking = ConcurrentHashMap.newKeySet<String>()
@@ -108,7 +106,7 @@ internal class PartyVoiceEngine(
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     signalingConnected = false
-                    publish("Voice connection lost: ${t.message ?: "network error"}")
+                    if (!closed) publish("Voice connection lost: ${t.message ?: "network error"}")
                 }
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     signalingConnected = false
@@ -118,7 +116,7 @@ internal class PartyVoiceEngine(
             )
             startStatsMonitor()
         } catch (t: Throwable) {
-            publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
+            if (!closed) publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
         }
         }, "streamforge-voice-init").start()
     }
@@ -383,8 +381,16 @@ internal class PartyVoiceEngine(
         audioManager.mode = AudioManager.MODE_NORMAL
         @Suppress("DEPRECATION")
         run { audioManager.isSpeakerphoneOn = false }
-        client.dispatcher.executorService.shutdown()
-        client.connectionPool.evictAll()
+        // Do not shut down the shared OkHttp dispatcher: WebSocket close/failure
+        // callbacks may still be queued and must be allowed to finish.
+    }
+
+    private companion object {
+        val sharedClient: OkHttpClient = OkHttpClient.Builder()
+            .pingInterval(20, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
     }
 
     private open class SdpObserverAdapter : SdpObserver {
