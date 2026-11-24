@@ -653,34 +653,18 @@ class StreamService : Service(), ConnectChecker {
                             try {
                                 val nowElapsed = SystemClock.uptimeMillis()
                                 videoStartedAt.putIfAbsent(uriString, nowElapsed)
-                                var frame: Bitmap? = null
-                                if (!videoFallbackActive.contains(uriString)) {
-                                    val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
-                                        this@StreamService,
-                                        Uri.parse(uriString)
-                                    ).also { videoDecoders[uriString] = it }
-                                    videoSourceFps[uriString] = decoder.frameRate
-                                    videoDurationMs[uriString] = decoder.durationMs
-                                    frame = decoder.nextFrame(shouldLoop)
-                                    if (frame == null) {
-                                        val misses = (videoNullFrameCounts[uriString] ?: 0) + 1
-                                        videoNullFrameCounts[uriString] = misses
-                                        // Don't switch on a single codec scheduling miss.
-                                        if (misses >= 2) videoFallbackActive.add(uriString)
-                                    } else {
-                                        videoNullFrameCounts[uriString] = 0
-                                    }
+                                val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
+                                    it.setDataSource(this@StreamService, Uri.parse(uriString))
+                                    videoFallbackRetrievers[uriString] = it
+                                    val durationText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                    val fpsText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                                    videoDurationMs[uriString] = durationText?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                    videoSourceFps[uriString] = fpsText?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
                                 }
-                                if (frame == null && videoFallbackActive.contains(uriString)) {
-                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
-                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
-                                        videoFallbackRetrievers[uriString] = it
-                                    }
-                                    val duration = (videoDurationMs[uriString] ?: 0L).coerceAtLeast(1L)
-                                    val elapsed = (nowElapsed - (videoStartedAt[uriString] ?: nowElapsed)).coerceAtLeast(0L)
-                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                                    frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                                }
+                                val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
+                                val elapsed = (nowElapsed - (videoStartedAt[uriString] ?: nowElapsed)).coerceAtLeast(0L)
+                                val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                                val frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
                                 if (frame != null) {
                                     synchronized(videoFrameLock) {
                                         videoFrameBitmaps.put(uriString, frame)?.let { previous ->
@@ -696,25 +680,9 @@ class StreamService : Service(), ConnectChecker {
                                 videoSourceFps.remove(uriString)
                                 videoDurationMs.remove(uriString)
                             } catch (_: Exception) {
-                                // Retain the last good frame and switch this overlay to
-                                // timestamp-based extraction if its codec cannot advance.
-                                videoFallbackActive.add(uriString)
-                                videoDecoders.remove(uriString)?.close()
-                                runCatching {
-                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
-                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
-                                        videoFallbackRetrievers[uriString] = it
-                                    }
-                                    val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
-                                    val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
-                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                                    val fallbackFrame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                                    if (fallbackFrame != null) synchronized(videoFrameLock) {
-                                        videoFrameBitmaps.put(uriString, fallbackFrame)?.let { previous ->
-                                            if (previous !== fallbackFrame && !previous.isRecycled) previous.recycle()
-                                        }
-                                    }
-                                }
+                                // Keep the last good frame; timestamp extraction is retried
+                                // on the next overlay refresh.
+                                videoFallbackRetrievers.remove(uriString)?.let { runCatching { it.release() } }
                             } finally {
                                 videoDecodePending.remove(uriString)
                             }
