@@ -96,8 +96,6 @@ fun PartyVoicePanel() {
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var showCreate by remember { mutableStateOf(false) }
-    var micEnabled by remember { mutableStateOf(false) }
-    var speakerEnabled by remember { mutableStateOf(true) }
 
     suspend fun refreshRooms() {
         runCatching {
@@ -219,15 +217,14 @@ fun PartyVoicePanel() {
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { micEnabled = !micEnabled }, modifier = Modifier.weight(1f)) { Text(if (micEnabled) "MIC ON" else "MIC OFF") }
-                        OutlinedButton(onClick = { speakerEnabled = !speakerEnabled }, modifier = Modifier.weight(1f)) { Text(if (speakerEnabled) "SPEAKER ON" else "SPEAKER OFF") }
+                        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("MIC") }
+                        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.weight(1f)) { Text("SPEAKER") }
                     }
-                    Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are not enabled yet.", color = Color(0xFFFFC46B), fontSize = 10.sp)
+                    Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are the next implementation stage; voice controls are disabled until the audio path is real.", color = Color(0xFFFFC46B), fontSize = 10.sp)
                     Button(onClick = {
                         scope.launch {
                             runCatching { voiceRequest(serverUrl, "/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
                             joined = null
-                            micEnabled = false
                             prefs.edit().remove("room_id").apply()
                             refreshRooms()
                         }
