@@ -715,8 +715,24 @@ class StreamService : Service(), ConnectChecker {
                                         }
                                         val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
                                         val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                                        frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-                                            ?: throw IllegalStateException("Decode returned no frame")
+                                        frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                            retriever.getScaledFrameAtTime(
+                                                positionMs * 1000L,
+                                                MediaMetadataRetriever.OPTION_CLOSEST,
+                                                960,
+                                                540
+                                            )
+                                        } else {
+                                            retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                                ?.let { original ->
+                                                    Bitmap.createScaledBitmap(
+                                                        original,
+                                                        minOf(960, original.width).coerceAtLeast(1),
+                                                        (original.height * (minOf(960, original.width).toFloat() / original.width)).toInt().coerceAtLeast(1),
+                                                        true
+                                                    ).also { scaled -> if (scaled !== original && !original.isRecycled) original.recycle() }
+                                                }
+                                        } ?: throw IllegalStateException("Decode returned no frame")
                                     } catch (_: Exception) {
                                         // Decode recovery stays in Decode: release the failed retriever
                                         // so the next refresh creates a fresh one for this same URI.
