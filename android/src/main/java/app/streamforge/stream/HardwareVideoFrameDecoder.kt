@@ -45,28 +45,18 @@ internal class HardwareVideoFrameDecoder(
         // Request flexible YUV output so frames can be composited into the
         // existing scene bitmap without a CPU seek/decode for every timestamp.
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.COLOR_FORMAT_YUV420_FLEXIBLE)
-        // Screen capture starts a hardware video encoder. Many phones expose only
-        // one or two concurrent hardware codec slots, so decoding scene overlays
-        // with another hardware codec can freeze the overlay at its first frame.
-        // Prefer a software decoder for these small composited overlays; fall back
-        // to hardware only on devices that do not expose a compatible software codec.
-        val compatibleDecoders = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter { info ->
-            !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+        val hardwareDecoder = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
+            !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isHardwareAccelerated
+                else !info.name.startsWith("OMX.google.", ignoreCase = true) &&
+                    !info.name.startsWith("c2.android.", ignoreCase = true)
         }
-        val softwareDecoder = compatibleDecoders.firstOrNull { info ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isSoftwareOnly
-            else info.name.startsWith("OMX.google.", ignoreCase = true) ||
-                info.name.startsWith("c2.android.", ignoreCase = true)
-        }
-        val hardwareDecoder = compatibleDecoders.firstOrNull { info ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isHardwareAccelerated
-            else !info.name.startsWith("OMX.google.", ignoreCase = true) &&
-                !info.name.startsWith("c2.android.", ignoreCase = true)
-        }
-        decoder = when {
-            softwareDecoder != null -> MediaCodec.createByCodecName(softwareDecoder.name)
-            hardwareDecoder != null -> MediaCodec.createByCodecName(hardwareDecoder.name)
-            else -> MediaCodec.createDecoderByType(mime)
+        decoder = if (hardwareDecoder != null) {
+            MediaCodec.createByCodecName(hardwareDecoder.name)
+        } else {
+            // Some older/low-end devices expose no hardware YUV decoder for a
+            // format; keep compatibility rather than failing to open the scene.
+            MediaCodec.createDecoderByType(mime)
         }
         decoder.configure(format, null, null, 0)
         decoder.start()
