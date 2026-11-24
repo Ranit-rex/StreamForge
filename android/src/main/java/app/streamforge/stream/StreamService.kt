@@ -152,6 +152,7 @@ class StreamService : Service(), ConnectChecker {
     // Allow one in-place hardware decoder restart before considering any alternate path.
     private val videoHardwareRestartCounts = ConcurrentHashMap<String, Int>()
     private val videoFrameLock = Any()
+    @Volatile private var requestedVideoUris: Set<String> = emptySet()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
     private val gifFrameRunnable = object : Runnable {
@@ -525,6 +526,35 @@ class StreamService : Service(), ConnectChecker {
         val overlayScale = minOf(1f, 1920f / activeStreamWidth.coerceAtLeast(1), 1080f / activeStreamHeight.coerceAtLeast(1))
         val outputWidth = (activeStreamWidth * overlayScale).toInt().coerceAtLeast(320)
         val outputHeight = (activeStreamHeight * overlayScale).toInt().coerceAtLeast(180)
+        val visibleVideoUris = (0 until layers.length()).mapNotNull { index ->
+            layers.optJSONObject(index)?.takeIf {
+                it.optBoolean("visible", true) && it.optString("kind") == "video"
+            }?.optString("text")?.takeIf { it.isNotBlank() }
+        }.distinct().take(2).toSet()
+        if (visibleVideoUris != requestedVideoUris) {
+            requestedVideoUris = visibleVideoUris
+            // Release codecs for removed layers on the decoder worker, never
+            // concurrently with an in-flight decode operation.
+            runCatching {
+                videoDecodeExecutor.execute {
+                    val stale = videoDecoders.keys.filter { it !in visibleVideoUris }
+                    stale.forEach { uri ->
+                        videoDecoders.remove(uri)?.let { runCatching { it.close() } }
+                        videoFallbackRetrievers.remove(uri)?.let { runCatching { it.release() } }
+                        synchronized(videoFrameLock) {
+                            videoFrameBitmaps.remove(uri)?.let { if (!it.isRecycled) it.recycle() }
+                        }
+                        videoStartedAt.remove(uri)
+                        videoDurationMs.remove(uri)
+                        videoSourceFps.remove(uri)
+                        videoLastFrameAt.remove(uri)
+                        videoLastPts.remove(uri)
+                        videoLastPtsProgressAt.remove(uri)
+                        videoHardwareRestartCounts.remove(uri)
+                    }
+                }
+            }
+        }
         val bitmap = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -654,7 +684,7 @@ class StreamService : Service(), ConnectChecker {
                     val now = SystemClock.uptimeMillis()
                     val manualFps = item.optInt("fps", 0).coerceIn(0, 60)
                     val sourceFps = videoSourceFps[uriString] ?: 30
-                    val targetFps = (if (manualFps == 0) sourceFps else manualFps).coerceIn(5, 30)
+                    val targetFps = (if (manualFps == 0) sourceFps else manualFps).coerceIn(5, 60)
                     val frameInterval = (1000L / targetFps).coerceAtLeast(16L)
                     val lastFrameAt = videoLastFrameAt[uriString] ?: 0L
                     if (now - lastFrameAt >= frameInterval && videoDecodePending.add(uriString)) {
@@ -807,7 +837,7 @@ class StreamService : Service(), ConnectChecker {
                 it.optBoolean("visible", true) && (it.optString("kind") == "gif" || it.optString("kind") == "video" || it.optString("kind") == "timer")
             } == true
         }
-        // Match GL redraw cadence to the selected video decode rate; keep non-video overlays light.
+        // Match GL redraw cadence to the source frame rate, up to 60 FPS.
         stream?.getGlInterface()?.setForceRender(true, if (hasVideo) requestedVideoFps else 5)
         gifFrameHandler.removeCallbacks(gifFrameRunnable)
         if (hasAnimatedLayer && (streaming.value || recording.value || studioPreviewReady.value)) {
@@ -1387,11 +1417,18 @@ class StreamService : Service(), ConnectChecker {
         gifMovies.clear()
         gifStartedAt.clear()
 
-        // Stop the worker before releasing its MediaCodec instances. Waiting briefly
-        // prevents a decode task from touching a codec while it is being released.
-        videoDecodeExecutor.shutdownNow()
-        runCatching { videoDecodeExecutor.awaitTermination(750, java.util.concurrent.TimeUnit.MILLISECONDS) }
-        videoDecoders.values.forEach { runCatching { it.close() } }
+        // Drain the decoder worker before releasing codecs so a frame task
+        // cannot race native MediaCodec teardown.
+        videoDecodeExecutor.shutdown()
+        runCatching {
+            if (!videoDecodeExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                videoDecodeExecutor.shutdownNow()
+                videoDecodeExecutor.awaitTermination(1500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            }
+        }
+        // close() synchronizes with nextFrame(), protecting native codec state
+        // even if a device decoder takes longer than the worker grace period.
+        videoDecoders.values.toList().forEach { runCatching { it.close() } }
         videoDecoders.clear()
         videoFallbackRetrievers.values.forEach { runCatching { it.release() } }
         videoFallbackRetrievers.clear()
