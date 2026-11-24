@@ -243,8 +243,15 @@ private object SceneVideoPlayback {
     fun attach(context: android.content.Context, uri: String, loop: Boolean, texture: SurfaceTexture) {
         val state = states[uri] ?: get(context, uri, loop)
         val sameSurface = state.surfaceTexture === texture && state.surface?.isValid == true
+        if (sameSurface) {
+            if (state.ready.value && state.wantsPlayback && !state.player.isPlaying) {
+                runCatching { state.player.start(); state.playing.value = true }
+                    .onFailure { recover(state, it.message ?: "Could not resume video surface") }
+            }
+            return
+        }
         val previous = state.surface
-        val next = if (sameSurface) previous!! else Surface(texture)
+        val next = Surface(texture)
         state.surfaceTexture = texture
         state.surface = next
         runCatching {
