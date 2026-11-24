@@ -148,6 +148,8 @@ class StreamService : Service(), ConnectChecker {
     private val videoFallbackRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
     private val videoFallbackActive = ConcurrentHashMap.newKeySet<String>()
     private val videoNullFrameCounts = ConcurrentHashMap<String, Int>()
+    private val videoLastPts = ConcurrentHashMap<String, Long>()
+    private val videoLastPtsProgressAt = ConcurrentHashMap<String, Long>()
     private val videoFrameLock = Any()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
@@ -653,21 +655,52 @@ class StreamService : Service(), ConnectChecker {
                             try {
                                 val nowElapsed = SystemClock.uptimeMillis()
                                 videoStartedAt.putIfAbsent(uriString, nowElapsed)
-                                val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
-                                    it.setDataSource(this@StreamService, Uri.parse(uriString))
-                                    videoFallbackRetrievers[uriString] = it
-                                    val durationText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                    val fpsText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
-                                    videoDurationMs[uriString] = durationText?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
-                                    videoSourceFps[uriString] = fpsText?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
-                                }
-                                val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
                                 val elapsed = (nowElapsed - (videoStartedAt[uriString] ?: nowElapsed)).coerceAtLeast(0L)
-                                val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
-                                val frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                var frame: Bitmap? = null
+                                if (!videoFallbackActive.contains(uriString)) {
+                                    try {
+                                        val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
+                                            this@StreamService, Uri.parse(uriString)
+                                        ).also {
+                                            videoDecoders[uriString] = it
+                                            videoDurationMs[uriString] = it.durationMs
+                                            videoSourceFps[uriString] = it.frameRate
+                                        }
+                                        frame = decoder.nextFrame(shouldLoop)
+                                        val pts = decoder.lastFramePresentationTimeUs
+                                        if (pts >= 0L) {
+                                            val previousPts = videoLastPts.put(uriString, pts)
+                                            if (previousPts == null || pts > previousPts || (previousPts - pts) > 500_000L) {
+                                                videoLastPtsProgressAt[uriString] = nowElapsed
+                                            } else if (nowElapsed - (videoLastPtsProgressAt[uriString] ?: nowElapsed) >= 1800L) {
+                                                throw IllegalStateException("Hardware decoder frame timestamp stalled")
+                                            }
+                                        } else if (frame == null && nowElapsed - (videoLastPtsProgressAt[uriString] ?: nowElapsed) >= 1800L) {
+                                            throw IllegalStateException("Hardware decoder stopped producing frames")
+                                        }
+                                    } catch (_: Exception) {
+                                        videoDecoders.remove(uriString)?.let { runCatching { it.close() } }
+                                        videoFallbackActive.add(uriString)
+                                        videoLastPts.remove(uriString)
+                                        videoLastPtsProgressAt.remove(uriString)
+                                    }
+                                }
+                                if (videoFallbackActive.contains(uriString)) {
+                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
+                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
+                                        videoFallbackRetrievers[uriString] = it
+                                        val durationText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                        val fpsText = it.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE)
+                                        videoDurationMs[uriString] = durationText?.toLongOrNull()?.coerceAtLeast(1L) ?: 1L
+                                        videoSourceFps[uriString] = fpsText?.toFloatOrNull()?.toInt()?.coerceIn(5, 60) ?: 30
+                                    }
+                                    val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
+                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                                    frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                }
                                 if (frame != null) {
                                     synchronized(videoFrameLock) {
-                                        videoFrameBitmaps.put(uriString, frame)?.let { previous ->
+                                        videoFrameBitmaps.put(uriString, frame!!)?.let { previous ->
                                             if (previous !== frame && !previous.isRecycled) previous.recycle()
                                         }
                                     }
@@ -1285,6 +1318,8 @@ class StreamService : Service(), ConnectChecker {
         videoFallbackRetrievers.clear()
         videoFallbackActive.clear()
         videoNullFrameCounts.clear()
+        videoLastPts.clear()
+        videoLastPtsProgressAt.clear()
         videoDecodeExecutor.shutdownNow()
         synchronized(videoFrameLock) {
             videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
