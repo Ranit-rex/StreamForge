@@ -489,12 +489,14 @@ fun StreamForgeApp(
                     }
                 }
             }
-            FloatingActionButton(
-                onClick = { showMiniAssistant = true },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 78.dp),
-                containerColor = Accent,
-                contentColor = Color(0xFF17120F)
-            ) { Text("AI", fontWeight = FontWeight.Black, fontSize = 13.sp) }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                FloatingActionButton(
+                    onClick = { showMiniAssistant = true },
+                    modifier = Modifier.padding(end = 16.dp, bottom = 78.dp),
+                    containerColor = Accent,
+                    contentColor = Color(0xFF17120F)
+                ) { Text("AI", fontWeight = FontWeight.Black, fontSize = 13.sp) }
+            }
             if (showMiniAssistant) {
                 Dialog(onDismissRequest = { showMiniAssistant = false }) {
                     Surface(
