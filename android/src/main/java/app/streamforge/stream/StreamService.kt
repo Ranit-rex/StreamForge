@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.PendingIntent
 import android.media.MediaCodecList
+import android.media.MediaMetadataRetriever
 import android.app.NotificationManager
 import android.app.Service
 import android.graphics.Color as AndroidColor
@@ -140,6 +141,13 @@ class StreamService : Service(), ConnectChecker {
     private val videoSourceFps = ConcurrentHashMap<String, Int>()
     private val videoFrameBitmaps = ConcurrentHashMap<String, Bitmap>()
     private val videoLastFrameAt = ConcurrentHashMap<String, Long>()
+    // Keep MediaCodec as the primary overlay decoder. Some Android codec
+    // implementations advertise flexible YUV but stop returning Image frames
+    // after the first output; in that case use timestamp-based frame extraction
+    // for this overlay only, without changing the stream encoder or quality.
+    private val videoFallbackRetrievers = ConcurrentHashMap<String, MediaMetadataRetriever>()
+    private val videoFallbackActive = ConcurrentHashMap.newKeySet<String>()
+    private val videoNullFrameCounts = ConcurrentHashMap<String, Int>()
     private val videoFrameLock = Any()
     private val gifStartedAt = mutableMapOf<String, Long>()
     private val gifFrameHandler = Handler(Looper.getMainLooper())
@@ -643,13 +651,36 @@ class StreamService : Service(), ConnectChecker {
                         val shouldLoop = item.optBoolean("loop", true)
                         videoDecodeExecutor.execute {
                             try {
-                                val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
-                                    this@StreamService,
-                                    Uri.parse(uriString)
-                                ).also { videoDecoders[uriString] = it }
-                                videoSourceFps[uriString] = decoder.frameRate
-                                videoDurationMs[uriString] = decoder.durationMs
-                                val frame = decoder.nextFrame(shouldLoop)
+                                val nowElapsed = SystemClock.uptimeMillis()
+                                videoStartedAt.putIfAbsent(uriString, nowElapsed)
+                                var frame: Bitmap? = null
+                                if (!videoFallbackActive.contains(uriString)) {
+                                    val decoder = videoDecoders[uriString] ?: HardwareVideoFrameDecoder(
+                                        this@StreamService,
+                                        Uri.parse(uriString)
+                                    ).also { videoDecoders[uriString] = it }
+                                    videoSourceFps[uriString] = decoder.frameRate
+                                    videoDurationMs[uriString] = decoder.durationMs
+                                    frame = decoder.nextFrame(shouldLoop)
+                                    if (frame == null) {
+                                        val misses = (videoNullFrameCounts[uriString] ?: 0) + 1
+                                        videoNullFrameCounts[uriString] = misses
+                                        // Don't switch on a single codec scheduling miss.
+                                        if (misses >= 2) videoFallbackActive.add(uriString)
+                                    } else {
+                                        videoNullFrameCounts[uriString] = 0
+                                    }
+                                }
+                                if (frame == null && videoFallbackActive.contains(uriString)) {
+                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
+                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
+                                        videoFallbackRetrievers[uriString] = it
+                                    }
+                                    val duration = (videoDurationMs[uriString] ?: 0L).coerceAtLeast(1L)
+                                    val elapsed = (nowElapsed - (videoStartedAt[uriString] ?: nowElapsed)).coerceAtLeast(0L)
+                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                                    frame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                }
                                 if (frame != null) {
                                     synchronized(videoFrameLock) {
                                         videoFrameBitmaps.put(uriString, frame)?.let { previous ->
@@ -665,8 +696,25 @@ class StreamService : Service(), ConnectChecker {
                                 videoSourceFps.remove(uriString)
                                 videoDurationMs.remove(uriString)
                             } catch (_: Exception) {
-                                // Keep the last good frame; the decoder is retried on the next refresh.
+                                // Retain the last good frame and switch this overlay to
+                                // timestamp-based extraction if its codec cannot advance.
+                                videoFallbackActive.add(uriString)
                                 videoDecoders.remove(uriString)?.close()
+                                runCatching {
+                                    val retriever = videoFallbackRetrievers[uriString] ?: MediaMetadataRetriever().also {
+                                        it.setDataSource(this@StreamService, Uri.parse(uriString))
+                                        videoFallbackRetrievers[uriString] = it
+                                    }
+                                    val duration = (videoDurationMs[uriString] ?: 1L).coerceAtLeast(1L)
+                                    val elapsed = (SystemClock.uptimeMillis() - (videoStartedAt[uriString] ?: SystemClock.uptimeMillis())).coerceAtLeast(0L)
+                                    val positionMs = if (shouldLoop) elapsed % duration else elapsed.coerceAtMost(duration - 1L)
+                                    val fallbackFrame = retriever.getFrameAtTime(positionMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                                    if (fallbackFrame != null) synchronized(videoFrameLock) {
+                                        videoFrameBitmaps.put(uriString, fallbackFrame)?.let { previous ->
+                                            if (previous !== fallbackFrame && !previous.isRecycled) previous.recycle()
+                                        }
+                                    }
+                                }
                             } finally {
                                 videoDecodePending.remove(uriString)
                             }
@@ -1265,6 +1313,10 @@ class StreamService : Service(), ConnectChecker {
         gifStartedAt.clear()
         videoDecoders.values.forEach { runCatching { it.close() } }
         videoDecoders.clear()
+        videoFallbackRetrievers.values.forEach { runCatching { it.release() } }
+        videoFallbackRetrievers.clear()
+        videoFallbackActive.clear()
+        videoNullFrameCounts.clear()
         videoDecodeExecutor.shutdownNow()
         synchronized(videoFrameLock) {
             videoFrameBitmaps.values.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() }
