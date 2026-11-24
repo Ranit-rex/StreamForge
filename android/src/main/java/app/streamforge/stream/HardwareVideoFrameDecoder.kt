@@ -45,19 +45,28 @@ internal class HardwareVideoFrameDecoder(
         // Request flexible YUV output so frames can be composited into the
         // existing scene bitmap without a CPU seek/decode for every timestamp.
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.COLOR_FORMAT_YUV420_FLEXIBLE)
-        val hardwareDecoder = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.firstOrNull { info ->
-            !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isHardwareAccelerated
-                else !info.name.startsWith("OMX.google.", ignoreCase = true) &&
-                    !info.name.startsWith("c2.android.", ignoreCase = true)
-        }
-        decoder = if (hardwareDecoder != null) {
-            MediaCodec.createByCodecName(hardwareDecoder.name)
-        } else {
-            // Some older/low-end devices expose no hardware YUV decoder for a
-            // format; keep compatibility rather than failing to open the scene.
-            MediaCodec.createDecoderByType(mime)
-        }
+        // We convert decoded frames to Bitmaps via Image planes, so only select
+        // codecs that explicitly advertise flexible YUV output. Picking the
+        // first hardware decoder by MIME alone can select a surface-only codec:
+        // it may start successfully but never provide advancing output Images.
+        val compatibleDecoders = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos
+            .filter { info ->
+                if (info.isEncoder || info.supportedTypes.none { it.equals(mime, ignoreCase = true) }) {
+                    false
+                } else {
+                    runCatching {
+                        info.getCapabilitiesForType(mime).colorFormats
+                            .contains(COLOR_FORMAT_YUV420_FLEXIBLE)
+                    }.getOrDefault(false)
+                }
+            }
+        val selectedDecoder = compatibleDecoders.firstOrNull { info ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isHardwareAccelerated
+            else !info.name.startsWith("OMX.google.", ignoreCase = true) &&
+                !info.name.startsWith("c2.android.", ignoreCase = true)
+        } ?: compatibleDecoders.firstOrNull()
+            ?: throw IllegalStateException("No decoder supports flexible YUV output for this video")
+        decoder = MediaCodec.createByCodecName(selectedDecoder.name)
         decoder.configure(format, null, null, 0)
         decoder.start()
     }
