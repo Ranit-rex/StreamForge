@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -25,17 +26,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardOptions
 import androidx.compose.ui.text.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -81,6 +83,7 @@ private fun parseVoiceRoom(json: JSONObject): VoiceRoom {
 @Composable
 fun PartyVoicePanel() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("streamforge_party", 0) }
     val memberId = remember { prefs.getString("member_id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("member_id", it).apply() } }
     var displayName by remember { mutableStateOf(prefs.getString("display_name", "Streamer") ?: "Streamer") }
@@ -150,7 +153,7 @@ fun PartyVoicePanel() {
                     Text("Join with Room ID", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     OutlinedTextField(value = displayName, onValueChange = { displayName = it.take(24) }, modifier = Modifier.fillMaxWidth(), label = { Text("Your name") }, singleLine = true)
                     OutlinedTextField(value = roomIdInput, onValueChange = { roomIdInput = it.filter(Char::isDigit).take(6) }, modifier = Modifier.fillMaxWidth(), label = { Text("6-digit Room ID") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    Button(onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { joinRoom(roomIdInput) } }, enabled = roomIdInput.length == 6 && !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
+                    Button(onClick = { scope.launch { joinRoom(roomIdInput) } }, enabled = roomIdInput.length == 6 && !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
                         Text(if (loading) "Joining…" else "JOIN VOICE ROOM", fontWeight = FontWeight.Bold)
                     }
                     Text("Private rooms are accessible only by entering their Room ID. Public rooms also appear below.", color = VoiceMuted, fontSize = 10.sp)
@@ -158,7 +161,7 @@ fun PartyVoicePanel() {
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Public Lobby", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { refreshRooms() } }) { Text("REFRESH") }
+                TextButton(onClick = { scope.launch { refreshRooms() } }) { Text("REFRESH") }
                 Button(onClick = { showCreate = true }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("＋ Create") }
             }
             if (rooms.isEmpty()) {
@@ -168,7 +171,7 @@ fun PartyVoicePanel() {
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(rooms, key = { it.id }) { room ->
-                        Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) { joinRoom(room.id) } }) {
+                        Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { scope.launch { joinRoom(room.id) } }) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Surface(color = VoiceAccent, shape = CircleShape) { Text("🎙", modifier = Modifier.padding(10.dp), fontSize = 16.sp) }
                                 Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -212,7 +215,7 @@ fun PartyVoicePanel() {
                     }
                     Text("Room directory is connected. Live WebRTC voice and RTMP party-audio mixing are not enabled yet.", color = Color(0xFFFFC46B), fontSize = 10.sp)
                     Button(onClick = {
-                        kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+                        scope.launch {
                             runCatching { voiceRequest("/api/voice/rooms/leave", "POST", JSONObject().put("roomId", room.id).put("memberId", memberId)) }
                             joined = null
                             micEnabled = false
@@ -247,7 +250,7 @@ fun PartyVoicePanel() {
             confirmButton = {
                 Button(onClick = {
                     showCreate = false
-                    kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+                    scope.launch {
                         loading = true
                         runCatching {
                             val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
