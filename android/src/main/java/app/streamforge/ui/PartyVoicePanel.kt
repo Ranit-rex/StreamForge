@@ -87,7 +87,7 @@ fun PartyVoicePanel() {
     val prefs = remember { context.getSharedPreferences("streamforge_party", 0) }
     val memberId = remember { prefs.getString("member_id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("member_id", it).apply() } }
     var displayName by remember { mutableStateOf(prefs.getString("display_name", "Streamer") ?: "Streamer") }
-    var serverUrl by remember { mutableStateOf(prefs.getString("voice_server_url", VOICE_API) ?: VOICE_API) }
+    var serverUrl by remember { mutableStateOf(VoiceServerStore.read(context, VOICE_API)) }
     var roomName by remember { mutableStateOf("Gaming Party") }
     var roomIdInput by remember { mutableStateOf("") }
     var visibility by remember { mutableStateOf("public") }
@@ -95,7 +95,7 @@ fun PartyVoicePanel() {
     var joined by remember { mutableStateOf<VoiceRoom?>(null) }
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var showCreate by remember { mutableStateOf(false) }
+    var showCreate by remember { mutableStateOf(false) }\n    var showRoomCode by remember { mutableStateOf(false) }
 
     suspend fun refreshRooms() {
         runCatching {
@@ -148,11 +148,12 @@ fun PartyVoicePanel() {
 
         if (joined == null) {
             Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("VOICE SERVER", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                    OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Signaling server URL") }, singleLine = true)
-                    TextButton(onClick = { prefs.edit().putString("voice_server_url", serverUrl.trim().trimEnd('/')).apply(); scope.launch { refreshRooms() } }) { Text("SAVE SERVER") }
-                    Text("Server endpoint is configurable. Additional independent voice servers can be added to the server picker later.", color = VoiceMuted, fontSize = 10.sp)
+                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("SECURE CONNECTION", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Server address is hidden and encrypted on this device. Connection uses HTTPS.", color = VoiceMuted, fontSize = 10.sp)
+                    }
+                    Text("● PRIVATE", color = Color(0xFF75D9AE), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
             Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
@@ -203,10 +204,13 @@ fun PartyVoicePanel() {
                         Text("${room.count}/6", color = Color(0xFFB8C7FF), fontWeight = FontWeight.Bold)
                     }
                     Surface(color = Color(0xFF10151D), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("ROOM ID", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            Text(room.id, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-                            Text("Share this one ID with friends to invite them.", color = VoiceMuted, fontSize = 10.sp)
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("ROOM ID", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE CODE" else "SHOW CODE") }
+                            }
+                            Text(if (showRoomCode) room.id else "••••••", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+                            Text(if (showRoomCode) "Share this one ID with friends to invite them." else "Your room code is hidden from view.", color = VoiceMuted, fontSize = 10.sp)
                         }
                     }
                     Text("IN THE ROOM", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
