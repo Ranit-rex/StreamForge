@@ -310,36 +310,45 @@ internal class PartyVoiceEngine(
     }
 
     private fun startStatsMonitor() {
-        statsExecutor.scheduleAtFixedRate({
-            if (closed) return@scheduleAtFixedRate
-            peers.forEach { (id, peer) ->
-                runCatching {
-                    peer.getStats { report ->
-                        val stats = report.statsMap.values
-                        val inboundLevel = stats.asSequence()
-                            .filter { it.type == "inbound-rtp" && (it.members["kind"] == "audio" || it.members["mediaType"] == "audio") }
-                            .mapNotNull { it.members["audioLevel"] as? Number }
-                            .maxOfOrNull { it.toDouble() } ?: 0.0
-                        val name = peerNames[id] ?: id
-                        val active = inboundLevel > 0.035
-                        val changed = if (active) speaking.add(name) else speaking.remove(name)
-                        val localLevel = stats.asSequence()
-                            .filter { it.type == "media-source" && it.members["kind"] == "audio" }
-                            .mapNotNull { it.members["audioLevel"] as? Number }
-                            .maxOfOrNull { it.toDouble() } ?: 0.0
-                        val localActive = micEnabled && localLevel > 0.035
-                        if (localActive != localSpeaking) {
-                            localSpeaking = localActive
-                            if (localActive) speaking.add(displayName) else speaking.remove(displayName)
-                            send(JSONObject().put("type", "speaking").put("active", localActive))
-                            publish("Live voice connected")
-                        } else if (changed) {
-                            publish("Live voice connected")
+        // Leaving a room can race with the async WebRTC initialization thread.
+        // Never submit work to the monitor after close() has terminated it.
+        if (closed || statsExecutor.isShutdown || statsExecutor.isTerminated) return
+        try {
+            statsExecutor.scheduleAtFixedRate({
+                if (closed) return@scheduleAtFixedRate
+                peers.forEach { (id, peer) ->
+                    if (closed) return@forEach
+                    runCatching {
+                        peer.getStats { report ->
+                            if (closed) return@getStats
+                            val stats = report.statsMap.values
+                            val inboundLevel = stats.asSequence()
+                                .filter { it.type == "inbound-rtp" && (it.members["kind"] == "audio" || it.members["mediaType"] == "audio") }
+                                .mapNotNull { it.members["audioLevel"] as? Number }
+                                .maxOfOrNull { it.toDouble() } ?: 0.0
+                            val name = peerNames[id] ?: id
+                            val active = inboundLevel > 0.035
+                            val changed = if (active) speaking.add(name) else speaking.remove(name)
+                            val localLevel = stats.asSequence()
+                                .filter { it.type == "media-source" && it.members["kind"] == "audio" }
+                                .mapNotNull { it.members["audioLevel"] as? Number }
+                                .maxOfOrNull { it.toDouble() } ?: 0.0
+                            val localActive = micEnabled && localLevel > 0.035
+                            if (localActive != localSpeaking) {
+                                localSpeaking = localActive
+                                if (localActive) speaking.add(displayName) else speaking.remove(displayName)
+                                send(JSONObject().put("type", "speaking").put("active", localActive))
+                                publish("Live voice connected")
+                            } else if (changed) {
+                                publish("Live voice connected")
+                            }
                         }
                     }
                 }
-            }
-        }, 350, 300, TimeUnit.MILLISECONDS)
+            }, 350, 300, TimeUnit.MILLISECONDS)
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Expected if the user leaves while connect() is still initializing.
+        }
     }
 
     private fun send(message: JSONObject) {
