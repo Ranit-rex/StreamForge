@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual, createHmac } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -11,6 +11,8 @@ const rate = new Map();
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
+const TURN_URLS = (process.env.TURN_URLS || "").split(",").map(v => v.trim()).filter(Boolean);
+const TURN_SHARED_SECRET = (process.env.TURN_SHARED_SECRET || "").trim();
 const voiceSockets = new Map();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
 const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute"]);
