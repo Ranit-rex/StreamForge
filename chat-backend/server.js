@@ -1,4 +1,6 @@
 import http from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 3000);
 const API_KEY = (process.env.YOUTUBE_API_KEY || "").trim();
@@ -9,6 +11,9 @@ const rate = new Map();
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
+const voiceSockets = new Map();
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
+const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute"]);
 
 function cleanRooms() {
   const now = Date.now();
@@ -149,5 +154,98 @@ const server = http.createServer(async (req, res) => {
     send(res, status >= 400 && status < 600 ? status : 502, { error: error.message || "Unable to fetch YouTube chat." });
   }
 });
+
+
+server.on("upgrade", (req, socket, head) => {
+  const url = new URL(req.url || "/", "http://localhost");
+  if (url.pathname !== "/api/voice/signaling") {
+    socket.destroy();
+    return;
+  }
+  const roomId = url.searchParams.get("roomId") || "";
+  const memberId = url.searchParams.get("memberId") || "";
+  const token = url.searchParams.get("token") || "";
+  const room = voiceRooms.get(roomId);
+  const member = room?.members.find(m => m.memberId === memberId);
+  const expected = Buffer.from(member?.voiceToken || "");
+  const supplied = Buffer.from(token);
+  const validToken = expected.length > 0 && expected.length === supplied.length && timingSafeEqual(expected, supplied);
+  if (!validRoomId(roomId) || !member || !validToken) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  wss.handleUpgrade(req, socket, head, ws => wss.emit("connection", ws, req, { roomId, memberId }));
+});
+
+wss.on("connection", (ws, _req, identity) => {
+  const { roomId, memberId } = identity;
+  let peers = voiceSockets.get(roomId);
+  if (!peers) { peers = new Map(); voiceSockets.set(roomId, peers); }
+  const existingPeers = [...peers.entries()].map(([id, peer]) => ({
+    memberId: id, displayName: peer.displayName
+  }));
+  const room = voiceRooms.get(roomId);
+  const member = room?.members.find(m => m.memberId === memberId);
+  if (!room || !member) { ws.close(1008, "Room membership expired"); return; }
+  ws.memberId = memberId;
+  ws.roomId = roomId;
+  ws.displayName = member.displayName;
+  ws.isAlive = true;
+  peers.set(memberId, ws);
+  ws.send(JSON.stringify({ type: "ready", selfId: memberId, peers: existingPeers }));
+  for (const [id, peer] of peers) {
+    if (id !== memberId && peer.readyState === WebSocket.OPEN) {
+      peer.send(JSON.stringify({ type: "peer-joined", memberId, displayName: member.displayName }));
+    }
+  }
+
+  ws.on("pong", () => { ws.isAlive = true; });
+  ws.on("message", raw => {
+    let message;
+    try { message = JSON.parse(raw.toString()); } catch { return; }
+    if (!message || !SIGNAL_TYPES.has(message.type)) return;
+    if (message.type === "speaking" || message.type === "mute") {
+      const active = Boolean(message.active);
+      for (const [id, peer] of peers) {
+        if (id !== memberId && peer.readyState === WebSocket.OPEN) {
+          peer.send(JSON.stringify({ type: message.type, memberId, active }));
+        }
+      }
+      return;
+    }
+    const targetId = String(message.to || "");
+    const target = peers.get(targetId);
+    if (!target || targetId === memberId || target.readyState !== WebSocket.OPEN) return;
+    // Forward only SDP/ICE payloads; never trust a client-supplied sender identity.
+    const payload = message.type === "ice"
+      ? { candidate: message.candidate }
+      : { description: message.description };
+    target.send(JSON.stringify({ type: message.type, from: memberId, ...payload }));
+  });
+
+  ws.on("close", () => {
+    const current = voiceSockets.get(roomId);
+    if (current?.get(memberId) === ws) current.delete(memberId);
+    if (current?.size === 0) voiceSockets.delete(roomId);
+    for (const [id, peer] of current || []) {
+      if (id !== memberId && peer.readyState === WebSocket.OPEN) {
+        peer.send(JSON.stringify({ type: "peer-left", memberId }));
+      }
+    }
+  });
+  ws.on("error", () => ws.terminate());
+});
+
+const heartbeat = setInterval(() => {
+  for (const peers of voiceSockets.values()) {
+    for (const ws of peers.values()) {
+      if (!ws.isAlive) { ws.terminate(); continue; }
+      ws.isAlive = false;
+      ws.ping();
+    }
+  }
+}, 25000);
+heartbeat.unref();
 
 server.listen(PORT, "0.0.0.0", () => console.log(`StreamForge Chat API listening on ${PORT}`));
