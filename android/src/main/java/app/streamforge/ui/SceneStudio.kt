@@ -254,7 +254,7 @@ private object SceneVideoPlayback {
             if (!sameSurface) previous?.release()
             if (state.ready.value) {
                 val resumeAt = state.positionMs.value.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
-                if (resumeAt > 0) {
+                if (!sameSurface && resumeAt > 0) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         state.player.seekTo(resumeAt.toLong(), MediaPlayer.SEEK_CLOSEST)
                     } else {
@@ -373,7 +373,7 @@ private object SceneVideoPlayback {
             // Program/Live preview can remain mounted after the editor playback card
             // is removed. Keep the retained MediaPlayer clock advancing independently
             // of that card and recover if Android silently stopped playback.
-            if (state.wantsPlayback && !state.player.isPlaying) {
+            if (state.wantsPlayback && state.surface?.isValid == true && !state.player.isPlaying) {
                 state.player.start()
             }
             state.positionMs.value = state.player.currentPosition.coerceIn(0, state.durationMs.value.coerceAtLeast(0))
