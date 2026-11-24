@@ -249,7 +249,7 @@ fun StreamForgeApp(
                                 }
                             }
                         )
-                        6 -> LiveChatPanel()
+                        6 -> LiveChatPanel(onConfigure = { selectedTab = 10 })
                         10 -> ChatIntegrationPanel()
                         9 -> PartyVoicePanel()
                         7 -> DestinationsPanel()
@@ -522,8 +522,9 @@ fun StreamForgeApp(
                 NavigationBar(containerColor = Panel, contentColor = Accent, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth().background(Panel)) {
                     val destinations = listOf(
                         Triple(0, "Studio", "●"),
+                        Triple(2, "Scenes", "▦"),
                         Triple(9, "Party", "◉"),
-                        Triple(6, "Chat", "▤"),
+                        Triple(6, "Live Chat", "▤"),
                         Triple(8, "More", "•••")
                     )
                     destinations.forEach { (tab, label, icon) ->
