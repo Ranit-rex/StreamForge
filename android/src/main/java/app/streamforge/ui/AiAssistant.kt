@@ -148,69 +148,79 @@ fun AiAssistantPanel(){
  }
 }
 
+private fun offlineAssistantReply(question: String, appContext: String): Pair<String, String?> {
+ val q = question.lowercase()
+ val live = appContext.contains("streaming=true")
+ val rec = appContext.contains("recording=true")
+ return when {
+  (q.contains("open") || q.contains("go to") || q.contains("show")) && (q.contains("scene")) ->
+   "Opening Scenes. You can add and arrange layers there." to "SCENES"
+  (q.contains("open") || q.contains("go to") || q.contains("show")) && (q.contains("recording")) ->
+   "Opening Recordings." to "RECORDINGS"
+  (q.contains("open") || q.contains("go to") || q.contains("show")) && (q.contains("setting")) ->
+   "Opening Settings." to "SETTINGS"
+  (q.contains("open") || q.contains("go to") || q.contains("show")) && (q.contains("studio") || q.contains("live") || q.contains("stream")) ->
+   "Opening Studio." to "STUDIO"
+  q.contains("stop") && (q.contains("record") || q.contains("stream") || q.contains("live")) ->
+   "I can guide the stop action, but I won't end a recording or broadcast without your confirmation. Open Studio and use STOP REC or END LIVE." to "STUDIO"
+  q.contains("start") && (q.contains("record") || q.contains("stream") || q.contains("live")) ->
+   "To start safely, open Studio. Choose your capture source and quality, then tap RECORD or GO LIVE. Android will ask for screen-capture permission." to "STUDIO"
+  q.contains("slow") || q.contains("lag") || q.contains("freeze") || q.contains("crash") ->
+   "For smoother output, start with 720p at 30 FPS, keep no more than two simultaneous video layers, and close other heavy apps. If it still lags, lower the video overlay frame rate to 15 FPS." to null
+  q.contains("status") || q.contains("what am i") || q.contains("current") ->
+   "Current app status: ${if (live) "LIVE streaming" else "not streaming"}; ${if (rec) "recording is active" else "no local recording"}. I can open Studio, Scenes, Recordings, or Settings." to null
+  q.contains("scene") || q.contains("layer") || q.contains("overlay") ->
+   "In Scenes, add a layer, choose its type, then adjust its position, size, opacity and order. For stable mobile playback, two video layers are supported simultaneously; other layer types can still be stacked." to "SCENES"
+  q.contains("record") || q.contains("stream") || q.contains("broadcast") ->
+   "Studio controls capture and output. You can choose APP or DISPLAY capture, set resolution/FPS, then start a local recording or RTMP broadcast." to "STUDIO"
+  q.contains("help") || q.contains("what can") || q.contains("hello") || q.contains("hi") ->
+   "Hey! I'm StreamForge's built-in assistant. I work offline without an API key. Ask about streaming, recording, scenes, layers, performance, or say 'open settings'." to null
+  else ->
+   "I can help with StreamForge's Studio, Scenes, Recordings, Settings and performance. Tell me what you want to do, or say 'open scenes' / 'open studio'. This offline build uses app-specific decision rules; a full generative on-device model is a separate model download." to null
+ }
+}
+
 @Composable
 fun MiniAiAssistant(appContext: String, onOpenFull: () -> Unit, onAction: (String) -> Unit) {
- val context=androidx.compose.ui.platform.LocalContext.current
- val scope=rememberCoroutineScope()
- var apiKey by remember{mutableStateOf("")}
- var provider by remember{mutableStateOf<Provider?>(null)}
- var model by remember{mutableStateOf<Model?>(null)}
- var messages by remember{mutableStateOf(listOf<ChatMsg>())}
- var prompt by remember{mutableStateOf("")}
- var busy by remember{mutableStateOf(false)}
- var status by remember{mutableStateOf("Connecting to your saved AI model…")}
- LaunchedEffect(Unit){
-  val saved=KeyVault.read(context)
-  apiKey=saved
-  val p=providers.firstOrNull{saved.startsWith(it.prefix)}
-  if(p==null){status="Connect an AI provider in AI Assistant settings first."}
-  else{
-   provider=p;busy=true
-   try{model=fetchModels(p,saved).firstOrNull();status=if(model!=null)"Ready · "+model!!.name else "No models available for this key."}
-   catch(e:Exception){status=e.message?:"Could not connect to the saved model."}
-   finally{busy=false}
-  }
- }
- if(provider==null||model==null){
-  Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-   Text(status,color=Color(0xFF91A0B4),fontSize=12.sp)
-   Button(onClick=onOpenFull,modifier=Modifier.fillMaxWidth()){Text("SET UP AI ASSISTANT")}
-  }
- }else{
-  Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-   Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically){
-    Text(status,color=Color(0xFF55D6A1),fontSize=9.sp,modifier=Modifier.weight(1f))
-    Text("APP-AWARE",color=Color(0xFF9DB4FF),fontSize=9.sp,fontWeight=FontWeight.Bold)
+ var messages by remember { mutableStateOf(listOf(ChatMsg("assistant", "Hi! I'm your built-in StreamForge assistant. No API key needed. Ask me to open a section or help with your stream."))) }
+ var prompt by remember { mutableStateOf("") }
+ Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+  Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+   Column(Modifier.weight(1f)) {
+    Text("BUILT-IN · OFFLINE", color = Color(0xFF55D6A1), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    Text("I can help operate StreamForge", color = Color.White, fontSize = 12.sp)
    }
-   LazyColumn(Modifier.fillMaxWidth().heightIn(min=120.dp,max=310.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
-    items(messages){msg->
-     Surface(color=if(msg.role=="user")Color(0xFF26354B) else Color(0xFF192331),shape=RoundedCornerShape(10.dp)){
-      Text(msg.text,Modifier.fillMaxWidth().padding(9.dp),color=Color.White,fontSize=11.sp)
-     }
+   TextButton(onClick = { messages = listOf(ChatMsg("assistant", "Chat cleared. What should we do?")) }) { Text("NEW CHAT") }
+  }
+  LazyColumn(Modifier.fillMaxWidth().heightIn(min = 150.dp, max = 340.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+   items(messages) { msg ->
+    Surface(color = if (msg.role == "user") Color(0xFF26354B) else Color(0xFF192331), shape = RoundedCornerShape(10.dp)) {
+     Text(msg.text, Modifier.fillMaxWidth().padding(9.dp), color = Color.White, fontSize = 11.sp)
     }
    }
-   OutlinedTextField(prompt,{prompt=it},modifier=Modifier.fillMaxWidth(),singleLine=false,minLines=1,maxLines=3,label={Text("Ask StreamForge AI…")})
-   Row(horizontalArrangement=Arrangement.spacedBy(7.dp)){
-    OutlinedButton(onClick={messages=emptyList()},enabled=messages.isNotEmpty()&&!busy,modifier=Modifier.weight(1f)){Text("CLEAR")}
-    Button(onClick={
-     val q=prompt.trim();val p=provider;val m=model
-     if(q.isNotEmpty()&&p!=null&&m!=null){
-      prompt="";val history=messages+ChatMsg("user",q);messages=history;busy=true
-      val instructions="""You are StreamForge Mini Assistant, an app-aware AI copilot. Think carefully, make practical decisions, explain trade-offs, and help operate StreamForge. Current app context: $appContext. You may guide the user and navigate within the app. If the user explicitly asks to open a section, append exactly one action token at the very end: [[SF_ACTION:STUDIO]], [[SF_ACTION:SCENES]], [[SF_ACTION:SETTINGS]], [[SF_ACTION:RECORDINGS]], or [[SF_ACTION:FULL_AI]]. Never invent actions outside this list. Do not claim you changed a setting, started/stopped a stream, accessed the phone, or performed an operation unless the app confirms it. Streaming/recording, permissions, external accounts, and arbitrary phone actions require explicit user interaction and Android permission."""
-      scope.launch{
-       try{
-        val answer=sendChat(p,apiKey,m,history,instructions)
-        val action=Regex("""\[\[SF_ACTION:(STUDIO|SCENES|SETTINGS|RECORDINGS|FULL_AI)]]""").find(answer)?.groupValues?.getOrNull(1)
-        val clean=answer.replace(Regex("""\s*\[\[SF_ACTION:(STUDIO|SCENES|SETTINGS|RECORDINGS|FULL_AI)]]\s*"""),"").trim()
-        messages=history+ChatMsg("assistant",clean)
-        if(action!=null)onAction(action)
-       }catch(e:Exception){messages=history+ChatMsg("assistant","Error: "+(e.message?:"Request failed"))}
-       finally{busy=false}
-      }
-     }
-    },enabled=prompt.isNotBlank()&&!busy,modifier=Modifier.weight(1f)){Text(if(busy)"THINKING…" else "SEND")}
-   }
   }
+  OutlinedTextField(
+   value = prompt, onValueChange = { prompt = it }, modifier = Modifier.fillMaxWidth(),
+   singleLine = false, minLines = 1, maxLines = 3, label = { Text("Ask StreamForge…") }
+  )
+  Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+   OutlinedButton(onClick = { onAction("STUDIO") }, modifier = Modifier.weight(1f)) { Text("STUDIO") }
+   OutlinedButton(onClick = { onAction("SCENES") }, modifier = Modifier.weight(1f)) { Text("SCENES") }
+   Button(
+    onClick = {
+     val q = prompt.trim()
+     if (q.isNotEmpty()) {
+      messages = messages + ChatMsg("user", q)
+      prompt = ""
+      val (answer, action) = offlineAssistantReply(q, appContext)
+      messages = messages + ChatMsg("assistant", answer)
+      if (action != null) onAction(action)
+     }
+    },
+    enabled = prompt.isNotBlank(), modifier = Modifier.weight(1f)
+   ) { Text("SEND") }
+  }
+  Text("Runs on this device. It won't start or stop a broadcast without your confirmation.", color = Color(0xFF91A0B4), fontSize = 9.sp)
  }
 }
 
