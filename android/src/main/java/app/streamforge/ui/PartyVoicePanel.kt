@@ -196,7 +196,7 @@ fun PartyVoicePanel() {
             }.onFailure { error = it.message ?: "Room update failed" }
         }
     }
-    DisposableEffect(Unit) {
+    DisposableEffect(voiceEngine) {
         onDispose { voiceEngine?.close() }
     }
 
