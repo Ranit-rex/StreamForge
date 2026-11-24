@@ -84,6 +84,15 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith("/api/voice/")) {
     cleanRooms();
     try {
+      if (req.method === "GET" && url.pathname === "/api/voice/ice-servers") {
+        const iceServers = [{ urls: ["stun:stun.l.google.com:19302"] }];
+        if (TURN_URLS.length && TURN_SHARED_SECRET) {
+          const username = String(Math.floor(Date.now() / 1000) + 3600) + ":streamforge";
+          const credential = createHmac("sha1", TURN_SHARED_SECRET).update(username).digest("base64");
+          iceServers.push({ urls: TURN_URLS, username, credential });
+        }
+        return send(res, 200, { iceServers, relayConfigured: iceServers.length > 1 });
+      }
       if (req.method === "GET" && url.pathname === "/api/voice/rooms") {
         return send(res, 200, { rooms: [...voiceRooms.values()].filter(r => r.visibility === "public").map(publicRoom) });
       }
@@ -97,9 +106,9 @@ const server = http.createServer(async (req, res) => {
         const displayName = String(body.displayName || "Host").trim().slice(0, 24) || "Host";
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const room = { roomId, name, visibility, createdAt: Date.now(), updatedAt: Date.now(),
-          members: [{ memberId, displayName, joinedAt: Date.now() }] };
+          members: [{ memberId, displayName, joinedAt: Date.now(), voiceToken: randomBytes(24).toString("base64url") }] };
         voiceRooms.set(roomId, room);
-        return send(res, 201, { room: publicRoom(room), you: { memberId } });
+        return send(res, 201, { room: publicRoom(room), you: { memberId, voiceToken: room.members[0].voiceToken } });
       }
       if (req.method === "POST" && url.pathname === "/api/voice/rooms/join") {
         const body = await readJson(req);
@@ -111,9 +120,9 @@ const server = http.createServer(async (req, res) => {
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const existing = room.members.find(m => m.memberId === memberId);
         if (!existing && room.members.length >= MAX_ROOM_MEMBERS) return send(res, 409, { error: "This room is full." });
-        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now() });
+        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now(), voiceToken: randomBytes(24).toString("base64url") });
         room.updatedAt = Date.now();
-        return send(res, 200, { room: publicRoom(room), you: { memberId } });
+        return send(res, 200, { room: publicRoom(room), you: { memberId, voiceToken: room.members.find(m => m.memberId === memberId).voiceToken } });
       }
       if (req.method === "POST" && url.pathname === "/api/voice/rooms/leave") {
         const body = await readJson(req);
