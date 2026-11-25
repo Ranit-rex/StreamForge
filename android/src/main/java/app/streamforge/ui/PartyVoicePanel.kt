@@ -1,10 +1,13 @@
 package app.streamforge.ui
 
 import android.Manifest
+import android.app.Activity
+import android.media.projection.MediaProjectionManager
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.AndroidView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,7 +31,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +58,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoTrack
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
 private val VoiceBg = Color(0xFF11151A)
@@ -128,6 +135,8 @@ fun PartyVoicePanel() {
     var showRoomCode by remember { mutableStateOf(false) }
     var selectedMember by remember { mutableStateOf<VoiceMember?>(null) }
     var selectedMemberVolume by remember { mutableStateOf(1f) }
+    var showScreenQuality by remember { mutableStateOf(false) }
+    var screenQuality by remember { mutableStateOf(720) }
 
     fun startVoice(room: VoiceRoom) {
         prefs.edit()
@@ -153,6 +162,20 @@ fun PartyVoicePanel() {
             error = "Microphone permission is required for voice chat"
         }
         pendingVoiceRoom = null
+    }
+
+    val screenSharePermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val permissionData = result.data
+        if (result.resultCode == Activity.RESULT_OK && permissionData != null) {
+            val metrics = context.resources.displayMetrics
+            val maxEdge = maxOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1)
+            val scale = screenQuality.toFloat() / maxEdge
+            val width = (metrics.widthPixels * scale).toInt().coerceAtLeast(2).let { it - it % 2 }
+            val height = (metrics.heightPixels * scale).toInt().coerceAtLeast(2).let { it - it % 2 }
+            PartyVoiceService.startScreenShare(context, permissionData, width, height, 30)
+        } else {
+            error = "Screen capture permission was cancelled"
+        }
     }
 
     fun requestVoice(room: VoiceRoom) {
@@ -390,6 +413,59 @@ fun PartyVoicePanel() {
                         Text(voiceState.status, color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
+                voiceState.remoteScreenTrack?.let { remoteTrack ->
+                    var renderer by remember(remoteTrack) { mutableStateOf<SurfaceViewRenderer?>(null) }
+                    Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${voiceState.remoteScreenOwner ?: "PARTY MEMBER"} · SCREEN SHARE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            AndroidView(
+                                factory = { viewContext ->
+                                    SurfaceViewRenderer(viewContext).apply {
+                                        PartyVoiceService.rendererEglContext()?.let { init(it, null) }
+                                        setEnableHardwareScaler(true)
+                                        setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                                        renderer = this
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(220.dp)
+                            )
+                            DisposableEffect(renderer, remoteTrack) {
+                                val target = renderer
+                                if (target != null) remoteTrack.addSink(target)
+                                onDispose { if (target != null) remoteTrack.removeSink(target) }
+                            }
+                            DisposableEffect(renderer) {
+                                onDispose { renderer?.release() }
+                            }
+                        }
+                    }
+                }
+                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("SCREEN SHARE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = {
+                                    if (voiceState.screenSharing) PartyVoiceService.stopScreenShare(context)
+                                    else {
+                                        val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                        screenSharePermission.launch(manager.createScreenCaptureIntent())
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = voiceActive
+                            ) { Text(if (voiceState.screenSharing) "■ STOP SHARING" else "▣ SHARE SCREEN", fontWeight = FontWeight.Bold) }
+                            OutlinedButton(onClick = { showScreenQuality = true }, enabled = voiceActive) {
+                                Text("${screenQuality}p · 30 FPS")
+                            }
+                        }
+                        Text(
+                            if (voiceState.screenSharing) voiceState.screenShareStatus.ifBlank { "Your screen is being shared with this room" }
+                            else "Share your phone screen with everyone in this voice room",
+                            color = VoiceMuted, fontSize = 9.sp
+                        )
+                    }
+                }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
@@ -419,6 +495,25 @@ fun PartyVoicePanel() {
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
         Text("Rooms and live connection state are temporary. A server restart clears them.", color = VoiceMuted, fontSize = 10.sp)
+    }
+
+    if (showScreenQuality) {
+        AlertDialog(
+            onDismissRequest = { showScreenQuality = false },
+            title = { Text("Screen share quality") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(480, 720, 1080).forEach { quality ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = screenQuality == quality, onClick = { screenQuality = quality })
+                            Text("${quality}p · 30 FPS")
+                        }
+                    }
+                    Text("Higher quality uses more battery and network data.", color = VoiceMuted, fontSize = 10.sp)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showScreenQuality = false }) { Text("DONE") } }
+        )
     }
 
     if (selectedMember != null) {
