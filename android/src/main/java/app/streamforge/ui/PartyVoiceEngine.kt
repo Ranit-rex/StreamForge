@@ -539,6 +539,7 @@ internal class PartyVoiceEngine(
 
     private fun publish(status: String) {
         if (closed) return
+        currentStatus = status
         onState(
             VoiceEngineState(
                 connected = signalingConnected,
@@ -546,6 +547,9 @@ internal class PartyVoiceEngine(
                 micEnabled = micEnabled,
                 speakerEnabled = speakerEnabled,
                 speaking = speaking.toSet(),
+                localSpeaking = localSpeaking,
+                localLevel = localLevel,
+                micCapturing = micCapturing,
                 status = status
             )
         )
