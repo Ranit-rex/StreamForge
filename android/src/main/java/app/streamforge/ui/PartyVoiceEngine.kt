@@ -224,7 +224,8 @@ internal class PartyVoiceEngine(
                 if (closed || screenSharing) return@thread
                 try {
                     val currentFactory = factory ?: throw IllegalStateException("Voice connection is not ready")
-                    val transceiver = videoTransceivers.values.firstOrNull() ?: throw IllegalStateException("Screen-share video channel is not ready")
+                    val transceivers = videoTransceivers.values.toList()
+                    if (transceivers.isEmpty()) throw IllegalStateException("Screen-share video channel is not ready")
                     val source = currentFactory.createVideoSource(true)
                     val helper = SurfaceTextureHelper.create("sf-party-screen-capture", eglBase!!.eglBaseContext)
                     val capturer = ScreenCapturerAndroid(permissionData, object : android.media.projection.MediaProjection.Callback() {
@@ -233,7 +234,7 @@ internal class PartyVoiceEngine(
                     capturer.initialize(helper, app, source.capturerObserver)
                     val track = currentFactory.createVideoTrack("sf-party-screen", source)
                     track.setEnabled(true)
-                    if (!transceiver.sender.setTrack(track, false)) throw IllegalStateException("Could not attach screen video")
+                    if (transceivers.any { !it.sender.setTrack(track, false) }) throw IllegalStateException("Could not attach screen video to every participant")
                     screenVideoSource = source
                     screenTextureHelper = helper
                     screenCapturer = capturer
