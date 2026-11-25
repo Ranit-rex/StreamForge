@@ -351,7 +351,6 @@ internal class PartyVoiceEngine(
             "screen-share" -> {
                 val id = message.optString("memberId")
                 if (message.optBoolean("active")) screenSharingMembers.add(id) else screenSharingMembers.remove(id)
-                if (!message.optBoolean("active")) remoteVideoTracks.remove(id)
                 publish("Party screen share updated")
             }
         }
