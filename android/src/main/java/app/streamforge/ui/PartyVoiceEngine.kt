@@ -9,6 +9,14 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.AudioTrack
+import org.webrtc.EglBase
+import org.webrtc.MediaStreamTrack
+import org.webrtc.ScreenCapturerAndroid
+import org.webrtc.SurfaceTextureHelper
+import org.webrtc.VideoCapturer
+import org.webrtc.VideoSource
+import org.webrtc.VideoTrack
+import android.content.Intent
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
@@ -42,6 +50,10 @@ internal data class VoiceEngineState(
     val localSpeaking: Boolean = false,
     val localLevel: Float = 0f,
     val micCapturing: Boolean = false,
+    val remoteScreenTrack: VideoTrack? = null,
+    val remoteScreenOwner: String? = null,
+    val screenSharing: Boolean = false,
+    val screenShareStatus: String = "",
     val status: String = "Connecting to voice…"
 )
 
@@ -65,6 +77,8 @@ internal class PartyVoiceEngine(
     private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
+    private val remoteVideoTracks = ConcurrentHashMap<String, VideoTrack>()
+    private val videoTransceivers = ConcurrentHashMap<String, RtpTransceiver>()
     private val pendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
     private val remoteSdpReady = ConcurrentHashMap.newKeySet<String>()
     private val peerNames = ConcurrentHashMap<String, String>()
@@ -88,6 +102,13 @@ internal class PartyVoiceEngine(
     @Volatile private var socket: WebSocket? = null
     @Volatile private var factory: PeerConnectionFactory? = null
     @Volatile private var audioModule: JavaAudioDeviceModule? = null
+    @Volatile private var eglBase: EglBase? = null
+    @Volatile private var screenCapturer: ScreenCapturerAndroid? = null
+    @Volatile private var screenTextureHelper: SurfaceTextureHelper? = null
+    @Volatile private var screenVideoSource: VideoSource? = null
+    @Volatile private var screenVideoTrack: VideoTrack? = null
+    @Volatile private var screenSharing = false
+    @Volatile private var screenShareStatus = ""
     @Volatile private var audioSource: org.webrtc.AudioSource? = null
     @Volatile private var localTrack: AudioTrack? = null
     @Volatile private var localMicMonitor: PeerConnection? = null
@@ -127,8 +148,11 @@ internal class PartyVoiceEngine(
                         })
                         .createAudioDeviceModule()
 
+                    eglBase = EglBase.create()
                     factory = PeerConnectionFactory.builder()
                         .setAudioDeviceModule(audioModule)
+                        .setVideoEncoderFactory(org.webrtc.DefaultVideoEncoderFactory(eglBase!!.eglBaseContext, true, true))
+                        .setVideoDecoderFactory(org.webrtc.DefaultVideoDecoderFactory(eglBase!!.eglBaseContext))
                         .createPeerConnectionFactory()
 
                     val audioConstraints = MediaConstraints().apply {
@@ -189,6 +213,62 @@ internal class PartyVoiceEngine(
                 }
             }
         )
+    }
+
+    fun eglContext(): org.webrtc.EglBase.Context? = eglBase?.eglBaseContext
+
+    fun startScreenShare(permissionData: Intent, width: Int, height: Int, fps: Int = 30) {
+        thread(name = "sf-party-screen-start") {
+            synchronized(lock) {
+                if (closed || screenSharing) return@thread
+                try {
+                    val currentFactory = factory ?: throw IllegalStateException("Voice connection is not ready")
+                    val transceiver = videoTransceivers.values.firstOrNull() ?: throw IllegalStateException("Screen-share video channel is not ready")
+                    val source = currentFactory.createVideoSource(true)
+                    val helper = SurfaceTextureHelper.create("sf-party-screen-capture", eglBase!!.eglBaseContext)
+                    val capturer = ScreenCapturerAndroid(permissionData, object : android.media.projection.MediaProjection.Callback() {
+                        override fun onStop() { stopScreenShare() }
+                    })
+                    capturer.initialize(helper, app, source.capturerObserver)
+                    val track = currentFactory.createVideoTrack("sf-party-screen", source)
+                    track.setEnabled(true)
+                    if (!transceiver.sender.setTrack(track, false)) throw IllegalStateException("Could not attach screen video")
+                    screenVideoSource = source
+                    screenTextureHelper = helper
+                    screenCapturer = capturer
+                    screenVideoTrack = track
+                    capturer.startCapture(width.coerceIn(640, 1920), height.coerceIn(360, 1080), fps.coerceIn(15, 30))
+                    screenSharing = true
+                    screenShareStatus = "Your screen is being shared"
+                    publish(currentStatus)
+                } catch (error: Throwable) {
+                    Log.e(TAG, "Screen share start failed", error)
+                    stopScreenShareInternal()
+                    screenShareStatus = "Screen share failed: ${error.message ?: "unknown error"}"
+                    publish(currentStatus)
+                }
+            }
+        }
+    }
+
+    fun stopScreenShare() {
+        synchronized(lock) { stopScreenShareInternal() }
+        publish(currentStatus)
+    }
+
+    private fun stopScreenShareInternal() {
+        runCatching { videoTransceivers.values.forEach { it.sender.setTrack(null, false) } }
+        runCatching { screenCapturer?.stopCapture() }
+        runCatching { screenCapturer?.dispose() }
+        runCatching { screenVideoTrack?.dispose() }
+        runCatching { screenVideoSource?.dispose() }
+        runCatching { screenTextureHelper?.dispose() }
+        screenCapturer = null
+        screenVideoTrack = null
+        screenVideoSource = null
+        screenTextureHelper = null
+        screenSharing = false
+        screenShareStatus = "Screen sharing stopped"
     }
 
     fun setMicEnabled(enabled: Boolean) {
@@ -292,6 +372,8 @@ internal class PartyVoiceEngine(
                 Log.e(TAG, "Local microphone track attach failed for " + peerId)
                 publish("Microphone track could not be attached")
             }
+            val video = connection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+            if (video != null) videoTransceivers[peerId] = video
             if (offer) createOffer(peerId, connection)
             return connection
         }
@@ -381,11 +463,19 @@ internal class PartyVoiceEngine(
 
         override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out org.webrtc.MediaStream>?) {
             attachRemoteTrack(peerId, receiver?.track() as? AudioTrack)
+            attachRemoteVideoTrack(peerId, receiver?.track() as? VideoTrack)
         }
 
         override fun onTrack(transceiver: RtpTransceiver?) {
             attachRemoteTrack(peerId, transceiver?.receiver?.track() as? AudioTrack)
+            attachRemoteVideoTrack(peerId, transceiver?.receiver?.track() as? VideoTrack)
         }
+    }
+
+    private fun attachRemoteVideoTrack(peerId: String, track: VideoTrack?) {
+        if (track == null || closed) return
+        remoteVideoTracks[peerId] = track
+        publish("Screen share received")
     }
 
     private fun attachRemoteTrack(peerId: String, track: AudioTrack?) {
@@ -494,6 +584,8 @@ internal class PartyVoiceEngine(
         synchronized(lock) {
             peers.remove(peerId)?.let { runCatching { it.close() } }
             remoteTracks.remove(peerId)
+            remoteVideoTracks.remove(peerId)
+            videoTransceivers.remove(peerId)
             pendingIce.remove(peerId)
             remoteSdpReady.remove(peerId)
             peerNames.remove(peerId)?.let { speaking.remove(it) }
@@ -615,21 +707,28 @@ internal class PartyVoiceEngine(
                 localSpeaking = localSpeaking,
                 localLevel = localLevel,
                 micCapturing = micCapturing,
+                remoteScreenTrack = remoteVideoTracks.values.firstOrNull(),
+                remoteScreenOwner = remoteVideoTracks.keys.firstOrNull()?.let { peerNames[it] ?: it },
+                screenSharing = screenSharing,
+                screenShareStatus = screenShareStatus,
                 status = status
             )
         )
     }
 
     private fun releaseMedia() {
+        stopScreenShareInternal()
         runCatching { localMicMonitor?.close() }
         localMicMonitor = null
         runCatching { localTrack?.dispose() }
         runCatching { audioSource?.dispose() }
         runCatching { factory?.dispose() }
+        runCatching { eglBase?.release() }
         runCatching { audioModule?.release() }
         localTrack = null
         audioSource = null
         factory = null
+        eglBase = null
         audioModule = null
     }
 
@@ -646,6 +745,8 @@ internal class PartyVoiceEngine(
             runCatching { localMicMonitor?.close() }
             localMicMonitor = null
             remoteTracks.clear()
+            remoteVideoTracks.clear()
+            videoTransceivers.clear()
             pendingIce.clear()
             remoteSdpReady.clear()
             speaking.clear()
