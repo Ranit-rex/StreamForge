@@ -38,6 +38,7 @@ internal data class VoiceEngineState(
     val micEnabled: Boolean = true,
     val speakerEnabled: Boolean = true,
     val speaking: Set<String> = emptySet(),
+    val mutedMembers: Set<String> = emptySet(),
     val localSpeaking: Boolean = false,
     val localLevel: Float = 0f,
     val micCapturing: Boolean = false,
@@ -68,6 +69,9 @@ internal class PartyVoiceEngine(
     private val remoteSdpReady = ConcurrentHashMap.newKeySet<String>()
     private val peerNames = ConcurrentHashMap<String, String>()
     private val speaking = ConcurrentHashMap.newKeySet<String>()
+    private val mutedMembers = ConcurrentHashMap.newKeySet<String>()
+    private val locallyMutedPeers = ConcurrentHashMap.newKeySet<String>()
+    private val remoteVolumes = ConcurrentHashMap<String, Double>()
     private val client = sharedClient
 
     @Volatile private var closed = false
@@ -193,11 +197,24 @@ internal class PartyVoiceEngine(
         if (!enabled) {
             localSpeaking = false
             localLevel = 0f
-            speaking.remove(displayName)
-            send(JSONObject().put("type", "speaking").put("active", false).put("displayName", displayName))
+            speaking.remove(memberId)
+            send(JSONObject().put("type", "speaking").put("active", false))
         }
         send(JSONObject().put("type", "mute").put("active", !enabled))
         if (!closed) publish(if (enabled) "Microphone on" else "Microphone muted")
+    }
+
+    fun setRemoteVolume(peerId: String, volume: Float) {
+        if (peerId.isBlank()) return
+        val normalized = volume.coerceIn(0f, 1f).toDouble()
+        remoteVolumes[peerId] = normalized
+        remoteTracks[peerId]?.let { runCatching { it.setVolume(normalized) } }
+    }
+
+    fun setRemoteMuted(peerId: String, muted: Boolean) {
+        if (peerId.isBlank()) return
+        if (muted) locallyMutedPeers.add(peerId) else locallyMutedPeers.remove(peerId)
+        remoteTracks[peerId]?.let { runCatching { it.setEnabled(speakerEnabled && !muted) } }
     }
 
     fun setSpeakerEnabled(enabled: Boolean) {
@@ -216,6 +233,7 @@ internal class PartyVoiceEngine(
                     val id = peer.optString("memberId")
                     if (id.isNotBlank() && id != memberId) {
                         peerNames[id] = peer.optString("displayName", id)
+                        if (peer.optBoolean("muted")) mutedMembers.add(id) else mutedMembers.remove(id)
                         ensurePeer(id, shouldOffer(id))
                     }
                 }
@@ -225,6 +243,7 @@ internal class PartyVoiceEngine(
                 val id = message.optString("memberId")
                 if (id.isNotBlank() && id != memberId) {
                     peerNames[id] = message.optString("displayName", id)
+                    if (message.optBoolean("muted")) mutedMembers.add(id) else mutedMembers.remove(id)
                     ensurePeer(id, shouldOffer(id))
                 }
             }
@@ -234,13 +253,13 @@ internal class PartyVoiceEngine(
             "ice" -> receiveIce(message)
             "speaking" -> {
                 val id = message.optString("memberId")
-                val name = message.optString("displayName", id)
-                if (message.optBoolean("active")) speaking.add(name) else speaking.remove(name)
+                if (message.optBoolean("active")) speaking.add(id) else speaking.remove(id)
                 publish("Party voice active")
             }
             "mute" -> {
                 val id = message.optString("memberId")
-                speaking.remove(message.optString("displayName", id))
+                if (message.optBoolean("active")) mutedMembers.add(id) else mutedMembers.remove(id)
+                if (message.optBoolean("active")) speaking.remove(id)
                 publish("Party voice active")
             }
         }
@@ -371,7 +390,8 @@ internal class PartyVoiceEngine(
 
     private fun attachRemoteTrack(peerId: String, track: AudioTrack?) {
         if (track == null || closed) return
-        track.setEnabled(speakerEnabled)
+        track.setEnabled(speakerEnabled && peerId !in locallyMutedPeers)
+        track.setVolume(remoteVolumes[peerId] ?: 1.0)
         remoteTracks[peerId] = track
         Log.i(TAG, "Remote audio track attached for " + peerId)
         publish("Remote microphone connected")
@@ -545,11 +565,11 @@ internal class PartyVoiceEngine(
         localLevel = level
         if (changed) {
             localSpeaking = active
-            if (active) speaking.add(displayName) else speaking.remove(displayName)
-            send(JSONObject().put("type", "speaking").put("active", active).put("displayName", displayName))
+            if (active) speaking.add(memberId) else speaking.remove(memberId)
+            send(JSONObject().put("type", "speaking").put("active", active))
             lastSpeakingSignalAt = now
         } else if (active && now - lastSpeakingSignalAt >= 1800L) {
-            send(JSONObject().put("type", "speaking").put("active", true).put("displayName", displayName))
+            send(JSONObject().put("type", "speaking").put("active", true))
             lastSpeakingSignalAt = now
         }
         if (changed || now - lastMicUiPublishAt >= 120L) {
@@ -591,6 +611,7 @@ internal class PartyVoiceEngine(
                 micEnabled = micEnabled,
                 speakerEnabled = speakerEnabled,
                 speaking = speaking.toSet(),
+                mutedMembers = mutedMembers.toSet(),
                 localSpeaking = localSpeaking,
                 localLevel = localLevel,
                 micCapturing = micCapturing,
@@ -628,6 +649,9 @@ internal class PartyVoiceEngine(
             pendingIce.clear()
             remoteSdpReady.clear()
             speaking.clear()
+            mutedMembers.clear()
+            locallyMutedPeers.clear()
+            remoteVolumes.clear()
             releaseMedia()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 runCatching { audioManager.clearCommunicationDevice() }
