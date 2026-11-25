@@ -672,10 +672,13 @@ private fun PartyScreenVideo(
         factory = { viewContext ->
             SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
-                // Compose dialogs/cards draw in a separate render layer. Keep the
-                // WebRTC SurfaceView above the app window so its frames are visible.
-                setZOrderMediaOverlay(true)
-                setEnableHardwareScaler(false)
+                // Render the WebRTC surface in its own top-level surface layer.
+                // Compose parents can otherwise leave SurfaceView black beneath
+                // their hardware-accelerated layers on some Android devices.
+                setZOrderMediaOverlay(false)
+                setZOrderOnTop(true)
+                holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+                setEnableHardwareScaler(true)
                 setMirror(false)
                 setScalingType(if (zoomed) org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
