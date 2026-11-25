@@ -106,14 +106,14 @@ internal class PartyVoiceEngine(
                         .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
                             override fun onWebRtcAudioRecordStart() {
                                 micCapturing = true
-                                if (!closed) publish("Microphone active · voice ready")
+                                if (!closed) publish(if (peers.isEmpty()) "Microphone live · invite friends" else "Microphone active · voice ready")
                             }
                             override fun onWebRtcAudioRecordStop() {
                                 micCapturing = false
                                 localSpeaking = false
                                 localLevel = 0f
                                 speaking.remove(displayName)
-                                if (!closed) publish("Microphone capture stopped")
+                                if (!closed) publish("Microphone capture stopped · reconnecting")
                             }
                         })
                         .setSamplesReadyCallback(object : JavaAudioDeviceModule.SamplesReadyCallback {
@@ -311,7 +311,7 @@ internal class PartyVoiceEngine(
                 if (description == null || closed) return
                 monitor.setLocalDescription(object : SdpObserverAdapter("set local mic monitor offer") {
                     override fun onSetSuccess() {
-                        if (!closed) publish("Microphone live · invite friends")
+                        if (!closed) publish("Microphone track armed · opening capture")
                     }
                 }, description)
             }
@@ -539,7 +539,7 @@ internal class PartyVoiceEngine(
         if (count == 0) return
         val level = sqrt(sum / count).toFloat().coerceIn(0f, 1f)
         // A small noise gate prevents microphone hiss from lighting the member tile.
-        val active = level >= 0.028f
+        val active = level >= 0.018f
         val now = SystemClock.elapsedRealtime()
         val changed = active != localSpeaking
         localLevel = level
