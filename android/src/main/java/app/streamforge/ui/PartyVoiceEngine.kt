@@ -266,7 +266,11 @@ internal class PartyVoiceEngine(
                     }
                     localScreenFrameSink = frameSink
                     track.addSink(frameSink)
-                    capturer.startCapture(width.coerceIn(640, 1920), height.coerceIn(360, 1080), fps.coerceIn(15, 30))
+                    // Width/height already preserve the source aspect ratio. Keep them paired;
+                    // independent min/max clamps distort portrait and landscape streams.
+                    val captureWidth = (width.coerceIn(2, 1920) / 2) * 2
+                    val captureHeight = (height.coerceIn(2, 1920) / 2) * 2
+                    capturer.startCapture(captureWidth, captureHeight, fps.coerceIn(15, 30))
                     Log.i(TAG, "ScreenCapturerAndroid startCapture returned; attachedSenders=${attached}")
                     screenSharing = true
                     screenShareStatus = "Your screen is being shared"
