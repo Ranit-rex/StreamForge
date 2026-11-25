@@ -92,6 +92,40 @@ internal class PartyVoiceEngine(
                     audioModule = JavaAudioDeviceModule.builder(appContext)
                         .setUseHardwareAcousticEchoCanceler(true)
                         .setUseHardwareNoiseSuppressor(true)
+                        // Expose the actual Android AudioRecord lifecycle and PCM samples.
+                        // This also works before a peer connection exists (one-person rooms
+                        // otherwise have no PeerConnection stats for the local microphone).
+                        .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
+                            override fun onWebRtcAudioRecordStart() {
+                                if (!closed && micEnabled) publish("Microphone capture active · speak to test")
+                            }
+                            override fun onWebRtcAudioRecordStop() {
+                                if (!closed) publish("Microphone capture stopped")
+                            }
+                        })
+                        .setSamplesReadyCallback(object : JavaAudioDeviceModule.SamplesReadyCallback {
+                            override fun onWebRtcAudioRecordSamplesReady(samples: JavaAudioDeviceModule.AudioSamples) {
+                                if (closed) return
+                                val pcm = samples.data
+                                if (pcm.isEmpty()) return
+                                var sumSquares = 0.0
+                                val sampleCount = pcm.size / 2
+                                for (index in 0 until sampleCount) {
+                                    val value = ((pcm[index * 2 + 1].toInt() shl 8) or
+                                        (pcm[index * 2].toInt() and 0xff)).toShort().toInt()
+                                    val normalized = value / 32768.0
+                                    sumSquares += normalized * normalized
+                                }
+                                val rms = if (sampleCount > 0) kotlin.math.sqrt(sumSquares / sampleCount) else 0.0
+                                val active = micEnabled && rms > 0.018
+                                if (active != localSpeaking) {
+                                    localSpeaking = active
+                                    if (active) speaking.add(displayName) else speaking.remove(displayName)
+                                    send(JSONObject().put("type", "speaking").put("active", active))
+                                    publish(if (active) "Microphone detected · voice active" else "Microphone capture active")
+                                }
+                            }
+                        })
                         .createAudioDeviceModule()
                     factory = PeerConnectionFactory.builder()
                         .setAudioDeviceModule(audioModule)
@@ -151,8 +185,9 @@ internal class PartyVoiceEngine(
             localSpeaking = false
             speaking.remove(displayName)
         }
+        localTrack?.setEnabled(enabled)
         send(JSONObject().put("type", "mute").put("active", !enabled))
-        publish(if (enabled) "Microphone on" else "Microphone muted")
+        publish(if (enabled) "Microphone on · capture check running" else "Microphone muted")
     }
 
     fun setSpeakerEnabled(enabled: Boolean) {
@@ -413,19 +448,9 @@ internal class PartyVoiceEngine(
                             val name = peerNames[id] ?: id
                             val active = inboundLevel > 0.035
                             val changed = if (active) speaking.add(name) else speaking.remove(name)
-                            val localLevel = stats.asSequence()
-                                .filter { it.type == "media-source" && it.members["kind"] == "audio" }
-                                .mapNotNull { it.members["audioLevel"] as? Number }
-                                .maxOfOrNull { it.toDouble() } ?: 0.0
-                            val localActive = micEnabled && localLevel > 0.035
-                            if (localActive != localSpeaking) {
-                                localSpeaking = localActive
-                                if (localActive) speaking.add(displayName) else speaking.remove(displayName)
-                                send(JSONObject().put("type", "speaking").put("active", localActive))
-                                publish("Live voice connected")
-                            } else if (changed) {
-                                publish("Live voice connected")
-                            }
+                            // Local mic activity is measured from AudioRecord PCM samples.
+                            // Peer stats are reserved for inbound/remote audio levels.
+                            if (changed) publish("Live voice connected")
                         }
                     }
                 }
