@@ -144,10 +144,13 @@ class PartyVoiceService : Service() {
         state.value = VoiceEngineState(micEnabled = micEnabled, speakerEnabled = speakerEnabled, status = "Starting microphone…")
         active.value = true
         engine = PartyVoiceEngine(this, endpoint, roomId, memberId, token, displayName) { next ->
+            val previous = state.value
             state.value = next
             micEnabled = next.micEnabled
             speakerEnabled = next.speakerEnabled
-            updateNotification()
+            if (previous.micEnabled != next.micEnabled || previous.micCapturing != next.micCapturing || previous.connected != next.connected) {
+                updateNotification()
+            }
         }.also { it.connect() }
         updateNotification()
     }
