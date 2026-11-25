@@ -2,6 +2,8 @@ package app.streamforge.ui
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.AudioDeviceInfo
+import android.os.Build
 import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONArray
@@ -98,9 +100,7 @@ internal class PartyVoiceEngine(
                     localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
                         .also { it?.setEnabled(micEnabled) }
 
-                    audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                    @Suppress("DEPRECATION")
-                    run { audioManager.isSpeakerphoneOn = true }
+                    applyAudioRoute(true)
 
                     val wsBase = endpoint.trimEnd('/')
                         .replaceFirst("https://", "wss://")
@@ -158,8 +158,7 @@ internal class PartyVoiceEngine(
     fun setSpeakerEnabled(enabled: Boolean) {
         speakerEnabled = enabled
         remoteTracks.values.forEach { it.setEnabled(enabled) }
-        @Suppress("DEPRECATION")
-        run { audioManager.isSpeakerphoneOn = enabled }
+        applyAudioRoute(enabled)
         publish(if (enabled) "Speaker on" else "Speaker off")
     }
 
@@ -389,6 +388,25 @@ internal class PartyVoiceEngine(
         }
     }
 
+    private fun applyAudioRoute(useSpeaker: Boolean) {
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val wantedType = if (useSpeaker) {
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+            } else {
+                AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            }
+            val device = audioManager.availableCommunicationDevices.firstOrNull { it.type == wantedType }
+                ?: audioManager.availableCommunicationDevices.firstOrNull {
+                    it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+            if (device != null) runCatching { audioManager.setCommunicationDevice(device) }
+        } else {
+            @Suppress("DEPRECATION")
+            run { audioManager.isSpeakerphoneOn = useSpeaker }
+        }
+    }
+
     private fun send(message: JSONObject) {
         socket?.send(message.toString())
     }
@@ -424,9 +442,13 @@ internal class PartyVoiceEngine(
             audioSource = null
             factory = null
             audioModule = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                runCatching { audioManager.clearCommunicationDevice() }
+            } else {
+                @Suppress("DEPRECATION")
+                run { audioManager.isSpeakerphoneOn = false }
+            }
             audioManager.mode = AudioManager.MODE_NORMAL
-            @Suppress("DEPRECATION")
-            run { audioManager.isSpeakerphoneOn = false }
             // Do not shut down the shared OkHttp dispatcher: callbacks may still be queued.
         }
     }
