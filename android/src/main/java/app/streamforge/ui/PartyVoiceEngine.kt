@@ -339,35 +339,12 @@ internal class PartyVoiceEngine(
     }
 
     private fun loadIceServers(): List<PeerConnection.IceServer> {
+        // No TURN credentials or environment configuration required.
+        // Try direct peer-to-peer connectivity using a public STUN server.
         cachedIceServers?.let { return it }
-        val result = mutableListOf<PeerConnection.IceServer>()
-        try {
-            val connection = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers").openConnection() as HttpURLConnection
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            try {
-                val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                val list = json.optJSONArray("iceServers") ?: JSONArray()
-                for (i in 0 until list.length()) {
-                    val item = list.optJSONObject(i) ?: continue
-                    val urls = item.optJSONArray("urls") ?: JSONArray().put(item.optString("urls"))
-                    val username = item.optString("username")
-                    val credential = item.optString("credential")
-                    for (j in 0 until urls.length()) {
-                        val uri = urls.optString(j)
-                        if (uri.isBlank()) continue
-                        val builder = PeerConnection.IceServer.builder(uri)
-                        if (username.isNotBlank()) builder.setUsername(username).setPassword(credential)
-                        result.add(builder.createIceServer())
-                    }
-                }
-            } finally { connection.disconnect() }
-        } catch (_: Throwable) { }
-        if (result.none { it.uri.startsWith("stun:") }) {
-            result.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
-        }
-        cachedIceServers = result
-        return result
+        return listOf(
+            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+        ).also { cachedIceServers = it }
     }
 
     private fun startStatsMonitor() {
