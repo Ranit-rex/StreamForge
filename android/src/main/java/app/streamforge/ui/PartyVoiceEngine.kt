@@ -84,6 +84,7 @@ internal class PartyVoiceEngine(
     private val peerNames = ConcurrentHashMap<String, String>()
     private val speaking = ConcurrentHashMap.newKeySet<String>()
     private val mutedMembers = ConcurrentHashMap.newKeySet<String>()
+    private val screenSharingMembers = ConcurrentHashMap.newKeySet<String>()
     private val locallyMutedPeers = ConcurrentHashMap.newKeySet<String>()
     private val remoteVolumes = ConcurrentHashMap<String, Double>()
     private val client = sharedClient
@@ -240,6 +241,7 @@ internal class PartyVoiceEngine(
                     capturer.startCapture(width.coerceIn(640, 1920), height.coerceIn(360, 1080), fps.coerceIn(15, 30))
                     screenSharing = true
                     screenShareStatus = "Your screen is being shared"
+                    send(JSONObject().put("type", "screen-share").put("active", true))
                     publish(currentStatus)
                 } catch (error: Throwable) {
                     Log.e(TAG, "Screen share start failed", error)
@@ -257,7 +259,9 @@ internal class PartyVoiceEngine(
     }
 
     private fun stopScreenShareInternal() {
+        val wasSharing = screenSharing
         runCatching { videoTransceivers.values.forEach { it.sender.setTrack(null, false) } }
+        if (wasSharing) send(JSONObject().put("type", "screen-share").put("active", false))
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenCapturer?.dispose() }
         runCatching { screenVideoTrack?.dispose() }
@@ -314,6 +318,7 @@ internal class PartyVoiceEngine(
                     if (id.isNotBlank() && id != memberId) {
                         peerNames[id] = peer.optString("displayName", id)
                         if (peer.optBoolean("muted")) mutedMembers.add(id) else mutedMembers.remove(id)
+                        if (peer.optBoolean("screenSharing")) screenSharingMembers.add(id) else screenSharingMembers.remove(id)
                         ensurePeer(id, shouldOffer(id))
                     }
                 }
@@ -324,6 +329,7 @@ internal class PartyVoiceEngine(
                 if (id.isNotBlank() && id != memberId) {
                     peerNames[id] = message.optString("displayName", id)
                     if (message.optBoolean("muted")) mutedMembers.add(id) else mutedMembers.remove(id)
+                    if (message.optBoolean("screenSharing")) screenSharingMembers.add(id) else screenSharingMembers.remove(id)
                     ensurePeer(id, shouldOffer(id))
                 }
             }
@@ -341,6 +347,12 @@ internal class PartyVoiceEngine(
                 if (message.optBoolean("active")) mutedMembers.add(id) else mutedMembers.remove(id)
                 if (message.optBoolean("active")) speaking.remove(id)
                 publish("Party voice active")
+            }
+            "screen-share" -> {
+                val id = message.optString("memberId")
+                if (message.optBoolean("active")) screenSharingMembers.add(id) else screenSharingMembers.remove(id)
+                if (!message.optBoolean("active")) remoteVideoTracks.remove(id)
+                publish("Party screen share updated")
             }
         }
     }
@@ -585,6 +597,7 @@ internal class PartyVoiceEngine(
             peers.remove(peerId)?.let { runCatching { it.close() } }
             remoteTracks.remove(peerId)
             remoteVideoTracks.remove(peerId)
+            screenSharingMembers.remove(peerId)
             videoTransceivers.remove(peerId)
             pendingIce.remove(peerId)
             remoteSdpReady.remove(peerId)
@@ -707,8 +720,8 @@ internal class PartyVoiceEngine(
                 localSpeaking = localSpeaking,
                 localLevel = localLevel,
                 micCapturing = micCapturing,
-                remoteScreenTrack = remoteVideoTracks.values.firstOrNull(),
-                remoteScreenOwner = remoteVideoTracks.keys.firstOrNull()?.let { peerNames[it] ?: it },
+                remoteScreenTrack = remoteVideoTracks.entries.firstOrNull { it.key in screenSharingMembers }?.value,
+                remoteScreenOwner = remoteVideoTracks.keys.firstOrNull { it in screenSharingMembers }?.let { peerNames[it] ?: it },
                 screenSharing = screenSharing,
                 screenShareStatus = screenShareStatus,
                 status = status
@@ -751,6 +764,7 @@ internal class PartyVoiceEngine(
             remoteSdpReady.clear()
             speaking.clear()
             mutedMembers.clear()
+            screenSharingMembers.clear()
             locallyMutedPeers.clear()
             remoteVolumes.clear()
             releaseMedia()
