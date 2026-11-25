@@ -112,6 +112,10 @@ class PartyVoiceService : Service() {
             })
         }
 
+        fun rendererEglContext(): org.webrtc.EglBase.Context? = serviceInstance?.engine?.eglContext()
+
+        private var serviceInstance: PartyVoiceService? = null
+
         fun stopScreenShare(context: Context) {
             context.startService(Intent(context, PartyVoiceService::class.java).setAction(ACTION_STOP_SCREEN_SHARE))
         }
@@ -132,6 +136,7 @@ class PartyVoiceService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        serviceInstance = this
         createChannel()
     }
 
