@@ -352,7 +352,7 @@ fun PartyVoicePanel() {
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        Text(voiceState.status, color = if (voiceState.connected) Color(0xFF75D9AE) else Color(0xFFFFC46B), fontSize = 9.sp)
+                        Text(voiceState.status, color = if (voiceState.mediaConnected) Color(0xFF75D9AE) else if (voiceState.connected) Color(0xFFFFC46B) else Color(0xFFFF8B8B), fontSize = 9.sp)
                     }
                 }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
