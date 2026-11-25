@@ -23,5 +23,6 @@
    <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths"/>
   </provider>
   <service android:name=".stream.StreamService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone" android:stopWithTask="false"/>
+  <service android:name=".ui.PartyVoiceService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="false"/>
  </application>
 </manifest>
