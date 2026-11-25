@@ -86,6 +86,7 @@ internal class PartyVoiceEngine(
     @Volatile private var audioModule: JavaAudioDeviceModule? = null
     @Volatile private var audioSource: org.webrtc.AudioSource? = null
     @Volatile private var localTrack: AudioTrack? = null
+    @Volatile private var localMicMonitor: PeerConnection? = null
     @Volatile private var iceServers: List<PeerConnection.IceServer> = emptyList()
 
     private val lock = Any()
@@ -138,6 +139,7 @@ internal class PartyVoiceEngine(
                         throw IllegalStateException("WebRTC audio engine could not be created")
                     }
                     applyAudioRoute(speakerEnabled)
+                    startLocalMicMonitor()
                     openSignalingSocket()
                 } catch (error: Throwable) {
                     Log.e(TAG, "Voice initialization failed", error)
@@ -276,6 +278,46 @@ internal class PartyVoiceEngine(
         }
     }
 
+    /**
+     * Keep WebRTC's own AudioRecord capture alive even in a one-person room.
+     * This local-only sender has no remote description and never sends media to
+     * the network; it exists so real microphone samples and the speaking meter
+     * are active before the first friend joins.
+     */
+    private fun startLocalMicMonitor() {
+        val currentFactory = factory ?: return
+        val track = localTrack ?: return
+        val config = PeerConnection.RTCConfiguration(iceServers).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
+            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+            rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+        }
+        val monitor = currentFactory.createPeerConnection(config, observer(LOCAL_MIC_MONITOR_ID)) ?: run {
+            publish("Microphone meter unavailable · retrying capture")
+            return
+        }
+        if (monitor.addTrack(track, listOf("streamforge-local-mic-monitor")) == null) {
+            monitor.close()
+            publish("Microphone monitor could not attach the local track")
+            return
+        }
+        localMicMonitor = monitor
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
+        }
+        monitor.createOffer(object : SdpObserverAdapter("create local mic monitor offer") {
+            override fun onCreateSuccess(description: SessionDescription?) {
+                if (description == null || closed) return
+                monitor.setLocalDescription(object : SdpObserverAdapter("set local mic monitor offer") {
+                    override fun onSetSuccess() {
+                        if (!closed) publish("Microphone live · invite friends")
+                    }
+                }, description)
+            }
+        }, constraints)
+    }
+
     private fun observer(peerId: String) = object : PeerConnection.Observer {
         override fun onSignalingChange(state: PeerConnection.SignalingState?) {
             Log.d(TAG, "peer=" + peerId + " signaling=" + state)
@@ -283,6 +325,7 @@ internal class PartyVoiceEngine(
 
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
             Log.i(TAG, "peer=" + peerId + " ICE=" + state)
+            if (peerId == LOCAL_MIC_MONITOR_ID) return
             updateMediaState()
             when (state) {
                 PeerConnection.IceConnectionState.CONNECTED,
@@ -302,6 +345,7 @@ internal class PartyVoiceEngine(
         }
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (peerId == LOCAL_MIC_MONITOR_ID) return
             send(JSONObject().put("type", "ice").put("to", peerId).put(
                 "candidate",
                 JSONObject().put("sdpMid", candidate.sdpMid)
@@ -576,6 +620,8 @@ internal class PartyVoiceEngine(
             socket = null
             peers.values.forEach { pc -> runCatching { pc.close() } }
             peers.clear()
+            runCatching { localMicMonitor?.close() }
+            localMicMonitor = null
             remoteTracks.clear()
             pendingIce.clear()
             remoteSdpReady.clear()
@@ -604,6 +650,7 @@ internal class PartyVoiceEngine(
 
     private companion object {
         const val TAG = "StreamForgeVoice"
+        const val LOCAL_MIC_MONITOR_ID = "__local_mic_monitor__"
         val sharedClient: OkHttpClient = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .connectTimeout(15, TimeUnit.SECONDS)
