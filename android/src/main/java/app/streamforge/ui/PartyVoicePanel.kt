@@ -380,7 +380,7 @@ fun PartyVoicePanel() {
                     Surface(
                         color = Color(0xFF171D29),
                         shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().then(if (remoteIsSharing) Modifier.clickable {
+                        modifier = Modifier.fillMaxWidth().then(if (displayedTrack != null) Modifier.clickable {
                             remoteScreenFullscreen = false
                             remoteScreenZoomed = false
                             showRemoteScreen = true
@@ -496,7 +496,7 @@ fun PartyVoicePanel() {
     }
 
     if (showRemoteScreen) {
-        val remoteTrack = voiceState.remoteScreenTrack
+        val remoteTrack = if (voiceState.screenSharing) voiceState.localScreenTrack else voiceState.remoteScreenTrack
         Dialog(
             onDismissRequest = {
                 showRemoteScreen = false
@@ -515,7 +515,7 @@ fun PartyVoicePanel() {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("${voiceState.remoteScreenOwner ?: "PARTY MEMBER"}'S SCREEN", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                            Text(if (voiceState.screenSharing) "YOUR SCREEN" else "${voiceState.remoteScreenOwner ?: "PARTY MEMBER"}'S SCREEN", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
                             Text("● LIVE · PARTY VOICE", color = Color(0xFFFF747B), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = { remoteScreenFullscreen = !remoteScreenFullscreen }) {
