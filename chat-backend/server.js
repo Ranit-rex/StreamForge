@@ -211,7 +211,7 @@ wss.on("connection", (ws, _req, identity) => {
   const { roomId, memberId } = identity;
   let peers = voiceSockets.get(roomId);
   if (!peers) { peers = new Map(); voiceSockets.set(roomId, peers); }
-  const existingPeers = [...peers.entries()].map(([id, peer]) => ({
+  const existingPeers = [...peers.entries()].filter(([id]) => id !== memberId).map(([id, peer]) => ({
     memberId: id, displayName: peer.displayName
   }));
   const room = voiceRooms.get(roomId);
@@ -221,7 +221,10 @@ wss.on("connection", (ws, _req, identity) => {
   ws.roomId = roomId;
   ws.displayName = member.displayName;
   ws.isAlive = true;
+  const previousSocket = peers.get(memberId);
+  if (previousSocket && previousSocket !== ws) previousSocket.close(4001, "Replaced by a newer connection");
   peers.set(memberId, ws);
+  console.log(JSON.stringify({ event: "voice_socket_connected", roomId, memberId, peerCount: existingPeers.length }));
   ws.send(JSON.stringify({ type: "ready", selfId: memberId, peers: existingPeers }));
   for (const [id, peer] of peers) {
     if (id !== memberId && peer.readyState === WebSocket.OPEN) {
