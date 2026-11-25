@@ -13,6 +13,8 @@ const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
 const TURN_URLS = (process.env.TURN_URLS || "").split(",").map(v => v.trim()).filter(Boolean);
 const TURN_SHARED_SECRET = (process.env.TURN_SHARED_SECRET || "").trim();
+const TURN_USERNAME = (process.env.TURN_USERNAME || "").trim();
+const TURN_CREDENTIAL = (process.env.TURN_CREDENTIAL || "").trim();
 const voiceSockets = new Map();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
 const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute"]);
@@ -87,9 +89,13 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/api/voice/ice-servers") {
         const iceServers = [{ urls: ["stun:stun.l.google.com:19302"] }];
         if (TURN_URLS.length && TURN_SHARED_SECRET) {
+          // Coturn-style REST credentials (time-limited username/password).
           const username = String(Math.floor(Date.now() / 1000) + 3600) + ":streamforge";
           const credential = createHmac("sha1", TURN_SHARED_SECRET).update(username).digest("base64");
           iceServers.push({ urls: TURN_URLS, username, credential });
+        } else if (TURN_URLS.length && TURN_USERNAME && TURN_CREDENTIAL) {
+          // Static credentials supplied by managed TURN providers.
+          iceServers.push({ urls: TURN_URLS, username: TURN_USERNAME, credential: TURN_CREDENTIAL });
         }
         return send(res, 200, { iceServers, relayConfigured: iceServers.length > 1 });
       }
