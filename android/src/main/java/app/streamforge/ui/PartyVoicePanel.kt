@@ -417,56 +417,37 @@ fun PartyVoicePanel() {
                     }
                 }
                 if (voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null) {
-                    Surface(
-                        color = Color(0xFF202A38),
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().clickable { showRemoteScreen = true }
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(color = Color(0xFF48D597), shape = CircleShape) {
-                                Text("▣", color = Color(0xFF10251C), fontSize = 16.sp, modifier = Modifier.padding(8.dp))
+                    Surface(color = Color(0xFF202A38), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { showRemoteScreen = true }) {
+                        Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Surface(color = Color(0xFF48D597), shape = CircleShape) { Text("▣", color = Color(0xFF10251C), fontSize = 18.sp, modifier = Modifier.padding(9.dp)) }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("${voiceState.remoteScreenOwner ?: "A member"} is sharing screen", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(if (voiceState.remoteScreenTrack != null) "Live video ready · tap to watch" else "Share detected · connecting video…", color = VoiceMuted, fontSize = 10.sp)
                             }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("${voiceState.remoteScreenOwner ?: "A member"} is sharing screen", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                Text("Tap to watch · live screen share", color = VoiceMuted, fontSize = 9.sp)
-                            }
-                            Text("WATCH  ›", color = Color(0xFF8CE0B8), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            Text("WATCH  ›", color = Color(0xFF8CE0B8), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                } else {
+                    Surface(color = Color(0xFF171E29), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("▣", color = VoiceMuted, fontSize = 15.sp)
+                            Text("  No active screen share", color = VoiceMuted, fontSize = 10.sp)
                         }
                     }
                 }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(
-                                onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) },
-                                modifier = Modifier.weight(1f),
-                                enabled = voiceActive
-                            ) { Text(if (voiceState.micEnabled) "🎙 MIC" else "🔇 MUTED", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
-                            OutlinedButton(
-                                onClick = {
-                                    if (voiceState.screenSharing) PartyVoiceService.stopScreenShare(context)
-                                    else {
-                                        val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                                        screenSharePermission.launch(manager.createScreenCaptureIntent())
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                enabled = voiceActive
-                            ) { Text(if (voiceState.screenSharing) "■ STOP" else "▣ SHARE", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
-                            OutlinedButton(
-                                onClick = { showScreenQuality = true },
-                                enabled = voiceActive
-                            ) { Text("${screenQuality}p", fontWeight = FontWeight.Bold, fontSize = 9.sp) }
-                            OutlinedButton(
-                                onClick = { PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled) },
-                                modifier = Modifier.weight(1f),
-                                enabled = voiceActive
-                            ) { Text(if (voiceState.speakerEnabled) "🔊 SOUND" else "🔈 OFF", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) }, modifier = Modifier.weight(1f), enabled = voiceActive) {
+                                Text(if (voiceState.micEnabled) "🎙 MIC ON" else "🔇 MIC OFF", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
+                            }
+                            OutlinedButton(onClick = { showScreenQuality = true }, modifier = Modifier.weight(1f), enabled = voiceActive) {
+                                Text(if (voiceState.screenSharing) "■ STOP STREAM" else "▣ STREAM", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
+                            }
+                            OutlinedButton(onClick = { PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled) }, modifier = Modifier.weight(1f), enabled = voiceActive) {
+                                Text(if (voiceState.speakerEnabled) "🔊 SOUND ON" else "🔈 SOUND OFF", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
+                            }
                             Button(onClick = {
                                 PartyVoiceService.leave(context)
                                 joined = null
@@ -474,9 +455,18 @@ fun PartyVoicePanel() {
                                 showRemoteScreen = false
                                 prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
                                 scope.launch { refreshRooms() }
-                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black, fontSize = 9.sp) }
+                            }, modifier = Modifier.weight(0.82f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) {
+                                Text("LEAVE", fontWeight = FontWeight.Black, fontSize = 10.sp, maxLines = 1)
+                            }
                         }
-                        if (voiceState.screenSharing) Text("● YOU ARE SHARING YOUR SCREEN", color = Color(0xFF8CE0B8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        if (voiceState.screenSharing) {
+                            Surface(color = Color(0xFF174B3B), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(horizontal = 11.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("●  YOU ARE LIVE", color = Color(0xFF8CE0B8), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { PartyVoiceService.stopScreenShare(context) }) { Text("STOP STREAM", color = Color(0xFFFFA6A6), fontWeight = FontWeight.Black) }
+                                }
+                            }
+                        }
                         Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
@@ -541,19 +531,34 @@ fun PartyVoicePanel() {
     if (showScreenQuality) {
         AlertDialog(
             onDismissRequest = { showScreenQuality = false },
-            title = { Text("Screen share quality") },
+            title = { Text(if (voiceState.screenSharing) "Your stream is live" else "Start screen stream") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("STREAM QUALITY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = VoiceMuted)
                     listOf(480, 720, 1080).forEach { quality ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = screenQuality == quality, onClick = { screenQuality = quality })
-                            Text("${quality}p · 30 FPS")
+                            RadioButton(selected = screenQuality == quality, onClick = { screenQuality = quality }, enabled = !voiceState.screenSharing)
+                            Text("${quality}p · 30 FPS", color = if (voiceState.screenSharing) VoiceMuted else Color.Unspecified)
                         }
                     }
-                    Text("Higher quality uses more battery and network data.", color = VoiceMuted, fontSize = 10.sp)
+                    Text(if (voiceState.screenSharing) "Your screen is being shared with everyone in this voice room." else "Choose quality, then start. Android will ask you to confirm screen capture.", color = VoiceMuted, fontSize = 10.sp)
                 }
             },
-            confirmButton = { TextButton(onClick = { showScreenQuality = false }) { Text("DONE") } }
+            confirmButton = {
+                if (voiceState.screenSharing) {
+                    Button(onClick = {
+                        PartyVoiceService.stopScreenShare(context)
+                        showScreenQuality = false
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("■ STOP STREAM") }
+                } else {
+                    Button(onClick = {
+                        showScreenQuality = false
+                        val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                        screenSharePermission.launch(manager.createScreenCaptureIntent())
+                    }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("▣ START STREAM") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { showScreenQuality = false }) { Text("CANCEL") } }
         )
     }
 
