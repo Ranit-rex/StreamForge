@@ -13,7 +13,7 @@ const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
 const voiceSockets = new Map();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
-const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute"]);
+const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute", "screen-share"]);
 
 function cleanRooms() {
   const now = Date.now();
@@ -24,7 +24,7 @@ function cleanRooms() {
 function publicRoom(room) {
   return { roomId: room.roomId, name: room.name, visibility: room.visibility,
     memberCount: room.members.length, maxMembers: MAX_ROOM_MEMBERS,
-    members: room.members.map(({ memberId, displayName, joinedAt, muted }) => ({ memberId, displayName, joinedAt, muted: Boolean(muted) })) };
+    members: room.members.map(({ memberId, displayName, joinedAt, muted, screenSharing }) => ({ memberId, displayName, joinedAt, muted: Boolean(muted), screenSharing: Boolean(screenSharing) })) };
 }
 async function readJson(req) {
   let raw = "";
@@ -124,7 +124,7 @@ const server = http.createServer(async (req, res) => {
         const displayName = String(body.displayName || "Host").trim().slice(0, 24) || "Host";
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const room = { roomId, name, visibility, createdAt: Date.now(), updatedAt: Date.now(),
-          members: [{ memberId, displayName, joinedAt: Date.now(), muted: false, voiceToken: randomBytes(24).toString("base64url") }] };
+          members: [{ memberId, displayName, joinedAt: Date.now(), muted: false, screenSharing: false, voiceToken: randomBytes(24).toString("base64url") }] };
         voiceRooms.set(roomId, room);
         return send(res, 201, { room: publicRoom(room), you: { memberId, voiceToken: room.members[0].voiceToken } });
       }
@@ -221,7 +221,7 @@ wss.on("connection", (ws, _req, identity) => {
   let peers = voiceSockets.get(roomId);
   if (!peers) { peers = new Map(); voiceSockets.set(roomId, peers); }
   const existingPeers = [...peers.entries()].filter(([id]) => id !== memberId).map(([id, peer]) => ({
-    memberId: id, displayName: peer.displayName, muted: Boolean(room?.members.find(m => m.memberId === id)?.muted)
+    memberId: id, displayName: peer.displayName, muted: Boolean(room?.members.find(m => m.memberId === id)?.muted), screenSharing: Boolean(room?.members.find(m => m.memberId === id)?.screenSharing)
   }));
   const member = room?.members.find(m => m.memberId === memberId);
   if (!room || !member) { ws.close(1008, "Room membership expired"); return; }
@@ -245,12 +245,11 @@ wss.on("connection", (ws, _req, identity) => {
     let message;
     try { message = JSON.parse(raw.toString()); } catch { return; }
     if (!message || !SIGNAL_TYPES.has(message.type)) return;
-    if (message.type === "speaking" || message.type === "mute") {
+    if (message.type === "speaking" || message.type === "mute" || message.type === "screen-share") {
       const active = Boolean(message.active);
-      if (message.type === "mute") {
-        const roomMember = room?.members.find(m => m.memberId === memberId);
-        if (roomMember) roomMember.muted = active;
-      }
+      const roomMember = room?.members.find(m => m.memberId === memberId);
+      if (message.type === "mute" && roomMember) roomMember.muted = active;
+      if (message.type === "screen-share" && roomMember) roomMember.screenSharing = active;
       for (const [id, peer] of peers) {
         if (id !== memberId && peer.readyState === WebSocket.OPEN) {
           peer.send(JSON.stringify({ type: message.type, memberId, displayName: ws.displayName, active }));
