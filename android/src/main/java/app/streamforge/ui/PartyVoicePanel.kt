@@ -351,7 +351,7 @@ fun PartyVoicePanel() {
                                 pair.forEach { member ->
                                     val own = member.id == memberId
                                     val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
-                                    val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers || member.muted
+                                    val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers
                                     Surface(
                                         color = Color(0xFF242B3B),
                                         shape = RoundedCornerShape(12.dp),
@@ -438,7 +438,7 @@ fun PartyVoicePanel() {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val currentlyMuted = member.id in voiceState.mutedMembers || member.muted
+                    val currentlyMuted = member.id in voiceState.mutedMembers
                     PartyVoiceService.setRemoteMuted(context, member.id, !currentlyMuted)
                     selectedMember = null
                 }) { Text(if (member.id in voiceState.mutedMembers || member.muted) "Unmute for me" else "Mute for me") }
