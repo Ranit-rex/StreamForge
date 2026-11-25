@@ -151,12 +151,16 @@ fun PartyVoicePanel() {
 
     fun requestVoice(room: VoiceRoom) {
         pendingVoiceRoom = room
-        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+        val needsMic = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+        val needsNotifications = Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (!needsMic && !needsNotifications) {
             startVoice(room)
             pendingVoiceRoom = null
         } else {
-            val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-            if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+            val permissions = mutableListOf<String>()
+            if (needsMic) permissions += Manifest.permission.RECORD_AUDIO
+            if (needsNotifications) permissions += Manifest.permission.POST_NOTIFICATIONS
             micPermission.launch(permissions.toTypedArray())
         }
     }
