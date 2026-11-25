@@ -446,7 +446,7 @@ fun PartyVoicePanel() {
                                 onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) },
                                 modifier = Modifier.weight(1f),
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.micEnabled) "🎙 MIC" else "🔇 MUTED", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
+                            ) { Text(if (voiceState.micEnabled) "🎙 MIC" else "🔇 MUTED", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
                             OutlinedButton(
                                 onClick = {
                                     if (voiceState.screenSharing) PartyVoiceService.stopScreenShare(context)
@@ -457,16 +457,16 @@ fun PartyVoicePanel() {
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.screenSharing) "■ STOP" else "▣ SHARE", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
+                            ) { Text(if (voiceState.screenSharing) "■ STOP" else "▣ SHARE", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
                             OutlinedButton(
                                 onClick = { showScreenQuality = true },
                                 enabled = voiceActive
-                            ) { Text("${screenQuality}p", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
+                            ) { Text("${screenQuality}p", fontWeight = FontWeight.Bold, fontSize = 9.sp) }
                             OutlinedButton(
                                 onClick = { PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled) },
                                 modifier = Modifier.weight(1f),
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.speakerEnabled) "🔊 SOUND" else "🔈 OFF", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
+                            ) { Text(if (voiceState.speakerEnabled) "🔊 SOUND" else "🔈 OFF", fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1) }
                             Button(onClick = {
                                 PartyVoiceService.leave(context)
                                 joined = null
@@ -474,7 +474,7 @@ fun PartyVoicePanel() {
                                 showRemoteScreen = false
                                 prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
                                 scope.launch { refreshRooms() }
-                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black, fontSize = 10.sp) }
+                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black, fontSize = 9.sp) }
                         }
                         if (voiceState.screenSharing) Text("● YOU ARE SHARING YOUR SCREEN", color = Color(0xFF8CE0B8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
@@ -489,7 +489,7 @@ fun PartyVoicePanel() {
     if (showRemoteScreen) {
         Dialog(
             onDismissRequest = { showRemoteScreen = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(
                 color = Color(0xFF080B10),
