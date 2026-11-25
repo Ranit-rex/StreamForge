@@ -183,8 +183,8 @@ fun PartyVoicePanel() {
             val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
             if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
             joined = room
+            prefs.edit().putString("display_name", displayName).putString("room_id", id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", serverUrl).putString("voice_token", room.voiceToken).apply()
             requestVoice(room)
-            prefs.edit().putString("display_name", displayName).putString("room_id", id).apply()
             roomIdInput = ""
         }.onFailure { error = it.message ?: "Could not join room" }
         loading = false
