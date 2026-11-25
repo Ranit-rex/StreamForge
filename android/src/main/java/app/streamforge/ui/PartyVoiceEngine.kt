@@ -600,6 +600,8 @@ internal class PartyVoiceEngine(
     }
 
     private fun releaseMedia() {
+        runCatching { localMicMonitor?.close() }
+        localMicMonitor = null
         runCatching { localTrack?.dispose() }
         runCatching { audioSource?.dispose() }
         runCatching { factory?.dispose() }
