@@ -125,7 +125,11 @@ fun PartyVoicePanel() {
         val engine = PartyVoiceEngine(
             context, serverUrl, room.id, memberId, room.voiceToken,
             displayName.ifBlank { "Guest" }
-        ) { state -> voiceState = state }
+        ) { state ->
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                voiceState = state
+            }
+        }
         voiceEngine = engine
         engine.connect()
     }
