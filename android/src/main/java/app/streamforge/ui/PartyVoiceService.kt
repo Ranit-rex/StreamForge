@@ -35,6 +35,8 @@ class PartyVoiceService : Service() {
         const val ACTION_TOGGLE_MIC = "app.streamforge.PARTY_VOICE_TOGGLE_MIC"
         const val ACTION_SET_REMOTE_VOLUME = "app.streamforge.PARTY_VOICE_SET_REMOTE_VOLUME"
         const val ACTION_SET_REMOTE_MUTED = "app.streamforge.PARTY_VOICE_SET_REMOTE_MUTED"
+        const val ACTION_START_SCREEN_SHARE = "app.streamforge.PARTY_VOICE_START_SCREEN_SHARE"
+        const val ACTION_STOP_SCREEN_SHARE = "app.streamforge.PARTY_VOICE_STOP_SCREEN_SHARE"
 
         const val EXTRA_ENDPOINT = "voice_endpoint"
         const val EXTRA_ROOM_ID = "voice_room_id"
@@ -45,6 +47,10 @@ class PartyVoiceService : Service() {
         const val EXTRA_ENABLED = "voice_enabled"
         const val EXTRA_PEER_ID = "voice_peer_id"
         const val EXTRA_VOLUME = "voice_peer_volume"
+        const val EXTRA_PROJECTION_DATA = "screen_projection_data"
+        const val EXTRA_SCREEN_WIDTH = "screen_width"
+        const val EXTRA_SCREEN_HEIGHT = "screen_height"
+        const val EXTRA_SCREEN_FPS = "screen_fps"
 
         private const val CHANNEL_ID = "streamforge_party_voice"
         private const val NOTIFICATION_ID = 7410
@@ -94,6 +100,20 @@ class PartyVoiceService : Service() {
                 putExtra(EXTRA_PEER_ID, peerId)
                 putExtra(EXTRA_ENABLED, muted)
             })
+        }
+
+        fun startScreenShare(context: Context, projectionData: Intent, width: Int, height: Int, fps: Int) {
+            context.startService(Intent(context, PartyVoiceService::class.java).apply {
+                action = ACTION_START_SCREEN_SHARE
+                putExtra(EXTRA_PROJECTION_DATA, projectionData)
+                putExtra(EXTRA_SCREEN_WIDTH, width)
+                putExtra(EXTRA_SCREEN_HEIGHT, height)
+                putExtra(EXTRA_SCREEN_FPS, fps)
+            })
+        }
+
+        fun stopScreenShare(context: Context) {
+            context.startService(Intent(context, PartyVoiceService::class.java).setAction(ACTION_STOP_SCREEN_SHARE))
         }
 
         fun leave(context: Context) {
@@ -156,6 +176,21 @@ class PartyVoiceService : Service() {
             }
             ACTION_SET_REMOTE_MUTED -> {
                 engine?.setRemoteMuted(intent.getStringExtra(EXTRA_PEER_ID).orEmpty(), intent.getBooleanExtra(EXTRA_ENABLED, false))
+            }
+            ACTION_START_SCREEN_SHARE -> {
+                val projection = intent.getParcelableExtra<Intent>(EXTRA_PROJECTION_DATA)
+                if (projection != null) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+                    }
+                    engine?.startScreenShare(projection, intent.getIntExtra(EXTRA_SCREEN_WIDTH, 1280), intent.getIntExtra(EXTRA_SCREEN_HEIGHT, 720), intent.getIntExtra(EXTRA_SCREEN_FPS, 30))
+                }
+            }
+            ACTION_STOP_SCREEN_SHARE -> {
+                engine?.stopScreenShare()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && active.value) {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                }
             }
             ACTION_LEAVE -> leaveRoom()
             null -> restoreSession()
