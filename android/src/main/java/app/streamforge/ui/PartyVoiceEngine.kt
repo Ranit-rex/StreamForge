@@ -1,17 +1,12 @@
 package app.streamforge.ui
 
 import android.content.Context
-import android.media.AudioManager
 import android.media.AudioDeviceInfo
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.media.AudioManager
 import android.os.Build
-import java.net.HttpURLConnection
-import java.net.URL
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
@@ -28,10 +23,12 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 internal data class VoiceEngineState(
     val connected: Boolean = false,
@@ -43,8 +40,11 @@ internal data class VoiceEngineState(
 )
 
 /**
- * Ephemeral mesh voice for rooms of up to six participants.
- * Media travels peer-to-peer; the backend only relays SDP/ICE and presence.
+ * Party Voice v2.
+ *
+ * One WebRTC audio device module owns microphone capture for the whole room.
+ * The backend only handles presence and SDP/ICE signaling. Each peer pair has
+ * exactly one offerer (stable memberId ordering) to avoid offer glare.
  */
 internal class PartyVoiceEngine(
     context: Context,
@@ -55,601 +55,494 @@ internal class PartyVoiceEngine(
     private val displayName: String,
     private val onState: (VoiceEngineState) -> Unit
 ) {
-    private val appContext = context.applicationContext
-    // Serialize WebRTC creation and teardown. Compose can dispose the engine while
-    // the init thread is still creating native audio/peer-connection resources.
-    private val lifecycleLock = Any()
-    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    // Reuse one dispatcher across room sessions. Shutting it down while a WebSocket
-    // callback is queued causes RejectedExecutionException on reconnect/leave races.
-    private val client = sharedClient
+    private val app = context.applicationContext
+    private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
-    private val speaking = ConcurrentHashMap.newKeySet<String>()
-    private val peerNames = ConcurrentHashMap<String, String>()
     private val pendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
-    private val remoteDescriptionSet = ConcurrentHashMap.newKeySet<String>()
-    private val statsExecutor = Executors.newSingleThreadScheduledExecutor()
-    @Volatile private var localSpeaking = false
+    private val remoteSdpReady = ConcurrentHashMap.newKeySet<String>()
+    private val peerNames = ConcurrentHashMap<String, String>()
+    private val speaking = ConcurrentHashMap.newKeySet<String>()
+    private val client = sharedClient
+
+    @Volatile private var closed = false
     @Volatile private var signalingConnected = false
-    @Volatile private var mediaConnected = false
-    private var factory: PeerConnectionFactory? = null
-    private var audioModule: JavaAudioDeviceModule? = null
-    private var audioSource: AudioSource? = null
-    private var localTrack: AudioTrack? = null
-    private var socket: WebSocket? = null
-    // A solo room has no PeerConnection yet, so WebRTC has not started AudioRecord.
-    @Volatile private var micMeterRunning = false
-    @Volatile private var micMeterRecord: AudioRecord? = null
-    @Volatile private var cachedIceServers: List<PeerConnection.IceServer>? = null
     @Volatile private var micEnabled = true
     @Volatile private var speakerEnabled = true
-    @Volatile private var closed = false
+    @Volatile private var mediaConnected = false
+    @Volatile private var socket: WebSocket? = null
+    @Volatile private var factory: PeerConnectionFactory? = null
+    @Volatile private var audioModule: JavaAudioDeviceModule? = null
+    @Volatile private var audioSource: org.webrtc.AudioSource? = null
+    @Volatile private var localTrack: AudioTrack? = null
+    @Volatile private var iceServers: List<PeerConnection.IceServer> = emptyList()
+
+    private val lock = Any()
 
     fun connect() {
-        Thread({
-            synchronized(lifecycleLock) {
-                if (closed) return@synchronized
+        thread(name = "sf-party-voice-start") {
+            synchronized(lock) {
+                if (closed || factory != null) return@synchronized
                 try {
                     PeerConnectionFactory.initialize(
-                        PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
+                        PeerConnectionFactory.InitializationOptions.builder(app).createInitializationOptions()
                     )
-                    if (closed) return@synchronized
-                    audioModule = JavaAudioDeviceModule.builder(appContext)
+                    iceServers = fetchIceServers()
+                    audioModule = JavaAudioDeviceModule.builder(app)
                         .setUseHardwareAcousticEchoCanceler(true)
                         .setUseHardwareNoiseSuppressor(true)
-                        // Expose the actual Android AudioRecord lifecycle and PCM samples.
-                        // This also works before a peer connection exists (one-person rooms
-                        // otherwise have no PeerConnection stats for the local microphone).
                         .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
                             override fun onWebRtcAudioRecordStart() {
-                                if (!closed && micEnabled) publish("Microphone capture active · speak to test")
+                                if (!closed) publish("Microphone active · voice ready")
                             }
                             override fun onWebRtcAudioRecordStop() {
                                 if (!closed) publish("Microphone capture stopped")
                             }
                         })
-                        .setSamplesReadyCallback(object : JavaAudioDeviceModule.SamplesReadyCallback {
-                            override fun onWebRtcAudioRecordSamplesReady(samples: JavaAudioDeviceModule.AudioSamples) {
-                                if (closed) return
-                                val pcm = samples.data
-                                if (pcm.isEmpty()) return
-                                var sumSquares = 0.0
-                                val sampleCount = pcm.size / 2
-                                for (index in 0 until sampleCount) {
-                                    val value = ((pcm[index * 2 + 1].toInt() shl 8) or
-                                        (pcm[index * 2].toInt() and 0xff)).toShort().toInt()
-                                    val normalized = value / 32768.0
-                                    sumSquares += normalized * normalized
-                                }
-                                val rms = if (sampleCount > 0) kotlin.math.sqrt(sumSquares / sampleCount) else 0.0
-                                val active = micEnabled && rms > 0.018
-                                if (active != localSpeaking) {
-                                    localSpeaking = active
-                                    if (active) speaking.add(displayName) else speaking.remove(displayName)
-                                    send(JSONObject().put("type", "speaking").put("active", active))
-                                    publish(if (active) "Microphone detected · voice active" else "Microphone capture active")
-                                }
-                            }
-                        })
                         .createAudioDeviceModule()
+
                     factory = PeerConnectionFactory.builder()
                         .setAudioDeviceModule(audioModule)
                         .createPeerConnectionFactory()
-                    audioSource = factory?.createAudioSource(MediaConstraints())
-                    localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
-                        .also { it?.setEnabled(micEnabled) }
 
-                    applyAudioRoute(true)
-                    if (micEnabled) startLocalMicMeter()
-
-                    val wsBase = endpoint.trimEnd('/')
-                        .replaceFirst("https://", "wss://")
-                        .replaceFirst("http://", "ws://")
-                    val url = "$wsBase/api/voice/signaling?roomId=$roomId&memberId=$memberId"
-                    socket = client.newWebSocket(
-                        Request.Builder().url(url).header("Authorization", "Bearer $token").build(),
-                        object : WebSocketListener() {
-                            override fun onOpen(webSocket: WebSocket, response: Response) {
-                                if (closed) return
-                                signalingConnected = true
-                                publish("Voice connected · joining peers")
-                            }
-                            override fun onMessage(webSocket: WebSocket, text: String) {
-                                if (!closed) handleSignal(runCatching { JSONObject(text) }.getOrNull() ?: return)
-                            }
-                            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                                signalingConnected = false
-                                if (!closed) publish("Voice connection lost: ${t.message ?: "network error"}")
-                            }
-                            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                                signalingConnected = false
-                                if (!closed) publish("Voice disconnected")
-                            }
-                        }
-                    )
-                    startStatsMonitor()
-                } catch (t: Throwable) {
-                    if (!closed) publish("Voice setup failed: ${t.message ?: "audio initialization error"}")
-                    // Release any partially-created native resources before another attempt.
-                    runCatching { localTrack?.dispose() }
-                    runCatching { audioSource?.dispose() }
-                    runCatching { factory?.dispose() }
-                    runCatching { audioModule?.release() }
-                    localTrack = null
-                    audioSource = null
-                    factory = null
-                    audioModule = null
+                    val audioConstraints = MediaConstraints().apply {
+                        mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+                        mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+                        mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+                    }
+                    audioSource = factory?.createAudioSource(audioConstraints)
+                    localTrack = audioSource?.let { factory?.createAudioTrack("sf-party-mic", it) }
+                    localTrack?.setEnabled(micEnabled)
+                    if (factory == null || audioModule == null || localTrack == null) {
+                        throw IllegalStateException("WebRTC audio engine could not be created")
+                    }
+                    applyAudioRoute(speakerEnabled)
+                    openSignalingSocket()
+                } catch (error: Throwable) {
+                    Log.e(TAG, "Voice initialization failed", error)
+                    publish("Voice setup failed: " + (error.message ?: "audio initialization error"))
+                    releaseMedia()
                 }
             }
-        }, "streamforge-voice-init").start()
+        }
+    }
+
+    private fun openSignalingSocket() {
+        val wsBase = endpoint.trimEnd('/')
+            .replaceFirst("https://", "wss://")
+            .replaceFirst("http://", "ws://")
+        val url = wsBase + "/api/voice/signaling?roomId=" + roomId + "&memberId=" + memberId
+        socket = client.newWebSocket(
+            Request.Builder().url(url).header("Authorization", "Bearer " + token).build(),
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (closed) {
+                        webSocket.close(1000, "Voice session closed")
+                        return
+                    }
+                    signalingConnected = true
+                    publish("Connected to voice server · finding participants")
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (closed) return
+                    val message = runCatching { JSONObject(text) }.getOrNull() ?: return
+                    handleSignal(message)
+                }
+
+                override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
+                    signalingConnected = false
+                    Log.e(TAG, "Signaling socket failed: HTTP " + (response?.code ?: -1), error)
+                    if (!closed) publish("Voice server connection failed: " + (error.message ?: "network error"))
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    signalingConnected = false
+                    if (!closed) publish("Voice server disconnected")
+                }
+            }
+        )
     }
 
     fun setMicEnabled(enabled: Boolean) {
         micEnabled = enabled
         localTrack?.setEnabled(enabled)
-        if (!enabled) {
-            stopLocalMicMeter()
-            localSpeaking = false
-            speaking.remove(displayName)
-        } else if (peers.isEmpty()) {
-            startLocalMicMeter()
-        }
         send(JSONObject().put("type", "mute").put("active", !enabled))
-        publish(if (enabled) "Microphone on · checking capture" else "Microphone muted")
+        if (!closed) publish(if (enabled) "Microphone on" else "Microphone muted")
     }
 
     fun setSpeakerEnabled(enabled: Boolean) {
         speakerEnabled = enabled
-        remoteTracks.values.forEach { it.setEnabled(enabled) }
+        remoteTracks.values.forEach { track -> runCatching { track.setEnabled(enabled) } }
         applyAudioRoute(enabled)
-        publish(if (enabled) "Speaker on" else "Speaker off")
+        if (!closed) publish(if (enabled) "Speaker on" else "Speaker off")
     }
 
     private fun handleSignal(message: JSONObject) {
         when (message.optString("type")) {
             "ready" -> {
                 val list = message.optJSONArray("peers") ?: JSONArray()
-                if (list.length() == 0 && peers.isEmpty() && micEnabled) startLocalMicMeter()
-                for (i in 0 until list.length()) {
-                    val peer = list.optJSONObject(i) ?: continue
+                for (index in 0 until list.length()) {
+                    val peer = list.optJSONObject(index) ?: continue
                     val id = peer.optString("memberId")
-                    if (id.isNotBlank()) {
+                    if (id.isNotBlank() && id != memberId) {
                         peerNames[id] = peer.optString("displayName", id)
-                        ensurePeer(id, initiate = memberId < id)
+                        ensurePeer(id, shouldOffer(id))
                     }
                 }
-                publish("Live voice connected")
+                publish(if (list.length() == 0) "Room ready · waiting for friends" else "Connecting party audio…")
             }
             "peer-joined" -> {
                 val id = message.optString("memberId")
-                if (id.isNotBlank()) {
+                if (id.isNotBlank() && id != memberId) {
                     peerNames[id] = message.optString("displayName", id)
-                    ensurePeer(id, initiate = memberId < id)
+                    ensurePeer(id, shouldOffer(id))
                 }
             }
-            "peer-left" -> {
-                val id = message.optString("memberId")
-                peers.remove(id)?.close()
-                remoteTracks.remove(id)
-                pendingIce.remove(id)
-                remoteDescriptionSet.remove(id)
-                peerNames.remove(id)?.let { speaking.remove(it) }
-                if (peers.isEmpty() && micEnabled) startLocalMicMeter()
-                publish("Participant left")
-            }
-            "offer" -> {
-                val id = message.optString("from")
-                val desc = message.optJSONObject("description") ?: return
-                val pc = ensurePeer(id, initiate = false) ?: return
-                val remote = SessionDescription(SessionDescription.Type.OFFER, desc.optString("sdp"))
-                pc.setRemoteDescription(object : SdpObserverAdapter({ error -> publish("Remote offer rejected: $error") }) {
-                    override fun onSetSuccess() {
-                        flushPendingIce(id, pc)
-                        pc.createAnswer(object : SdpObserverAdapter({ error -> publish("Answer creation failed: $error") }) {
-                            override fun onCreateSuccess(answer: SessionDescription?) {
-                                val answerDescription = answer ?: return
-                                pc.setLocalDescription(object : SdpObserverAdapter({ error -> publish("Answer setup failed: $error") }) {
-                                    override fun onSetSuccess() {
-                                        send(JSONObject().put("type", "answer").put("to", id)
-                                            .put("description", JSONObject().put("type", "answer").put("sdp", answerDescription.description)))
-                                    }
-                                }, answerDescription)
-                            }
-                        }, MediaConstraints())
-                    }
-                }, remote)
-            }
-            "answer" -> {
-                val id = message.optString("from")
-                val desc = message.optJSONObject("description") ?: return
-                peers[id]?.setRemoteDescription(object : SdpObserverAdapter({ error -> publish("Remote answer rejected: $error") }) {
-                    override fun onSetSuccess() {
-                        peers[id]?.let { flushPendingIce(id, it) }
-                    }
-                }, SessionDescription(SessionDescription.Type.ANSWER, desc.optString("sdp")))
-            }
-            "ice" -> {
-                val id = message.optString("from")
-                val c = message.optJSONObject("candidate") ?: return
-                val candidate = IceCandidate(
-                    c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate")
-                )
-                val peer = peers[id]
-                if (peer != null && remoteDescriptionSet.contains(id)) {
-                    peer.addIceCandidate(candidate)
-                } else {
-                    pendingIce.computeIfAbsent(id) { ConcurrentLinkedQueue() }.add(candidate)
-                }
-            }
+            "peer-left" -> removePeer(message.optString("memberId"))
+            "offer" -> receiveOffer(message)
+            "answer" -> receiveAnswer(message)
+            "ice" -> receiveIce(message)
             "speaking" -> {
                 val id = message.optString("memberId")
                 val name = message.optString("displayName", id)
                 if (message.optBoolean("active")) speaking.add(name) else speaking.remove(name)
-                publish("Live voice connected")
+                publish("Party voice active")
             }
             "mute" -> {
-                val name = message.optString("displayName", message.optString("memberId"))
-                if (message.optBoolean("active")) speaking.remove(name)
+                val id = message.optString("memberId")
+                speaking.remove(message.optString("displayName", id))
+                publish("Party voice active")
             }
         }
     }
 
-    private fun flushPendingIce(id: String, peer: PeerConnection) {
-        remoteDescriptionSet.add(id)
-        pendingIce.remove(id)?.forEach { candidate ->
-            runCatching { peer.addIceCandidate(candidate) }
+    private fun shouldOffer(peerId: String): Boolean = memberId < peerId
+
+    private fun ensurePeer(peerId: String, offer: Boolean): PeerConnection? {
+        if (closed || peerId.isBlank() || peerId == memberId) return null
+        peers[peerId]?.let { return it }
+        synchronized(lock) {
+            peers[peerId]?.let { return it }
+            val currentFactory = factory ?: return null
+            if (closed) return null
+            val config = PeerConnection.RTCConfiguration(iceServers).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+                iceTransportsType = PeerConnection.IceTransportsType.ALL
+                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+                rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+            }
+            val connection = currentFactory.createPeerConnection(config, observer(peerId))
+            if (connection == null) {
+                publish("Could not create audio connection")
+                return null
+            }
+            peers[peerId] = connection
+            val track = localTrack
+            if (track == null || connection.addTrack(track, listOf("streamforge-party-audio")) == null) {
+                Log.e(TAG, "Local microphone track attach failed for " + peerId)
+                publish("Microphone track could not be attached")
+            }
+            if (offer) createOffer(peerId, connection)
+            return connection
         }
     }
 
-    private fun ensurePeer(id: String, initiate: Boolean): PeerConnection? {
-        peers[id]?.let { return it }
-        val f = factory ?: return null
-        // Hand microphone ownership from the standalone meter to WebRTC.
-        stopLocalMicMeter()
-        val iceServers = loadIceServers()
-        val config = PeerConnection.RTCConfiguration(iceServers).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+    private fun observer(peerId: String) = object : PeerConnection.Observer {
+        override fun onSignalingChange(state: PeerConnection.SignalingState?) {
+            Log.d(TAG, "peer=" + peerId + " signaling=" + state)
         }
-        val pc = f.createPeerConnection(config, object : PeerConnection.Observer {
-            override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
-            override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                android.util.Log.i("StreamForgeVoice", "peer=$id ICE state=$state")
-                when (state) {
-                    PeerConnection.IceConnectionState.CONNECTED,
-                    PeerConnection.IceConnectionState.COMPLETED -> {
-                        mediaConnected = true
-                        publish("Voice audio connected")
-                    }
-                    PeerConnection.IceConnectionState.DISCONNECTED -> {
-                        mediaConnected = false
-                        publish("Voice audio reconnecting…")
-                    }
-                    PeerConnection.IceConnectionState.FAILED -> {
-                        mediaConnected = false
-                        publish("Voice media failed — TURN relay is needed on some networks")
-                    }
-                    PeerConnection.IceConnectionState.CLOSED -> {
-                        mediaConnected = false
-                        publish("Voice media closed")
-                    }
-                    else -> {
-                        mediaConnected = false
-                        publish("Connecting voice audio…")
-                    }
-                }
+
+        override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+            Log.i(TAG, "peer=" + peerId + " ICE=" + state)
+            updateMediaState()
+            when (state) {
+                PeerConnection.IceConnectionState.CONNECTED,
+                PeerConnection.IceConnectionState.COMPLETED -> publish("Party audio connected")
+                PeerConnection.IceConnectionState.FAILED -> publish("Audio route failed · retrying connection")
+                PeerConnection.IceConnectionState.DISCONNECTED -> publish("Audio reconnecting…")
+                else -> if (!mediaConnected) publish("Connecting party audio…")
             }
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {
-                android.util.Log.i("StreamForgeVoice", "peer=$id receiving=$receiving")
-            }
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
-                android.util.Log.i("StreamForgeVoice", "peer=$id ICE gathering=$state")
-                if (state == PeerConnection.IceGatheringState.COMPLETE && !mediaConnected) publish("ICE candidates gathered · checking peer route…")
-            }
-            override fun onIceCandidate(candidate: IceCandidate) {
-                android.util.Log.d("StreamForgeVoice", "peer=$id local ICE candidate: ${candidate.sdp.take(120)}")
-                send(JSONObject().put("type", "ice").put("to", id).put("candidate",
-                    JSONObject().put("sdpMid", candidate.sdpMid)
-                        .put("sdpMLineIndex", candidate.sdpMLineIndex)
-                        .put("candidate", candidate.sdp)))
-            }
-            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
-            override fun onAddStream(stream: org.webrtc.MediaStream?) {}
-            override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
-            override fun onDataChannel(channel: DataChannel?) {}
-            override fun onRenegotiationNeeded() {}
-            override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out org.webrtc.MediaStream>?) {
-                val track = receiver?.track() as? AudioTrack
-                android.util.Log.i("StreamForgeVoice", "peer=$id onAddTrack audio=${track != null}")
-                if (track != null) {
-                    track.setEnabled(speakerEnabled)
-                    remoteTracks[id] = track
-                    publish("Remote audio track received · connecting…")
-                }
-            }
-            override fun onTrack(transceiver: RtpTransceiver?) {
-                val track = transceiver?.receiver?.track() as? AudioTrack
-                android.util.Log.i("StreamForgeVoice", "peer=$id onTrack audio=${track != null}")
-                if (track != null) {
-                    track.setEnabled(speakerEnabled)
-                    remoteTracks[id] = track
-                    publish("Remote audio track received · connecting…")
-                }
-            }
-        }) ?: run {
-            publish("Peer connection creation failed · WebRTC unavailable")
-            return null
         }
-        peers[id] = pc
-        val sender = localTrack?.let { pc.addTrack(it, listOf("streamforge-party-audio")) }
-        if (sender == null) publish("Microphone track could not be attached to peer")
-        else android.util.Log.i("StreamForgeVoice", "peer=$id local audio sender attached")
-        if (initiate) {
-            publish("Creating voice offer…")
-            pc.createOffer(object : SdpObserverAdapter({ error -> publish("Offer creation failed: $error") }) {
-                override fun onCreateSuccess(offer: SessionDescription?) {
-                    val offerDescription = offer ?: return
-                    pc.setLocalDescription(object : SdpObserverAdapter({ error -> publish("Offer setup failed: $error") }) {
-                        override fun onSetSuccess() {
-                            send(JSONObject().put("type", "offer").put("to", id)
-                                .put("description", JSONObject().put("type", "offer").put("sdp", offerDescription.description)))
-                        }
-                    }, offer)
-                }
-            }, MediaConstraints())
+
+        override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            Log.d(TAG, "peer=" + peerId + " receiving=" + receiving)
         }
-        return pc
+
+        override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+            Log.d(TAG, "peer=" + peerId + " gathering=" + state)
+        }
+
+        override fun onIceCandidate(candidate: IceCandidate) {
+            send(JSONObject().put("type", "ice").put("to", peerId).put(
+                "candidate",
+                JSONObject().put("sdpMid", candidate.sdpMid)
+                    .put("sdpMLineIndex", candidate.sdpMLineIndex)
+                    .put("candidate", candidate.sdp)
+            ))
+        }
+
+        override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
+        override fun onAddStream(stream: org.webrtc.MediaStream?) {}
+        override fun onRemoveStream(stream: org.webrtc.MediaStream?) {}
+        override fun onDataChannel(channel: DataChannel?) {}
+        override fun onRenegotiationNeeded() {}
+
+        override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out org.webrtc.MediaStream>?) {
+            attachRemoteTrack(peerId, receiver?.track() as? AudioTrack)
+        }
+
+        override fun onTrack(transceiver: RtpTransceiver?) {
+            attachRemoteTrack(peerId, transceiver?.receiver?.track() as? AudioTrack)
+        }
     }
 
-    private fun loadIceServers(): List<PeerConnection.IceServer> {
-        // Fetch the backend-provided STUN + TURN list. The previous implementation
-        // accidentally used STUN only, so the TURN relay configured by the backend
-        // was never passed to WebRTC (which leaves many mobile networks stuck).
-        cachedIceServers?.let { return it }
+    private fun attachRemoteTrack(peerId: String, track: AudioTrack?) {
+        if (track == null || closed) return
+        track.setEnabled(speakerEnabled)
+        remoteTracks[peerId] = track
+        Log.i(TAG, "Remote audio track attached for " + peerId)
+        publish("Remote microphone connected")
+    }
+
+    private fun createOffer(peerId: String, pc: PeerConnection) {
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+        }
+        pc.createOffer(object : SdpObserverAdapter("create offer") { 
+            override fun onCreateSuccess(description: SessionDescription?) {
+                if (description == null || closed) return
+                pc.setLocalDescription(object : SdpObserverAdapter("set local offer") {
+                    override fun onSetSuccess() {
+                        sendDescription("offer", peerId, description)
+                    }
+                }, description)
+            }
+        }, constraints)
+    }
+
+    private fun receiveOffer(message: JSONObject) {
+        val peerId = message.optString("from")
+        val sdp = message.optJSONObject("description")?.optString("sdp").orEmpty()
+        if (peerId.isBlank() || sdp.isBlank()) return
+        val pc = ensurePeer(peerId, false) ?: return
+        pc.setRemoteDescription(object : SdpObserverAdapter("set remote offer") {
+            override fun onSetSuccess() {
+                markRemoteSdpReady(peerId, pc)
+                val constraints = MediaConstraints().apply {
+                    mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+                }
+                pc.createAnswer(object : SdpObserverAdapter("create answer") {
+                    override fun onCreateSuccess(description: SessionDescription?) {
+                        if (description == null || closed) return
+                        pc.setLocalDescription(object : SdpObserverAdapter("set local answer") {
+                            override fun onSetSuccess() {
+                                sendDescription("answer", peerId, description)
+                            }
+                        }, description)
+                    }
+                }, constraints)
+            }
+        }, SessionDescription(SessionDescription.Type.OFFER, sdp))
+    }
+
+    private fun receiveAnswer(message: JSONObject) {
+        val peerId = message.optString("from")
+        val sdp = message.optJSONObject("description")?.optString("sdp").orEmpty()
+        val pc = peers[peerId] ?: return
+        if (sdp.isBlank()) return
+        pc.setRemoteDescription(object : SdpObserverAdapter("set remote answer") {
+            override fun onSetSuccess() {
+                markRemoteSdpReady(peerId, pc)
+            }
+        }, SessionDescription(SessionDescription.Type.ANSWER, sdp))
+    }
+
+    private fun receiveIce(message: JSONObject) {
+        val peerId = message.optString("from")
+        val json = message.optJSONObject("candidate") ?: return
+        val candidate = IceCandidate(
+            json.optString("sdpMid"),
+            json.optInt("sdpMLineIndex"),
+            json.optString("candidate")
+        )
+        val pc = peers[peerId]
+        if (pc != null && remoteSdpReady.contains(peerId)) {
+            if (!pc.addIceCandidate(candidate)) Log.w(TAG, "ICE candidate rejected for " + peerId)
+        } else {
+            pendingIce.computeIfAbsent(peerId) { ConcurrentLinkedQueue() }.add(candidate)
+        }
+    }
+
+    private fun markRemoteSdpReady(peerId: String, pc: PeerConnection) {
+        remoteSdpReady.add(peerId)
+        val queued = pendingIce.remove(peerId) ?: return
+        while (true) {
+            val candidate = queued.poll() ?: break
+            if (!pc.addIceCandidate(candidate)) Log.w(TAG, "Queued ICE candidate rejected for " + peerId)
+        }
+    }
+
+    private fun sendDescription(type: String, peerId: String, description: SessionDescription) {
+        send(JSONObject().put("type", type).put("to", peerId).put(
+            "description",
+            JSONObject().put("type", type).put("sdp", description.description)
+        ))
+    }
+
+    private fun updateMediaState() {
+        mediaConnected = peers.values.any { pc ->
+            pc.iceConnectionState() == PeerConnection.IceConnectionState.CONNECTED ||
+                pc.iceConnectionState() == PeerConnection.IceConnectionState.COMPLETED
+        }
+    }
+
+    private fun removePeer(peerId: String) {
+        if (peerId.isBlank()) return
+        synchronized(lock) {
+            peers.remove(peerId)?.let { runCatching { it.close() } }
+            remoteTracks.remove(peerId)
+            pendingIce.remove(peerId)
+            remoteSdpReady.remove(peerId)
+            peerNames.remove(peerId)?.let { speaking.remove(it) }
+            updateMediaState()
+        }
+        publish(if (peers.isEmpty()) "Waiting for party members" else "A participant left")
+    }
+
+    private fun fetchIceServers(): List<PeerConnection.IceServer> {
         val fallback = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
         )
+        var connection: HttpURLConnection? = null
         return try {
-            val url = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 8000
-                setRequestProperty("Accept", "application/json")
-            }
-            val body = try {
-                val code = connection.responseCode
-                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                if (code !in 200..299) throw IllegalStateException("ICE server request failed ($code)")
-                text
-            } finally {
-                connection.disconnect()
-            }
-            val root = JSONObject(body)
-            val array = root.optJSONArray("iceServers")
-                ?: throw IllegalStateException("Voice server returned no ICE servers")
-            val servers = mutableListOf<PeerConnection.IceServer>()
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val urlsValue = item.opt("urls")
-                val urls = when (urlsValue) {
-                    is JSONArray -> (0 until urlsValue.length()).mapNotNull { index ->
-                        urlsValue.optString(index).takeIf { it.isNotBlank() }
-                    }
-                    is String -> listOf(urlsValue).filter { it.isNotBlank() }
+            connection = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers").openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 7000
+            connection.readTimeout = 7000
+            connection.setRequestProperty("Accept", "application/json")
+            val code = connection.responseCode
+            if (code !in 200..299) throw IllegalStateException("ICE service returned " + code)
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val array = JSONObject(body).optJSONArray("iceServers")
+                ?: throw IllegalStateException("ICE server list missing")
+            val result = mutableListOf<PeerConnection.IceServer>()
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val rawUrls = item.opt("urls")
+                val urls = when (rawUrls) {
+                    is JSONArray -> (0 until rawUrls.length()).mapNotNull { rawUrls.optString(it).takeIf(String::isNotBlank) }
+                    is String -> listOf(rawUrls).filter(String::isNotBlank)
                     else -> emptyList()
                 }
                 if (urls.isEmpty()) continue
-                val username = item.optString("username")
-                val credential = item.optString("credential")
                 val builder = PeerConnection.IceServer.builder(urls)
-                if (username.isNotBlank()) builder.setUsername(username)
-                if (credential.isNotBlank()) builder.setPassword(credential)
-                servers.add(builder.createIceServer())
+                item.optString("username").takeIf(String::isNotBlank)?.let(builder::setUsername)
+                item.optString("credential").takeIf(String::isNotBlank)?.let(builder::setPassword)
+                result.add(builder.createIceServer())
             }
-            if (servers.isEmpty()) throw IllegalStateException("Voice server returned an empty ICE list")
-            servers.also { cachedIceServers = it }
-        } catch (t: Throwable) {
-            // Keep direct STUN as a fallback, but surface why relay setup was unavailable.
-            publish("TURN setup unavailable: ${t.message ?: "using direct connection"}")
-            fallback.also { cachedIceServers = it }
-        }
-    }
-
-    /**
-     * A one-person room has no remote PeerConnection, so WebRTC's ADM does not
-     * start AudioRecord yet. This temporary meter verifies the physical mic.
-     * It is stopped before a real WebRTC sender starts.
-     */
-    private fun startLocalMicMeter() {
-        if (closed || !micEnabled || peers.isNotEmpty() || micMeterRunning) return
-        val sampleRate = 16000
-        val minBytes = AudioRecord.getMinBufferSize(
-            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
-        )
-        if (minBytes <= 0) {
-            publish("Microphone unavailable · Android could not initialize audio input")
-            return
-        }
-        val record = runCatching {
-            AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                maxOf(minBytes * 2, 4096)
-            )
-        }.getOrElse {
-            publish("Microphone initialization failed: ${it.message ?: "audio input error"}")
-            return
-        }
-        if (record.state != AudioRecord.STATE_INITIALIZED) {
-            runCatching { record.release() }
-            publish("Microphone unavailable · check Android microphone access")
-            return
-        }
-        micMeterRecord = record
-        micMeterRunning = true
-        Thread({
-            try {
-                record.startRecording()
-                if (!closed && micMeterRunning) publish("Microphone test active · speak now")
-                val buffer = ShortArray(maxOf(1024, minBytes / 2))
-                while (micMeterRunning && !closed && micEnabled) {
-                    val count = record.read(buffer, 0, buffer.size)
-                    if (count <= 0) continue
-                    var sum = 0.0
-                    for (i in 0 until count) {
-                        val value = buffer[i] / 32768.0
-                        sum += value * value
-                    }
-                    val rms = kotlin.math.sqrt(sum / count)
-                    val active = rms > 0.018
-                    if (active != localSpeaking) {
-                        localSpeaking = active
-                        if (active) speaking.add(displayName) else speaking.remove(displayName)
-                        publish(if (active) "Microphone detected · voice active" else "Microphone test active · speak now")
-                    }
-                }
-            } catch (t: Throwable) {
-                if (!closed && micMeterRunning) publish("Microphone test failed: ${t.message ?: "audio capture error"}")
-            } finally {
-                micMeterRunning = false
-                if (micMeterRecord === record) micMeterRecord = null
-                runCatching { record.stop() }
-                runCatching { record.release() }
-            }
-        }, "streamforge-mic-meter").start()
-    }
-
-    private fun stopLocalMicMeter() {
-        micMeterRunning = false
-        val record = micMeterRecord
-        micMeterRecord = null
-        if (record != null) {
-            runCatching { record.stop() }
-            runCatching { record.release() }
-        }
-    }
-
-    private fun startStatsMonitor() {
-        // Leaving a room can race with the async WebRTC initialization thread.
-        // Never submit work to the monitor after close() has terminated it.
-        if (closed || statsExecutor.isShutdown || statsExecutor.isTerminated) return
-        try {
-            statsExecutor.scheduleAtFixedRate({
-                if (closed) return@scheduleAtFixedRate
-                peers.forEach { (id, peer) ->
-                    if (closed) return@forEach
-                    runCatching {
-                        peer.getStats { report ->
-                            if (closed) return@getStats
-                            val stats = report.statsMap.values
-                            val inboundLevel = stats.asSequence()
-                                .filter { it.type == "inbound-rtp" && (it.members["kind"] == "audio" || it.members["mediaType"] == "audio") }
-                                .mapNotNull { it.members["audioLevel"] as? Number }
-                                .maxOfOrNull { it.toDouble() } ?: 0.0
-                            val name = peerNames[id] ?: id
-                            val active = inboundLevel > 0.035
-                            val changed = if (active) speaking.add(name) else speaking.remove(name)
-                            // Local mic activity is measured from AudioRecord PCM samples.
-                            // Peer stats are reserved for inbound/remote audio levels.
-                            if (changed) publish("Live voice connected")
-                        }
-                    }
-                }
-            }, 1000, 1000, TimeUnit.MILLISECONDS)
-        } catch (_: java.util.concurrent.RejectedExecutionException) {
-            // Expected if the user leaves while connect() is still initializing.
+            if (result.isEmpty()) throw IllegalStateException("No usable ICE servers")
+            result
+        } catch (error: Throwable) {
+            Log.w(TAG, "TURN configuration unavailable; using STUN fallback", error)
+            publish("Using direct voice route · relay unavailable")
+            fallback
+        } finally {
+            connection?.disconnect()
         }
     }
 
     private fun applyAudioRoute(useSpeaker: Boolean) {
-        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val wantedType = if (useSpeaker) {
-                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        runCatching {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val wanted = if (useSpeaker) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                val device = audioManager.availableCommunicationDevices.firstOrNull { it.type == wanted }
+                    ?: audioManager.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                if (device != null) audioManager.setCommunicationDevice(device)
             } else {
-                AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                @Suppress("DEPRECATION")
+                audioManager.isSpeakerphoneOn = useSpeaker
             }
-            val device = audioManager.availableCommunicationDevices.firstOrNull { it.type == wantedType }
-                ?: audioManager.availableCommunicationDevices.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                }
-            if (device != null) runCatching { audioManager.setCommunicationDevice(device) }
-        } else {
-            @Suppress("DEPRECATION")
-            run { audioManager.isSpeakerphoneOn = useSpeaker }
-        }
+        }.onFailure { Log.w(TAG, "Audio route selection failed", it) }
     }
 
     private fun send(message: JSONObject) {
-        socket?.send(message.toString())
+        if (closed) return
+        val current = socket ?: return
+        if (current.send(message.toString()).not()) {
+            Log.w(TAG, "Signaling socket rejected message: " + message.optString("type"))
+        }
     }
 
     private fun publish(status: String) {
-        onState(VoiceEngineState(
-            connected = signalingConnected && !closed,
-            mediaConnected = mediaConnected && !closed,
-            micEnabled = micEnabled,
-            speakerEnabled = speakerEnabled,
-            speaking = speaking.toSet(),
-            status = status
-        ))
+        if (closed) return
+        onState(
+            VoiceEngineState(
+                connected = signalingConnected,
+                mediaConnected = mediaConnected,
+                micEnabled = micEnabled,
+                speakerEnabled = speakerEnabled,
+                speaking = speaking.toSet(),
+                status = status
+            )
+        )
+    }
+
+    private fun releaseMedia() {
+        runCatching { localTrack?.dispose() }
+        runCatching { audioSource?.dispose() }
+        runCatching { factory?.dispose() }
+        runCatching { audioModule?.release() }
+        localTrack = null
+        audioSource = null
+        factory = null
+        audioModule = null
     }
 
     fun close() {
-        synchronized(lifecycleLock) {
+        synchronized(lock) {
             if (closed) return
             closed = true
-            socket?.close(1000, "Leaving voice room")
-            socket = null
-            stopLocalMicMeter()
             signalingConnected = false
             mediaConnected = false
-            statsExecutor.shutdownNow()
-            peers.values.forEach { runCatching { it.close() } }
+            runCatching { socket?.close(1000, "Leaving voice room") }
+            socket = null
+            peers.values.forEach { pc -> runCatching { pc.close() } }
             peers.clear()
             remoteTracks.clear()
-            runCatching { localTrack?.dispose() }
-            runCatching { audioSource?.dispose() }
-            runCatching { factory?.dispose() }
-            runCatching { audioModule?.release() }
-            localTrack = null
-            audioSource = null
-            factory = null
-            audioModule = null
+            pendingIce.clear()
+            remoteSdpReady.clear()
+            speaking.clear()
+            releaseMedia()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 runCatching { audioManager.clearCommunicationDevice() }
             } else {
                 @Suppress("DEPRECATION")
-                run { audioManager.isSpeakerphoneOn = false }
+                runCatching { audioManager.isSpeakerphoneOn = false }
             }
-            audioManager.mode = AudioManager.MODE_NORMAL
-            // Do not shut down the shared OkHttp dispatcher: callbacks may still be queued.
+            runCatching { audioManager.mode = AudioManager.MODE_NORMAL }
+        }
+    }
+
+    private open class SdpObserverAdapter(private val operation: String) : SdpObserver {
+        override fun onCreateSuccess(description: SessionDescription?) {}
+        override fun onSetSuccess() {}
+        override fun onCreateFailure(error: String?) {
+            Log.e(TAG, operation + " failed: " + error)
+        }
+        override fun onSetFailure(error: String?) {
+            Log.e(TAG, operation + " failed: " + error)
         }
     }
 
     private companion object {
+        const val TAG = "StreamForgeVoice"
         val sharedClient: OkHttpClient = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
-    }
-
-    private open class SdpObserverAdapter(
-        private val onFailure: (String) -> Unit = {}
-    ) : SdpObserver {
-        override fun onCreateSuccess(description: SessionDescription?) {}
-        override fun onSetSuccess() {}
-        override fun onCreateFailure(error: String?) {
-            onFailure(error ?: "SDP creation failed without details")
-        }
-        override fun onSetFailure(error: String?) {
-            onFailure(error ?: "SDP description was rejected without details")
-        }
     }
 }
