@@ -228,7 +228,7 @@ internal class PartyVoiceEngine(
                     val source = currentFactory.createVideoSource(true)
                     val helper = SurfaceTextureHelper.create("sf-party-screen-capture", eglBase!!.eglBaseContext)
                     val capturer = ScreenCapturerAndroid(permissionData, object : android.media.projection.MediaProjection.Callback() {
-                        override fun onStop() { stopScreenShare() }
+                        override fun onStop() { thread(name = "sf-party-screen-stop") { stopScreenShare() } }
                     })
                     capturer.initialize(helper, app, source.capturerObserver)
                     val track = currentFactory.createVideoTrack("sf-party-screen", source)
