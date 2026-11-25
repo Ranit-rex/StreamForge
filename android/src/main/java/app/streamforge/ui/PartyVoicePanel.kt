@@ -514,11 +514,11 @@ fun PartyVoicePanel() {
                             Text("${voiceState.remoteScreenOwner ?: "PARTY MEMBER"}'S SCREEN", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
                             Text("● LIVE · PARTY VOICE", color = Color(0xFFFF747B), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
-                        TextButton(onClick = { remoteScreenZoomed = !remoteScreenZoomed }) {
-                            Text(if (remoteScreenZoomed) "FIT" else "ZOOM")
-                        }
                         TextButton(onClick = { remoteScreenFullscreen = !remoteScreenFullscreen }) {
-                            Text(if (remoteScreenFullscreen) "EXIT FULL" else "⛶ FULL")
+                            Text(if (remoteScreenFullscreen) "EXIT ZOOM" else "⛶ ZOOM")
+                        }
+                        TextButton(onClick = { remoteScreenZoomed = !remoteScreenZoomed }) {
+                            Text(if (remoteScreenZoomed) "FIT" else "FILL")
                         }
                         TextButton(onClick = {
                             showRemoteScreen = false
