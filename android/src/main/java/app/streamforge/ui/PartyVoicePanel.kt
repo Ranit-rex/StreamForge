@@ -210,7 +210,11 @@ fun PartyVoicePanel() {
         }
     }
     DisposableEffect(voiceEngine) {
-        onDispose { voiceEngine?.close() }
+        // Capture the engine belonging to this effect instance. Reading the
+        // mutable state in onDispose can close the newly-created engine when
+        // the key changes from null to the active engine.
+        val engineForThisEffect = voiceEngine
+        onDispose { engineForThisEffect?.close() }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
