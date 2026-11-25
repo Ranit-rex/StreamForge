@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,6 +29,7 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
+import kotlin.math.sqrt
 import kotlin.concurrent.thread
 
 internal data class VoiceEngineState(
@@ -36,6 +38,9 @@ internal data class VoiceEngineState(
     val micEnabled: Boolean = true,
     val speakerEnabled: Boolean = true,
     val speaking: Set<String> = emptySet(),
+    val localSpeaking: Boolean = false,
+    val localLevel: Float = 0f,
+    val micCapturing: Boolean = false,
     val status: String = "Connecting to voice…"
 )
 
@@ -70,6 +75,12 @@ internal class PartyVoiceEngine(
     @Volatile private var micEnabled = true
     @Volatile private var speakerEnabled = true
     @Volatile private var mediaConnected = false
+    @Volatile private var micCapturing = false
+    @Volatile private var localSpeaking = false
+    @Volatile private var localLevel = 0f
+    @Volatile private var currentStatus = "Connecting to voice…"
+    @Volatile private var lastMicUiPublishAt = 0L
+    @Volatile private var lastSpeakingSignalAt = 0L
     @Volatile private var socket: WebSocket? = null
     @Volatile private var factory: PeerConnectionFactory? = null
     @Volatile private var audioModule: JavaAudioDeviceModule? = null
@@ -93,10 +104,20 @@ internal class PartyVoiceEngine(
                         .setUseHardwareNoiseSuppressor(true)
                         .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
                             override fun onWebRtcAudioRecordStart() {
+                                micCapturing = true
                                 if (!closed) publish("Microphone active · voice ready")
                             }
                             override fun onWebRtcAudioRecordStop() {
+                                micCapturing = false
+                                localSpeaking = false
+                                localLevel = 0f
+                                speaking.remove(displayName)
                                 if (!closed) publish("Microphone capture stopped")
+                            }
+                        })
+                        .setSamplesReadyCallback(object : JavaAudioDeviceModule.SamplesReadyCallback {
+                            override fun onWebRtcAudioRecordSamplesReady(samples: JavaAudioDeviceModule.AudioSamples) {
+                                updateLocalAudioLevel(samples.data)
                             }
                         })
                         .createAudioDeviceModule()
@@ -141,7 +162,7 @@ internal class PartyVoiceEngine(
                         return
                     }
                     signalingConnected = true
-                    publish("Connected to voice server · finding participants")
+                    publish("Voice room ready · microphone armed")
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -167,6 +188,12 @@ internal class PartyVoiceEngine(
     fun setMicEnabled(enabled: Boolean) {
         micEnabled = enabled
         localTrack?.setEnabled(enabled)
+        if (!enabled) {
+            localSpeaking = false
+            localLevel = 0f
+            speaking.remove(displayName)
+            send(JSONObject().put("type", "speaking").put("active", false).put("displayName", displayName))
+        }
         send(JSONObject().put("type", "mute").put("active", !enabled))
         if (!closed) publish(if (enabled) "Microphone on" else "Microphone muted")
     }
@@ -190,7 +217,7 @@ internal class PartyVoiceEngine(
                         ensurePeer(id, shouldOffer(id))
                     }
                 }
-                publish(if (list.length() == 0) "Room ready · waiting for friends" else "Connecting party audio…")
+                publish(if (list.length() == 0) "Microphone armed · invite friends" else "Connecting party audio…")
             }
             "peer-joined" -> {
                 val id = message.optString("memberId")
@@ -450,6 +477,40 @@ internal class PartyVoiceEngine(
             fallback
         } finally {
             connection?.disconnect()
+        }
+    }
+
+    private fun updateLocalAudioLevel(data: ByteArray) {
+        if (closed || !micEnabled || data.size < 2) return
+        var sum = 0.0
+        var count = 0
+        var index = 0
+        while (index + 1 < data.size) {
+            val raw = ((data[index + 1].toInt() shl 8) or (data[index].toInt() and 0xff)).toShort().toInt()
+            val normalized = raw / 32768.0
+            sum += normalized * normalized
+            count++
+            index += 2
+        }
+        if (count == 0) return
+        val level = sqrt(sum / count).toFloat().coerceIn(0f, 1f)
+        // A small noise gate prevents microphone hiss from lighting the member tile.
+        val active = level >= 0.028f
+        val now = SystemClock.elapsedRealtime()
+        val changed = active != localSpeaking
+        localLevel = level
+        if (changed) {
+            localSpeaking = active
+            if (active) speaking.add(displayName) else speaking.remove(displayName)
+            send(JSONObject().put("type", "speaking").put("active", active).put("displayName", displayName))
+            lastSpeakingSignalAt = now
+        } else if (active && now - lastSpeakingSignalAt >= 1800L) {
+            send(JSONObject().put("type", "speaking").put("active", true).put("displayName", displayName))
+            lastSpeakingSignalAt = now
+        }
+        if (changed || now - lastMicUiPublishAt >= 120L) {
+            lastMicUiPublishAt = now
+            publish(currentStatus)
         }
     }
 
