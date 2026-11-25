@@ -76,6 +76,7 @@ class StreamService : Service(), ConnectChecker {
         const val EXTRA_PREVIEW_GENERATION = "preview_surface_generation"
         @Volatile var previewSurfaceGeneration = 0
         const val ACTION_TOGGLE_MIC = "app.streamforge.TOGGLE_MIC"
+        const val ACTION_SET_LIVE_BITRATE = "app.streamforge.SET_LIVE_BITRATE"
         const val ACTION_UPDATE_AUDIO_MIX = "app.streamforge.UPDATE_AUDIO_MIX"
         const val EXTRA_MIC_GAIN = "audio_mic_gain"
         const val EXTRA_GAME_GAIN = "audio_game_gain"
@@ -212,6 +213,7 @@ class StreamService : Service(), ConnectChecker {
             ACTION_PREVIEW_SURFACE_READY -> attachPreviewSurface(intent)
             ACTION_STOP_PREVIEW -> detachPreviewSurface(intent)
             ACTION_TOGGLE_MIC -> toggleMicrophone()
+            ACTION_SET_LIVE_BITRATE -> setLiveBitrate(intent.getIntExtra(EXTRA_BITRATE, requestedVideoBitrate))
             ACTION_UPDATE_AUDIO_MIX -> updateAudioMix(
                 intent.getFloatExtra(EXTRA_MIC_GAIN, microphoneGain.value),
                 intent.getFloatExtra(EXTRA_GAME_GAIN, gameAudioGain.value)
@@ -994,6 +996,24 @@ class StreamService : Service(), ConnectChecker {
             colorGradingFilter = null
             runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
             stopSelf()
+        }
+    }
+
+    private fun setLiveBitrate(requested: Int) {
+        val active = stream ?: return
+        if (!streaming.value || !active.isStreaming) return
+        val safeBitrate = requested.coerceIn(600_000, 35_000_000)
+        val applied = runCatching { active.setVideoBitrateOnFly(safeBitrate); true }.getOrDefault(false)
+        if (applied) {
+            requestedVideoBitrate = safeBitrate
+            activeVideoBitrate = safeBitrate
+            adaptiveBitrateEnabled = getSharedPreferences("streamforge_studio", 0).getBoolean("adaptive_bitrate", true)
+            lastBitrateAdjustmentAt = SystemClock.elapsedRealtime()
+            stableNetworkSince = 0L
+            networkHealth.value = "Manual target · ${safeBitrate / 1000} kbps"
+            status.value = "LIVE • target ${safeBitrate / 1000} kbps"
+        } else {
+            networkHealth.value = "Could not apply live bitrate"
         }
     }
 
