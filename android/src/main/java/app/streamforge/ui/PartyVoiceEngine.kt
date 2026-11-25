@@ -3,6 +3,9 @@ package app.streamforge.ui
 import android.content.Context
 import android.media.AudioManager
 import android.media.AudioDeviceInfo
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import java.net.HttpURLConnection
 import java.net.URL
@@ -75,6 +78,9 @@ internal class PartyVoiceEngine(
     private var audioSource: AudioSource? = null
     private var localTrack: AudioTrack? = null
     private var socket: WebSocket? = null
+    // A solo room has no PeerConnection yet, so WebRTC has not started AudioRecord.
+    @Volatile private var micMeterRunning = false
+    @Volatile private var micMeterRecord: AudioRecord? = null
     @Volatile private var cachedIceServers: List<PeerConnection.IceServer>? = null
     @Volatile private var micEnabled = true
     @Volatile private var speakerEnabled = true
@@ -135,6 +141,7 @@ internal class PartyVoiceEngine(
                         .also { it?.setEnabled(micEnabled) }
 
                     applyAudioRoute(true)
+                    if (micEnabled) startLocalMicMeter()
 
                     val wsBase = endpoint.trimEnd('/')
                         .replaceFirst("https://", "wss://")
@@ -182,12 +189,14 @@ internal class PartyVoiceEngine(
         micEnabled = enabled
         localTrack?.setEnabled(enabled)
         if (!enabled) {
+            stopLocalMicMeter()
             localSpeaking = false
             speaking.remove(displayName)
+        } else if (peers.isEmpty()) {
+            startLocalMicMeter()
         }
-        localTrack?.setEnabled(enabled)
         send(JSONObject().put("type", "mute").put("active", !enabled))
-        publish(if (enabled) "Microphone on · capture check running" else "Microphone muted")
+        publish(if (enabled) "Microphone on · checking capture" else "Microphone muted")
     }
 
     fun setSpeakerEnabled(enabled: Boolean) {
@@ -201,6 +210,7 @@ internal class PartyVoiceEngine(
         when (message.optString("type")) {
             "ready" -> {
                 val list = message.optJSONArray("peers") ?: JSONArray()
+                if (list.length() == 0 && peers.isEmpty() && micEnabled) startLocalMicMeter()
                 for (i in 0 until list.length()) {
                     val peer = list.optJSONObject(i) ?: continue
                     val id = peer.optString("memberId")
@@ -225,6 +235,7 @@ internal class PartyVoiceEngine(
                 pendingIce.remove(id)
                 remoteDescriptionSet.remove(id)
                 peerNames.remove(id)?.let { speaking.remove(it) }
+                if (peers.isEmpty() && micEnabled) startLocalMicMeter()
                 publish("Participant left")
             }
             "offer" -> {
@@ -294,6 +305,8 @@ internal class PartyVoiceEngine(
     private fun ensurePeer(id: String, initiate: Boolean): PeerConnection? {
         peers[id]?.let { return it }
         val f = factory ?: return null
+        // Hand microphone ownership from the standalone meter to WebRTC.
+        stopLocalMicMeter()
         val iceServers = loadIceServers()
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -428,6 +441,82 @@ internal class PartyVoiceEngine(
         }
     }
 
+    /**
+     * A one-person room has no remote PeerConnection, so WebRTC's ADM does not
+     * start AudioRecord yet. This temporary meter verifies the physical mic.
+     * It is stopped before a real WebRTC sender starts.
+     */
+    private fun startLocalMicMeter() {
+        if (closed || !micEnabled || peers.isNotEmpty() || micMeterRunning) return
+        val sampleRate = 16000
+        val minBytes = AudioRecord.getMinBufferSize(
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (minBytes <= 0) {
+            publish("Microphone unavailable · Android could not initialize audio input")
+            return
+        }
+        val record = runCatching {
+            AudioRecord(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(minBytes * 2, 4096)
+            )
+        }.getOrElse {
+            publish("Microphone initialization failed: ${it.message ?: "audio input error"}")
+            return
+        }
+        if (record.state != AudioRecord.STATE_INITIALIZED) {
+            runCatching { record.release() }
+            publish("Microphone unavailable · check Android microphone access")
+            return
+        }
+        micMeterRecord = record
+        micMeterRunning = true
+        Thread({
+            try {
+                record.startRecording()
+                if (!closed && micMeterRunning) publish("Microphone test active · speak now")
+                val buffer = ShortArray(maxOf(1024, minBytes / 2))
+                while (micMeterRunning && !closed && micEnabled) {
+                    val count = record.read(buffer, 0, buffer.size)
+                    if (count <= 0) continue
+                    var sum = 0.0
+                    for (i in 0 until count) {
+                        val value = buffer[i] / 32768.0
+                        sum += value * value
+                    }
+                    val rms = kotlin.math.sqrt(sum / count)
+                    val active = rms > 0.018
+                    if (active != localSpeaking) {
+                        localSpeaking = active
+                        if (active) speaking.add(displayName) else speaking.remove(displayName)
+                        publish(if (active) "Microphone detected · voice active" else "Microphone test active · speak now")
+                    }
+                }
+            } catch (t: Throwable) {
+                if (!closed && micMeterRunning) publish("Microphone test failed: ${t.message ?: "audio capture error"}")
+            } finally {
+                micMeterRunning = false
+                if (micMeterRecord === record) micMeterRecord = null
+                runCatching { record.stop() }
+                runCatching { record.release() }
+            }
+        }, "streamforge-mic-meter").start()
+    }
+
+    private fun stopLocalMicMeter() {
+        micMeterRunning = false
+        val record = micMeterRecord
+        micMeterRecord = null
+        if (record != null) {
+            runCatching { record.stop() }
+            runCatching { record.release() }
+        }
+    }
+
     private fun startStatsMonitor() {
         // Leaving a room can race with the async WebRTC initialization thread.
         // Never submit work to the monitor after close() has terminated it.
@@ -500,6 +589,7 @@ internal class PartyVoiceEngine(
             closed = true
             socket?.close(1000, "Leaving voice room")
             socket = null
+            stopLocalMicMeter()
             signalingConnected = false
             mediaConnected = false
             statsExecutor.shutdownNow()
