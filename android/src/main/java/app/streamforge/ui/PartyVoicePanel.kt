@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
@@ -135,6 +138,7 @@ fun PartyVoicePanel() {
     var selectedMember by remember { mutableStateOf<VoiceMember?>(null) }
     var selectedMemberVolume by remember { mutableStateOf(1f) }
     var showScreenQuality by remember { mutableStateOf(false) }
+    var showRemoteScreen by remember { mutableStateOf(false) }
     var screenQuality by remember { mutableStateOf(720) }
 
     fun startVoice(room: VoiceRoom) {
@@ -412,38 +416,38 @@ fun PartyVoicePanel() {
                         Text(voiceState.status, color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
-                voiceState.remoteScreenTrack?.let { remoteTrack ->
-                    var renderer by remember(remoteTrack) { mutableStateOf<SurfaceViewRenderer?>(null) }
-                    Surface(color = Color.Black, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("${voiceState.remoteScreenOwner ?: "PARTY MEMBER"} · SCREEN SHARE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            AndroidView(
-                                factory = { viewContext ->
-                                    SurfaceViewRenderer(viewContext).apply {
-                                        PartyVoiceService.rendererEglContext()?.let { init(it, null) }
-                                        setEnableHardwareScaler(true)
-                                        setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
-                                        renderer = this
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth().height(220.dp)
-                            )
-                            DisposableEffect(renderer, remoteTrack) {
-                                val target = renderer
-                                if (target != null) remoteTrack.addSink(target)
-                                onDispose { if (target != null) remoteTrack.removeSink(target) }
+                if (voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null) {
+                    Surface(
+                        color = Color(0xFF202A38),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { showRemoteScreen = true }
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(color = Color(0xFF48D597), shape = CircleShape) {
+                                Text("▣", color = Color(0xFF10251C), fontSize = 16.sp, modifier = Modifier.padding(8.dp))
                             }
-                            DisposableEffect(renderer) {
-                                onDispose { renderer?.release() }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("${voiceState.remoteScreenOwner ?: "A member"} is sharing screen", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Tap to watch · live screen share", color = VoiceMuted, fontSize = 9.sp)
                             }
+                            Text("WATCH  ›", color = Color(0xFF8CE0B8), fontSize = 10.sp, fontWeight = FontWeight.Black)
                         }
                     }
                 }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("SCREEN SHARE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(
+                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedButton(
+                                onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) },
+                                modifier = Modifier.weight(1f),
+                                enabled = voiceActive
+                            ) { Text(if (voiceState.micEnabled) "🎙 MIC" else "🔇 MUTED", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
+                            OutlinedButton(
                                 onClick = {
                                     if (voiceState.screenSharing) PartyVoiceService.stopScreenShare(context)
                                     else {
@@ -453,40 +457,26 @@ fun PartyVoicePanel() {
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.screenSharing) "■ STOP SHARING" else "▣ SHARE SCREEN", fontWeight = FontWeight.Bold) }
-                            OutlinedButton(onClick = { showScreenQuality = true }, enabled = voiceActive) {
-                                Text("${screenQuality}p · 30 FPS")
-                            }
-                        }
-                        Text(
-                            if (voiceState.screenSharing) voiceState.screenShareStatus.ifBlank { "Your screen is being shared with this room" }
-                            else "Share your phone screen with everyone in this voice room",
-                            color = VoiceMuted, fontSize = 9.sp
-                        )
-                    }
-                }
-                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            ) { Text(if (voiceState.screenSharing) "■ STOP" else "▣ SHARE", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
                             OutlinedButton(
-                                onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) },
-                                modifier = Modifier.weight(1f),
+                                onClick = { showScreenQuality = true },
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.micEnabled) "🎙 MIC ON" else "🔇 MUTED", fontWeight = FontWeight.Bold) }
+                            ) { Text("${screenQuality}p", fontWeight = FontWeight.Bold, fontSize = 10.sp) }
                             OutlinedButton(
                                 onClick = { PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled) },
                                 modifier = Modifier.weight(1f),
                                 enabled = voiceActive
-                            ) { Text(if (voiceState.speakerEnabled) "🔊 SPEAKER" else "🔈 OFF", fontWeight = FontWeight.Bold) }
+                            ) { Text(if (voiceState.speakerEnabled) "🔊 SOUND" else "🔈 OFF", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1) }
                             Button(onClick = {
                                 PartyVoiceService.leave(context)
                                 joined = null
                                 showRoomCode = false
+                                showRemoteScreen = false
                                 prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
                                 scope.launch { refreshRooms() }
-                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black) }
+                            }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("LEAVE", fontWeight = FontWeight.Black, fontSize = 10.sp) }
                         }
+                        if (voiceState.screenSharing) Text("● YOU ARE SHARING YOUR SCREEN", color = Color(0xFF8CE0B8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
@@ -494,6 +484,58 @@ fun PartyVoicePanel() {
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
         Text("Rooms and live connection state are temporary. A server restart clears them.", color = VoiceMuted, fontSize = 10.sp)
+    }
+
+    if (showRemoteScreen) {
+        Dialog(
+            onDismissRequest = { showRemoteScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
+            Surface(
+                color = Color(0xFF080B10),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(10.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("${voiceState.remoteScreenOwner ?: "PARTY MEMBER"}'S SCREEN", color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                            Text("LIVE · PARTY VOICE", color = Color(0xFF8CE0B8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { showRemoteScreen = false }) { Text("CLOSE") }
+                    }
+                    val remoteTrack = voiceState.remoteScreenTrack
+                    if (remoteTrack != null) {
+                        var renderer by remember(remoteTrack) { mutableStateOf<SurfaceViewRenderer?>(null) }
+                        AndroidView(
+                            factory = { viewContext ->
+                                SurfaceViewRenderer(viewContext).apply {
+                                    PartyVoiceService.rendererEglContext()?.let { init(it, null) }
+                                    setEnableHardwareScaler(true)
+                                    setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                                    renderer = this
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(520.dp)
+                        )
+                        DisposableEffect(renderer, remoteTrack) {
+                            val target = renderer
+                            if (target != null) remoteTrack.addSink(target)
+                            onDispose { if (target != null) remoteTrack.removeSink(target) }
+                        }
+                        DisposableEffect(renderer) { onDispose { renderer?.release() } }
+                    } else {
+                        Surface(color = Color(0xFF171E29), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().height(260.dp)) {
+                            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("▣", color = Color(0xFF8CE0B8), fontSize = 36.sp)
+                                Text("Connecting to screen…", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("The live video will appear here when the stream arrives.", color = VoiceMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showScreenQuality) {
