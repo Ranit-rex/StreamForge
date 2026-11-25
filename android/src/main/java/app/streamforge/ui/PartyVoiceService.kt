@@ -46,8 +46,8 @@ class PartyVoiceService : Service() {
         private const val NOTIFICATION_ID = 7410
         private const val PREFS = "streamforge_party"
 
-        val state = MutableStateFlow(VoiceEngineState(status = "Not in a voice room"))
-        val active = MutableStateFlow(false)
+        internal val state = MutableStateFlow(VoiceEngineState(status = "Not in a voice room"))
+        internal val active = MutableStateFlow(false)
 
         fun join(context: Context, endpoint: String, roomId: String, memberId: String, token: String, displayName: String, roomName: String) {
             val intent = Intent(context, PartyVoiceService::class.java).apply {
@@ -105,6 +105,8 @@ class PartyVoiceService : Service() {
                 displayName = intent.getStringExtra(EXTRA_DISPLAY_NAME).orEmpty().ifBlank { "Guest" }
                 roomName = intent.getStringExtra(EXTRA_ROOM_NAME).orEmpty().ifBlank { "Voice room" }
                 if (endpoint.isNotBlank() && roomId.isNotBlank() && memberId.isNotBlank() && token.isNotBlank()) {
+                    micEnabled = true
+                    speakerEnabled = true
                     startForegroundNow()
                     saveSession(token)
                     startEngine(token)
@@ -277,7 +279,7 @@ class PartyVoiceService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("StreamForge · Party Voice")
-            .setContentText("${if (muted) "Microphone muted" else "Microphone on"} · $roomName")
+            .setContentText(if (muted) "Microphone muted · $roomName" else "Microphone on · $roomName")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
