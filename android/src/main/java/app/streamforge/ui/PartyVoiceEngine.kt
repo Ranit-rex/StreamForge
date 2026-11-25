@@ -54,6 +54,7 @@ internal data class VoiceEngineState(
     val localLevel: Float = 0f,
     val micCapturing: Boolean = false,
     val remoteScreenTrack: VideoTrack? = null,
+    val localScreenTrack: VideoTrack? = null,
     val remoteScreenOwner: String? = null,
     val remoteScreenActive: Boolean = false,
     val screenSharing: Boolean = false,
@@ -270,6 +271,9 @@ internal class PartyVoiceEngine(
                     screenSharing = true
                     screenShareStatus = "Your screen is being shared"
                     send(JSONObject().put("type", "screen-share").put("active", true))
+                    // The video m-line is negotiated before capture starts. Renegotiate
+                    // after attaching the sender so peers receive an updated send direction.
+                    videoTransceivers.keys.forEach { peerId -> renegotiateVideoPeer(peerId) }
                     publish(currentStatus)
                 } catch (error: Throwable) {
                     Log.e(TAG, "Screen share start failed", error)
@@ -382,7 +386,14 @@ internal class PartyVoiceEngine(
             }
             "screen-share" -> {
                 val id = message.optString("memberId")
-                if (message.optBoolean("active")) screenSharingMembers.add(id) else screenSharingMembers.remove(id)
+                if (message.optBoolean("active")) {
+                    screenSharingMembers.add(id)
+                    // Only the deterministic offerer creates offers; this avoids glare
+                    // while ensuring a newly-started screen sender is negotiated.
+                    if (shouldOffer(id)) renegotiateVideoPeer(id)
+                } else {
+                    screenSharingMembers.remove(id)
+                }
                 publish("Party screen share updated")
             }
         }
@@ -549,6 +560,17 @@ internal class PartyVoiceEngine(
         remoteTracks[peerId] = track
         Log.i(TAG, "Remote audio track attached for " + peerId)
         publish("Remote microphone connected")
+    }
+
+    private fun renegotiateVideoPeer(peerId: String) {
+        val pc = peers[peerId] ?: return
+        if (!shouldOffer(peerId)) return
+        if (pc.signalingState() != PeerConnection.SignalingState.STABLE) {
+            Log.w(TAG, "Screen renegotiation deferred for $peerId; signaling=${pc.signalingState()}")
+            return
+        }
+        Log.i(TAG, "Renegotiating screen video sender for peer=$peerId")
+        createOffer(peerId, pc)
     }
 
     private fun createOffer(peerId: String, pc: PeerConnection) {
@@ -777,6 +799,7 @@ internal class PartyVoiceEngine(
                 localLevel = localLevel,
                 micCapturing = micCapturing,
                 remoteScreenTrack = remoteVideoTracks.entries.firstOrNull { it.key in screenSharingMembers }?.value,
+                localScreenTrack = if (screenSharing) screenVideoTrack else null,
                 remoteScreenOwner = screenSharingMembers.firstOrNull()?.let { peerNames[it] ?: it },
                 remoteScreenActive = screenSharingMembers.isNotEmpty(),
                 screenSharing = screenSharing,
