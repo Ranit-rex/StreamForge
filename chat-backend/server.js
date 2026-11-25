@@ -24,7 +24,7 @@ function cleanRooms() {
 function publicRoom(room) {
   return { roomId: room.roomId, name: room.name, visibility: room.visibility,
     memberCount: room.members.length, maxMembers: MAX_ROOM_MEMBERS,
-    members: room.members.map(({ memberId, displayName, joinedAt }) => ({ memberId, displayName, joinedAt })) };
+    members: room.members.map(({ memberId, displayName, joinedAt, muted }) => ({ memberId, displayName, joinedAt, muted: Boolean(muted) })) };
 }
 async function readJson(req) {
   let raw = "";
@@ -124,7 +124,7 @@ const server = http.createServer(async (req, res) => {
         const displayName = String(body.displayName || "Host").trim().slice(0, 24) || "Host";
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const room = { roomId, name, visibility, createdAt: Date.now(), updatedAt: Date.now(),
-          members: [{ memberId, displayName, joinedAt: Date.now(), voiceToken: randomBytes(24).toString("base64url") }] };
+          members: [{ memberId, displayName, joinedAt: Date.now(), muted: false, voiceToken: randomBytes(24).toString("base64url") }] };
         voiceRooms.set(roomId, room);
         return send(res, 201, { room: publicRoom(room), you: { memberId, voiceToken: room.members[0].voiceToken } });
       }
@@ -138,7 +138,7 @@ const server = http.createServer(async (req, res) => {
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const existing = room.members.find(m => m.memberId === memberId);
         if (!existing && room.members.length >= MAX_ROOM_MEMBERS) return send(res, 409, { error: "This room is full." });
-        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now(), voiceToken: randomBytes(24).toString("base64url") });
+        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now(), muted: false, voiceToken: randomBytes(24).toString("base64url") });
         room.updatedAt = Date.now();
         return send(res, 200, { room: publicRoom(room), you: { memberId, voiceToken: room.members.find(m => m.memberId === memberId).voiceToken } });
       }
@@ -220,7 +220,7 @@ wss.on("connection", (ws, _req, identity) => {
   let peers = voiceSockets.get(roomId);
   if (!peers) { peers = new Map(); voiceSockets.set(roomId, peers); }
   const existingPeers = [...peers.entries()].filter(([id]) => id !== memberId).map(([id, peer]) => ({
-    memberId: id, displayName: peer.displayName
+    memberId: id, displayName: peer.displayName, muted: Boolean(room?.members.find(m => m.memberId === id)?.muted)
   }));
   const room = voiceRooms.get(roomId);
   const member = room?.members.find(m => m.memberId === memberId);
@@ -236,7 +236,7 @@ wss.on("connection", (ws, _req, identity) => {
   ws.send(JSON.stringify({ type: "ready", selfId: memberId, peers: existingPeers }));
   for (const [id, peer] of peers) {
     if (id !== memberId && peer.readyState === WebSocket.OPEN) {
-      peer.send(JSON.stringify({ type: "peer-joined", memberId, displayName: member.displayName }));
+      peer.send(JSON.stringify({ type: "peer-joined", memberId, displayName: member.displayName, muted: Boolean(member.muted) }));
     }
   }
 
@@ -247,6 +247,10 @@ wss.on("connection", (ws, _req, identity) => {
     if (!message || !SIGNAL_TYPES.has(message.type)) return;
     if (message.type === "speaking" || message.type === "mute") {
       const active = Boolean(message.active);
+      if (message.type === "mute") {
+        const roomMember = room?.members.find(m => m.memberId === memberId);
+        if (roomMember) roomMember.muted = active;
+      }
       for (const [id, peer] of peers) {
         if (id !== memberId && peer.readyState === WebSocket.OPEN) {
           peer.send(JSON.stringify({ type: message.type, memberId, displayName: ws.displayName, active }));
