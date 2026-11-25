@@ -338,12 +338,59 @@ internal class PartyVoiceEngine(
     }
 
     private fun loadIceServers(): List<PeerConnection.IceServer> {
-        // No TURN credentials or environment configuration required.
-        // Try direct peer-to-peer connectivity using a public STUN server.
+        // Fetch the backend-provided STUN + TURN list. The previous implementation
+        // accidentally used STUN only, so the TURN relay configured by the backend
+        // was never passed to WebRTC (which leaves many mobile networks stuck).
         cachedIceServers?.let { return it }
-        return listOf(
+        val fallback = listOf(
             PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
-        ).also { cachedIceServers = it }
+        )
+        return try {
+            val url = URL(endpoint.trimEnd('/') + "/api/voice/ice-servers")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 8000
+                setRequestProperty("Accept", "application/json")
+            }
+            val body = try {
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) throw IllegalStateException("ICE server request failed ($code)")
+                text
+            } finally {
+                connection.disconnect()
+            }
+            val root = JSONObject(body)
+            val array = root.optJSONArray("iceServers")
+                ?: throw IllegalStateException("Voice server returned no ICE servers")
+            val servers = mutableListOf<PeerConnection.IceServer>()
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val urlsValue = item.opt("urls")
+                val urls = when (urlsValue) {
+                    is JSONArray -> (0 until urlsValue.length()).mapNotNull { index ->
+                        urlsValue.optString(index).takeIf { it.isNotBlank() }
+                    }
+                    is String -> listOf(urlsValue).filter { it.isNotBlank() }
+                    else -> emptyList()
+                }
+                if (urls.isEmpty()) continue
+                val username = item.optString("username")
+                val credential = item.optString("credential")
+                val builder = PeerConnection.IceServer.builder(urls)
+                if (username.isNotBlank()) builder.setUsername(username)
+                if (credential.isNotBlank()) builder.setPassword(credential)
+                servers.add(builder.createIceServer())
+            }
+            if (servers.isEmpty()) throw IllegalStateException("Voice server returned an empty ICE list")
+            servers.also { cachedIceServers = it }
+        } catch (t: Throwable) {
+            // Keep direct STUN as a fallback, but surface why relay setup was unavailable.
+            publish("TURN setup unavailable: ${t.message ?: "using direct connection"}")
+            fallback.also { cachedIceServers = it }
+        }
     }
 
     private fun startStatsMonitor() {
