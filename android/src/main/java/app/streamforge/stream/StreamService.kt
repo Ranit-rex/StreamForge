@@ -130,6 +130,7 @@ class StreamService : Service(), ConnectChecker {
     private var activeStreamWidth = 1280
     private var activeStreamHeight = 720
     private var activeSceneIndex = 0
+    private var lowRamDevice = false
     private val gifMovies = mutableMapOf<String, Movie>()
     private val sceneImages = mutableMapOf<String, Bitmap>()
     // Decode video frames away from the main/GL scheduling path. Only the newest
@@ -185,13 +186,18 @@ class StreamService : Service(), ConnectChecker {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        val activityManager = getSystemService(ActivityManager::class.java)
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager?.getMemoryInfo(memoryInfo)
+        lowRamDevice = activityManager?.isLowRamDevice == true || (memoryInfo.totalMem in 1L..2_500_000_000L)
         val studioPrefs = getSharedPreferences("streamforge_studio", 0)
         val audioBitrate = studioPrefs.getInt("audio_bitrate_kbps", 128).coerceIn(64, 320) * 1_000
         val audioEnhancements = studioPrefs.getBoolean("audio_enhancements", true)
         microphoneGain.value = studioPrefs.getFloat("audio_mic_gain", 1f).coerceIn(0f, 2f)
         gameAudioGain.value = studioPrefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)
         stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
-            getGlInterface().setForceRender(true, 5)
+            // Low-RAM devices render at a capped cadence to reduce CPU/GPU heat.
+            getGlInterface().setForceRender(true, if (lowRamDevice) 33 else 5)
             prepareAudio(44_100, true, audioBitrate, echoCanceler = audioEnhancements, noiseSuppressor = audioEnhancements)
             // A smaller queue detects upload congestion sooner on mobile networks.
             getStreamClient().resizeCache(200)
@@ -233,14 +239,15 @@ class StreamService : Service(), ConnectChecker {
 
     /** Resolve a supported H.264 profile; requested UI qualities are not hardware guarantees. */
     private fun resolveEncoderProfile(requestedWidth: Int, requestedHeight: Int, requestedFps: Int): EncoderProfile {
-        val sizes = listOf(3840 to 2160, 2560 to 1440, 1920 to 1080, 1280 to 720, 854 to 480)
-            .filter { it.first <= requestedWidth && it.second <= requestedHeight }
+        val supportedSizes = if (lowRamDevice) listOf(1280 to 720, 854 to 480) else listOf(3840 to 2160, 2560 to 1440, 1920 to 1080, 1280 to 720, 854 to 480)
+        val sizes = supportedSizes.filter { it.first <= requestedWidth && it.second <= requestedHeight }
             .sortedByDescending { it.first * it.second }
         val encoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
             info.isEncoder && info.supportedTypes.any { it.equals("video/avc", ignoreCase = true) }
         }
         for ((width, height) in sizes) {
-            for (fps in listOf(requestedFps, 30, 24).distinct()) {
+            val fpsOptions = if (lowRamDevice) listOf(30, 24) else listOf(requestedFps, 30, 24).distinct()
+            for (fps in fpsOptions) {
                 val caps = encoders.firstNotNullOfOrNull { info ->
                     runCatching {
                         val videoCaps = info.getCapabilitiesForType("video/avc").videoCapabilities
