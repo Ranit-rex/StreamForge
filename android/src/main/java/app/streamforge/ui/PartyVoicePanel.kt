@@ -216,7 +216,7 @@ fun PartyVoicePanel() {
             val restored = runCatching {
                 parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/$savedId")).copy(voiceToken = savedToken)
             }.getOrElse {
-                VoiceRoom(savedId, savedName, savedVisibility, 1, listOf(displayName.ifBlank { "You" }), savedToken)
+                VoiceRoom(savedId, savedName, savedVisibility, 1, listOf(VoiceMember(memberId, displayName.ifBlank { "You" })), savedToken)
             }
             joined = restored
             if (!PartyVoiceService.active.value) startVoice(restored)
