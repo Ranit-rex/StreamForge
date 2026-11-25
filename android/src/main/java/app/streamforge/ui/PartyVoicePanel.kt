@@ -401,8 +401,17 @@ fun PartyVoicePanel() {
                                 }
                                 if (displayedTrack != null) Text("⛶", color = Color.White, fontSize = 20.sp)
                             }
-                            if (displayedTrack != null) {
+                            if (displayedTrack != null && !showRemoteScreen) {
                                 PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth().aspectRatio(16f / 9f), false)
+                            } else if (displayedTrack != null) {
+                                // Do not keep two SurfaceViewRenderers attached to the same
+                                // track while the full-screen viewer is open. Their surface
+                                // ordering can flicker or cover each other on Android.
+                                Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("Screen open in viewer", color = VoiceMuted, fontSize = 10.sp)
+                                    }
+                                }
                             } else {
                                 Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                                         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -684,13 +693,13 @@ private fun PartyScreenVideo(
                 holder.setFormat(android.graphics.PixelFormat.OPAQUE)
                 setEnableHardwareScaler(true)
                 setMirror(false)
-                setScalingType(if (zoomed) org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                 setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
             }
         },
         modifier = modifier,
         update = { view ->
-            view.setScalingType(if (zoomed) org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            view.setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
         }
     )
     DisposableEffect(renderer, track) {
