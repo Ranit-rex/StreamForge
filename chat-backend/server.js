@@ -236,7 +236,7 @@ wss.on("connection", (ws, _req, identity) => {
   ws.send(JSON.stringify({ type: "ready", selfId: memberId, peers: existingPeers }));
   for (const [id, peer] of peers) {
     if (id !== memberId && peer.readyState === WebSocket.OPEN) {
-      peer.send(JSON.stringify({ type: "peer-joined", memberId, displayName: member.displayName, muted: Boolean(member.muted) }));
+      peer.send(JSON.stringify({ type: "peer-joined", memberId, displayName: member.displayName, muted: Boolean(member.muted), screenSharing: Boolean(member.screenSharing) }));
     }
   }
 
