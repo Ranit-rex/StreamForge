@@ -33,6 +33,8 @@ class PartyVoiceService : Service() {
         const val ACTION_SET_MIC = "app.streamforge.PARTY_VOICE_SET_MIC"
         const val ACTION_SET_SPEAKER = "app.streamforge.PARTY_VOICE_SET_SPEAKER"
         const val ACTION_TOGGLE_MIC = "app.streamforge.PARTY_VOICE_TOGGLE_MIC"
+        const val ACTION_SET_REMOTE_VOLUME = "app.streamforge.PARTY_VOICE_SET_REMOTE_VOLUME"
+        const val ACTION_SET_REMOTE_MUTED = "app.streamforge.PARTY_VOICE_SET_REMOTE_MUTED"
 
         const val EXTRA_ENDPOINT = "voice_endpoint"
         const val EXTRA_ROOM_ID = "voice_room_id"
@@ -41,6 +43,8 @@ class PartyVoiceService : Service() {
         const val EXTRA_DISPLAY_NAME = "voice_display_name"
         const val EXTRA_ROOM_NAME = "voice_room_name"
         const val EXTRA_ENABLED = "voice_enabled"
+        const val EXTRA_PEER_ID = "voice_peer_id"
+        const val EXTRA_VOLUME = "voice_peer_volume"
 
         private const val CHANNEL_ID = "streamforge_party_voice"
         private const val NOTIFICATION_ID = 7410
@@ -73,6 +77,22 @@ class PartyVoiceService : Service() {
             context.startService(Intent(context, PartyVoiceService::class.java).apply {
                 action = ACTION_SET_SPEAKER
                 putExtra(EXTRA_ENABLED, enabled)
+            })
+        }
+
+        fun setRemoteVolume(context: Context, peerId: String, volume: Float) {
+            context.startService(Intent(context, PartyVoiceService::class.java).apply {
+                action = ACTION_SET_REMOTE_VOLUME
+                putExtra(EXTRA_PEER_ID, peerId)
+                putExtra(EXTRA_VOLUME, volume)
+            })
+        }
+
+        fun setRemoteMuted(context: Context, peerId: String, muted: Boolean) {
+            context.startService(Intent(context, PartyVoiceService::class.java).apply {
+                action = ACTION_SET_REMOTE_MUTED
+                putExtra(EXTRA_PEER_ID, peerId)
+                putExtra(EXTRA_ENABLED, muted)
             })
         }
 
@@ -130,6 +150,12 @@ class PartyVoiceService : Service() {
                 speakerEnabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
                 engine?.setSpeakerEnabled(speakerEnabled)
                 state.value = state.value.copy(speakerEnabled = speakerEnabled)
+            }
+            ACTION_SET_REMOTE_VOLUME -> {
+                engine?.setRemoteVolume(intent.getStringExtra(EXTRA_PEER_ID).orEmpty(), intent.getFloatExtra(EXTRA_VOLUME, 1f))
+            }
+            ACTION_SET_REMOTE_MUTED -> {
+                engine?.setRemoteMuted(intent.getStringExtra(EXTRA_PEER_ID).orEmpty(), intent.getBooleanExtra(EXTRA_ENABLED, false))
             }
             ACTION_LEAVE -> leaveRoom()
             null -> restoreSession()
