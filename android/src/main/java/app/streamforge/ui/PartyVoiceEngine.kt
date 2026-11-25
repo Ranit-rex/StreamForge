@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 internal data class VoiceEngineState(
     val connected: Boolean = false,
+    val mediaConnected: Boolean = false,
     val micEnabled: Boolean = true,
     val speakerEnabled: Boolean = true,
     val speaking: Set<String> = emptySet(),
@@ -66,6 +67,7 @@ internal class PartyVoiceEngine(
     private val statsExecutor = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var localSpeaking = false
     @Volatile private var signalingConnected = false
+    @Volatile private var mediaConnected = false
     private var factory: PeerConnectionFactory? = null
     private var audioModule: JavaAudioDeviceModule? = null
     private var audioSource: AudioSource? = null
@@ -94,7 +96,7 @@ internal class PartyVoiceEngine(
                         .createPeerConnectionFactory()
                     audioSource = factory?.createAudioSource(MediaConstraints())
                     localTrack = audioSource?.let { source -> factory?.createAudioTrack("streamforge-mic", source) }
-                        .also { it?.setEnabled(true) }
+                        .also { it?.setEnabled(micEnabled) }
 
                     audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                     @Suppress("DEPRECATION")
@@ -266,8 +268,29 @@ internal class PartyVoiceEngine(
         val pc = f.createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-                if (state == PeerConnection.IceConnectionState.FAILED ||
-                    state == PeerConnection.IceConnectionState.DISCONNECTED) publish("Reconnecting voice…")
+                when (state) {
+                    PeerConnection.IceConnectionState.CONNECTED,
+                    PeerConnection.IceConnectionState.COMPLETED -> {
+                        mediaConnected = true
+                        publish("Voice audio connected")
+                    }
+                    PeerConnection.IceConnectionState.DISCONNECTED -> {
+                        mediaConnected = false
+                        publish("Voice audio reconnecting…")
+                    }
+                    PeerConnection.IceConnectionState.FAILED -> {
+                        mediaConnected = false
+                        publish("Voice media failed — TURN relay is needed on some networks")
+                    }
+                    PeerConnection.IceConnectionState.CLOSED -> {
+                        mediaConnected = false
+                        publish("Voice media closed")
+                    }
+                    else -> {
+                        mediaConnected = false
+                        publish("Connecting voice audio…")
+                    }
+                }
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) {}
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
@@ -396,6 +419,7 @@ internal class PartyVoiceEngine(
     private fun publish(status: String) {
         onState(VoiceEngineState(
             connected = signalingConnected && !closed,
+            mediaConnected = mediaConnected && !closed,
             micEnabled = micEnabled,
             speakerEnabled = speakerEnabled,
             speaking = speaking.toSet(),
@@ -410,6 +434,7 @@ internal class PartyVoiceEngine(
             socket?.close(1000, "Leaving voice room")
             socket = null
             signalingConnected = false
+            mediaConnected = false
             statsExecutor.shutdownNow()
             peers.values.forEach { runCatching { it.close() } }
             peers.clear()
