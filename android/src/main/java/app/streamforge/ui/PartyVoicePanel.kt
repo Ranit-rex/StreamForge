@@ -251,7 +251,7 @@ fun PartyVoicePanel() {
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Bound lobby composition on low-memory phones; refresh keeps newest rooms visible.
-                    rooms.sortedByDescending { it.count }.take(20).forEach { room ->
+                    rooms.asReversed().take(20).forEach { room ->
                         Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { scope.launch { joinRoom(room.id) } }) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Surface(color = VoiceAccent, shape = CircleShape) { Text("🎙", modifier = Modifier.padding(10.dp), fontSize = 16.sp) }
@@ -316,7 +316,22 @@ fun PartyVoicePanel() {
                                             shape = RoundedCornerShape(14.dp)
                                         )
                                     ) {
-                                        Column(Modifier.padding(vertical = 16.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                        Row(
+                                            Modifier.padding(vertical = 16.dp, horizontal = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (active) {
+                                                Spacer(
+                                                    Modifier.width(3.dp).height(58.dp)
+                                                        .background(Color(0xFF48E39A), RoundedCornerShape(4.dp))
+                                                )
+                                            }
+                                            Column(
+                                                Modifier.weight(1f),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
                                             Surface(
                                                 color = if (active) Color(0xFF237D5B) else VoiceAccent,
                                                 shape = CircleShape,
@@ -324,6 +339,7 @@ fun PartyVoicePanel() {
                                             ) { Text(name.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp)) }
                                             Text(name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                             Text(if (active) "● SPEAKING" else if (name == displayName) "YOU · CONNECTED" else "CONNECTED", color = if (active) Color(0xFF65FFB2) else VoiceMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
