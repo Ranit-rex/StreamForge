@@ -489,7 +489,9 @@ internal class PartyVoiceEngine(
 
     private fun attachRemoteVideoTrack(peerId: String, track: VideoTrack?) {
         if (track == null || closed) return
+        track.setEnabled(true)
         remoteVideoTracks[peerId] = track
+        Log.i(TAG, "Remote screen video track attached for " + peerId + " state=" + track.state())
         publish("Screen share received")
     }
 
@@ -505,6 +507,7 @@ internal class PartyVoiceEngine(
     private fun createOffer(peerId: String, pc: PeerConnection) {
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
         }
         pc.createOffer(object : SdpObserverAdapter("create offer") { 
             override fun onCreateSuccess(description: SessionDescription?) {
@@ -528,6 +531,7 @@ internal class PartyVoiceEngine(
                 markRemoteSdpReady(peerId, pc)
                 val constraints = MediaConstraints().apply {
                     mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "true"))
                 }
                 pc.createAnswer(object : SdpObserverAdapter("create answer") {
                     override fun onCreateSuccess(description: SessionDescription?) {
