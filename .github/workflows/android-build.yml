@@ -9,6 +9,8 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android-build.yml"
+permissions:
+  contents: write
 concurrency:
   group: streamforge-android-signing
   cancel-in-progress: false
@@ -86,9 +88,10 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: streamforge-debug-signing-v1
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Publish direct APK release
+        uses: softprops/action-gh-release@v2
         with:
-          name: StreamForge-Alpha-build-${{ env.BUILD_NUMBER }}
-          path: android/build/outputs/apk/debug/StreamForge-Alpha-build-*.apk
-          if-no-files-found: error
+          tag_name: streamforge-alpha-${{ env.BUILD_NUMBER }}
+          name: StreamForge Alpha build ${{ env.BUILD_NUMBER }}
+          prerelease: true
+          files: android/build/outputs/apk/debug/StreamForge-Alpha-build-*.apk
