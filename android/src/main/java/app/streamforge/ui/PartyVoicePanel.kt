@@ -2,6 +2,7 @@ package app.streamforge.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -137,7 +138,8 @@ fun PartyVoicePanel() {
         )
     }
 
-    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val granted = result[Manifest.permission.RECORD_AUDIO] == true
         val target = pendingVoiceRoom
         if (granted && target != null) {
             startVoice(target)
@@ -153,7 +155,9 @@ fun PartyVoicePanel() {
             startVoice(room)
             pendingVoiceRoom = null
         } else {
-            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+            micPermission.launch(permissions.toTypedArray())
         }
     }
 
