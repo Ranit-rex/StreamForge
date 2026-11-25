@@ -118,7 +118,9 @@ fun StreamForgeApp(
     var server by remember { mutableStateOf("rtmps://a.rtmp.youtube.com/live2") }
     var streamKey by remember { mutableStateOf("") }
     var showKey by remember { mutableStateOf(false) }
-    var selectedQuality by remember { mutableStateOf(qualityOptions.getOrElse(prefs.getInt("quality_index", 5)) { qualityOptions[5] }) }
+    val lowRamDevice = remember { context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true }
+    // Start low-memory phones in Data Saver; users can still manually choose a higher profile.
+    var selectedQuality by remember { mutableStateOf(qualityOptions.getOrElse(prefs.getInt("quality_index", if (lowRamDevice) 6 else 5)) { qualityOptions[if (lowRamDevice) 6 else 5] }) }
     var captureMode by remember { mutableStateOf(if (android.os.Build.VERSION.SDK_INT >= 34) "GAME" else "FULL") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
