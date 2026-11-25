@@ -274,7 +274,7 @@ class PartyVoiceService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("StreamForge · Party Voice")
-            .setContentText("\${if (muted) "Microphone muted" else "Microphone on"} · $roomName")
+            .setContentText("${if (muted) "Microphone muted" else "Microphone on"} · $roomName")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
