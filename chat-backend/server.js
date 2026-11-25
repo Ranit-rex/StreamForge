@@ -271,6 +271,8 @@ wss.on("connection", (ws, _req, identity) => {
   });
 
   ws.on("close", () => {
+    const roomMember = voiceRooms.get(roomId)?.members.find(m => m.memberId === memberId);
+    if (roomMember) roomMember.screenSharing = false;
     const current = voiceSockets.get(roomId);
     if (current?.get(memberId) === ws) current.delete(memberId);
     if (current?.size === 0) voiceSockets.delete(roomId);
