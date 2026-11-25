@@ -52,6 +52,7 @@ internal data class VoiceEngineState(
     val micCapturing: Boolean = false,
     val remoteScreenTrack: VideoTrack? = null,
     val remoteScreenOwner: String? = null,
+    val remoteScreenActive: Boolean = false,
     val screenSharing: Boolean = false,
     val screenShareStatus: String = "",
     val status: String = "Connecting to voice…"
@@ -723,7 +724,8 @@ internal class PartyVoiceEngine(
                 localLevel = localLevel,
                 micCapturing = micCapturing,
                 remoteScreenTrack = remoteVideoTracks.entries.firstOrNull { it.key in screenSharingMembers }?.value,
-                remoteScreenOwner = remoteVideoTracks.keys.firstOrNull { it in screenSharingMembers }?.let { peerNames[it] ?: it },
+                remoteScreenOwner = screenSharingMembers.firstOrNull()?.let { peerNames[it] ?: it },
+                remoteScreenActive = screenSharingMembers.isNotEmpty(),
                 screenSharing = screenSharing,
                 screenShareStatus = screenShareStatus,
                 status = status
