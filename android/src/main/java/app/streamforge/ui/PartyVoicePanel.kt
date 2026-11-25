@@ -180,7 +180,12 @@ fun PartyVoicePanel() {
             val height = (metrics.heightPixels * scale).toInt().coerceAtLeast(2).let { it - it % 2 }
             PartyVoiceService.startScreenShare(context, permissionData, width, height, 30)
         } else {
-            error = "Screen capture permission was cancelled"
+            // Surface the actual Android activity result instead of assuming the user cancelled.
+            error = if (permissionData == null) {
+                "Android returned no screen-capture data (result code: " + result.resultCode + ")."
+            } else {
+                "Android did not grant screen capture (result code: " + result.resultCode + ")."
+            }
         }
     }
 
