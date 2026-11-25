@@ -673,7 +673,10 @@ private fun PartyScreenVideo(
         factory = { viewContext ->
             SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
-                setEnableHardwareScaler(true)
+                // Compose dialogs/cards draw in a separate render layer. Keep the
+                // WebRTC SurfaceView above the app window so its frames are visible.
+                setZOrderMediaOverlay(true)
+                setEnableHardwareScaler(false)
                 setMirror(false)
                 setScalingType(if (zoomed) org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
