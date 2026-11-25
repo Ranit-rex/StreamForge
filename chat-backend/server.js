@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomBytes, timingSafeEqual, createHmac } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 3000);
