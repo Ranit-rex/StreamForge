@@ -217,12 +217,12 @@ server.on("upgrade", (req, socket, head) => {
 
 wss.on("connection", (ws, _req, identity) => {
   const { roomId, memberId } = identity;
+  const room = voiceRooms.get(roomId);
   let peers = voiceSockets.get(roomId);
   if (!peers) { peers = new Map(); voiceSockets.set(roomId, peers); }
   const existingPeers = [...peers.entries()].filter(([id]) => id !== memberId).map(([id, peer]) => ({
     memberId: id, displayName: peer.displayName, muted: Boolean(room?.members.find(m => m.memberId === id)?.muted)
   }));
-  const room = voiceRooms.get(roomId);
   const member = room?.members.find(m => m.memberId === memberId);
   if (!room || !member) { ws.close(1008, "Room membership expired"); return; }
   ws.memberId = memberId;
