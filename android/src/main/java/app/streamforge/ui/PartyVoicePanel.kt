@@ -469,7 +469,7 @@ fun PartyVoicePanel() {
                                 Text(if (voiceState.micEnabled) "🎙 MIC ON" else "🎙 MIC MUTED", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
                             }
                             OutlinedButton(onClick = { showScreenQuality = true }, modifier = Modifier.weight(1f), enabled = voiceActive) {
-                                Text(if (voiceState.screenSharing) "■ STOP STREAM" else "▣ STREAM", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
+                                Text(if (voiceState.screenSharing) "■ STOP SHARE" else "▣ SCREEN SHARE", fontWeight = FontWeight.Bold, fontSize = 8.sp, maxLines = 1)
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -554,10 +554,10 @@ fun PartyVoicePanel() {
     if (showScreenQuality) {
         AlertDialog(
             onDismissRequest = { showScreenQuality = false },
-            title = { Text(if (voiceState.screenSharing) "Your stream is live" else "Start screen stream") },
+            title = { Text(if (voiceState.screenSharing) "Your screen is live" else "Start screen share") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("STREAM QUALITY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = VoiceMuted)
+                    Text("SCREEN SHARE QUALITY", fontSize = 9.sp, fontWeight = FontWeight.Black, color = VoiceMuted)
                     listOf(480, 720, 1080).forEach { quality ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected = screenQuality == quality, onClick = { screenQuality = quality }, enabled = !voiceState.screenSharing)
@@ -572,13 +572,13 @@ fun PartyVoicePanel() {
                     Button(onClick = {
                         PartyVoiceService.stopScreenShare(context)
                         showScreenQuality = false
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("■ STOP STREAM") }
+                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("■ STOP SHARE") }
                 } else {
                     Button(onClick = {
                         showScreenQuality = false
                         val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                         screenSharePermission.launch(manager.createScreenCaptureIntent())
-                    }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("▣ START STREAM") }
+                    }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("▣ START SCREEN SHARE") }
                 }
             },
             dismissButton = { TextButton(onClick = { showScreenQuality = false }) { Text("CANCEL") } }
