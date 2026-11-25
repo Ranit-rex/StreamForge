@@ -82,6 +82,14 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith("/api/voice/")) {
     cleanRooms();
     try {
+      if (req.method === "GET" && url.pathname === "/api/voice/health") {
+        const connectedMembers = [...voiceSockets.values()].reduce((sum, peers) => sum + peers.size, 0);
+        return send(res, 200, {
+          ok: true, service: "streamforge-chat-api", voiceSignaling: "ready",
+          roomCount: voiceRooms.size, connectedMembers, turnConfigured: true,
+          timestamp: new Date().toISOString()
+        });
+      }
       if (req.method === "GET" && url.pathname === "/api/voice/ice-servers") {
         // Built-in Open Relay TURN credentials: no Render environment variables
         // or user-managed provider account are required. Credentials are short-lived.
@@ -248,7 +256,10 @@ wss.on("connection", (ws, _req, identity) => {
     }
     const targetId = String(message.to || "");
     const target = peers.get(targetId);
-    if (!target || targetId === memberId || target.readyState !== WebSocket.OPEN) return;
+    if (!target || targetId === memberId || target.readyState !== WebSocket.OPEN) {
+      console.warn(JSON.stringify({ event: "voice_signal_target_unavailable", roomId, from: memberId, to: targetId, signalType: message.type, targetExists: Boolean(target) }));
+      return;
+    }
     // Forward only SDP/ICE payloads; never trust a client-supplied sender identity.
     const payload = message.type === "ice"
       ? { candidate: message.candidate }
