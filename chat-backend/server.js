@@ -138,7 +138,7 @@ const server = http.createServer(async (req, res) => {
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
         const existing = room.members.find(m => m.memberId === memberId);
         if (!existing && room.members.length >= MAX_ROOM_MEMBERS) return send(res, 409, { error: "This room is full." });
-        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now(), muted: false, voiceToken: randomBytes(24).toString("base64url") });
+        if (!existing) room.members.push({ memberId, displayName, joinedAt: Date.now(), muted: false, screenSharing: false, voiceToken: randomBytes(24).toString("base64url") });
         room.updatedAt = Date.now();
         return send(res, 200, { room: publicRoom(room), you: { memberId, voiceToken: room.members.find(m => m.memberId === memberId).voiceToken } });
       }
