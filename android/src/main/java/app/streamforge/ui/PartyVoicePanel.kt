@@ -61,7 +61,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
-import org.webrtc.TextureViewRenderer
+import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
@@ -657,7 +657,7 @@ private fun PartyScreenVideo(
     modifier: Modifier = Modifier,
     zoomed: Boolean = false
 ) {
-    var renderer by remember(track) { mutableStateOf<TextureViewRenderer?>(null) }
+    var renderer by remember(track) { mutableStateOf<SurfaceViewRenderer?>(null) }
     val eglContext = remember(track) { PartyVoiceService.rendererEglContext() }
 
     if (eglContext == null) {
@@ -671,7 +671,7 @@ private fun PartyScreenVideo(
 
     AndroidView(
         factory = { viewContext ->
-            TextureViewRenderer(viewContext).apply {
+            SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
                 setEnableHardwareScaler(true)
                 setMirror(false)
