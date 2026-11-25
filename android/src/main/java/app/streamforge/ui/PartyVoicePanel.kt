@@ -349,11 +349,15 @@ fun PartyVoicePanel() {
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Surface(
-                                                color = if (active) Color(0xFF48E39A) else Color(0xFF4B5563),
-                                                shape = RoundedCornerShape(3.dp),
-                                                modifier = Modifier.width(10.dp).height(10.dp)
-                                            ) {}
+                                            if (active) {
+                                                Surface(
+                                                    color = Color(0xFF48E39A),
+                                                    shape = RoundedCornerShape(3.dp),
+                                                    modifier = Modifier.width(10.dp).height(10.dp)
+                                                ) {}
+                                            } else {
+                                                Spacer(Modifier.width(10.dp).height(10.dp))
+                                            }
                                             Column(
                                                 Modifier.weight(1f),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -373,7 +377,14 @@ fun PartyVoicePanel() {
                                 if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        Text(voiceState.status, color = if (voiceState.mediaConnected) Color(0xFF75D9AE) else if (voiceState.connected) Color(0xFFFFC46B) else Color(0xFFFF8B8B), fontSize = 9.sp)
+                        Text(
+                            if (!voiceState.micEnabled) "MIC MUTED · voice room stays connected"
+                            else if (voiceState.micCapturing) "MIC CAPTURING · speak to light up your tile"
+                            else voiceState.status,
+                            color = if (voiceState.micCapturing && voiceState.micEnabled) Color(0xFF75D9AE) else if (voiceState.connected) Color(0xFFFFC46B) else Color(0xFFFF8B8B),
+                            fontSize = 9.sp
+                        )
+                        Text(voiceState.status, color = VoiceMuted, fontSize = 9.sp)
                     }
                 }
                 Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
