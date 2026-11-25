@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual, createHmac } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -83,12 +83,25 @@ const server = http.createServer(async (req, res) => {
     cleanRooms();
     try {
       if (req.method === "GET" && url.pathname === "/api/voice/ice-servers") {
-        // Credential-free direct peer connectivity. Signaling stays on this backend;
-        // WebRTC media uses public STUN discovery when direct P2P is possible.
-        return send(res, 200, {
-          iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
-          relayConfigured: false
-        });
+        // Built-in Open Relay TURN credentials: no Render environment variables
+        // or user-managed provider account are required. Credentials are short-lived.
+        const username = String(Math.floor(Date.now() / 1000) + 3600) + ":streamforge";
+        const credential = createHmac("sha1", "openrelayprojectsecret")
+          .update(username).digest("base64");
+        const iceServers = [
+          { urls: ["stun:stun.l.google.com:19302", "stun:staticauth.openrelay.metered.ca:80"] },
+          {
+            urls: [
+              "turn:staticauth.openrelay.metered.ca:80",
+              "turn:staticauth.openrelay.metered.ca:443",
+              "turn:staticauth.openrelay.metered.ca:80?transport=tcp",
+              "turns:staticauth.openrelay.metered.ca:443?transport=tcp"
+            ],
+            username,
+            credential
+          }
+        ];
+        return send(res, 200, { iceServers, relayConfigured: true });
       }
       if (req.method === "GET" && url.pathname === "/api/voice/rooms") {
         return send(res, 200, { rooms: [...voiceRooms.values()].filter(r => r.visibility === "public").map(publicRoom) });
