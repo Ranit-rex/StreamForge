@@ -26,6 +26,7 @@ import okhttp3.WebSocketListener
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentLinkedQueue
 
 internal data class VoiceEngineState(
     val connected: Boolean = false,
@@ -60,6 +61,8 @@ internal class PartyVoiceEngine(
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
     private val speaking = ConcurrentHashMap.newKeySet<String>()
     private val peerNames = ConcurrentHashMap<String, String>()
+    private val pendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
+    private val remoteDescriptionSet = ConcurrentHashMap.newKeySet<String>()
     private val statsExecutor = Executors.newSingleThreadScheduledExecutor()
     @Volatile private var localSpeaking = false
     @Volatile private var signalingConnected = false
@@ -181,6 +184,8 @@ internal class PartyVoiceEngine(
                 val id = message.optString("memberId")
                 peers.remove(id)?.close()
                 remoteTracks.remove(id)
+                pendingIce.remove(id)
+                remoteDescriptionSet.remove(id)
                 peerNames.remove(id)?.let { speaking.remove(it) }
                 publish("Participant left")
             }
@@ -191,6 +196,7 @@ internal class PartyVoiceEngine(
                 val remote = SessionDescription(SessionDescription.Type.OFFER, desc.optString("sdp"))
                 pc.setRemoteDescription(object : SdpObserverAdapter() {
                     override fun onSetSuccess() {
+                        flushPendingIce(id, pc)
                         pc.createAnswer(object : SdpObserverAdapter() {
                             override fun onCreateSuccess(answer: SessionDescription?) {
                                 val answerDescription = answer ?: return
@@ -208,15 +214,24 @@ internal class PartyVoiceEngine(
             "answer" -> {
                 val id = message.optString("from")
                 val desc = message.optJSONObject("description") ?: return
-                peers[id]?.setRemoteDescription(SdpObserverAdapter(),
-                    SessionDescription(SessionDescription.Type.ANSWER, desc.optString("sdp")))
+                peers[id]?.setRemoteDescription(object : SdpObserverAdapter() {
+                    override fun onSetSuccess() {
+                        peers[id]?.let { flushPendingIce(id, it) }
+                    }
+                }, SessionDescription(SessionDescription.Type.ANSWER, desc.optString("sdp")))
             }
             "ice" -> {
                 val id = message.optString("from")
                 val c = message.optJSONObject("candidate") ?: return
-                peers[id]?.addIceCandidate(IceCandidate(
+                val candidate = IceCandidate(
                     c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate")
-                ))
+                )
+                val peer = peers[id]
+                if (peer != null && remoteDescriptionSet.contains(id)) {
+                    peer.addIceCandidate(candidate)
+                } else {
+                    pendingIce.computeIfAbsent(id) { ConcurrentLinkedQueue() }.add(candidate)
+                }
             }
             "speaking" -> {
                 val id = message.optString("memberId")
@@ -228,6 +243,13 @@ internal class PartyVoiceEngine(
                 val name = message.optString("displayName", message.optString("memberId"))
                 if (message.optBoolean("active")) speaking.remove(name)
             }
+        }
+    }
+
+    private fun flushPendingIce(id: String, peer: PeerConnection) {
+        remoteDescriptionSet.add(id)
+        pendingIce.remove(id)?.forEach { candidate ->
+            runCatching { peer.addIceCandidate(candidate) }
         }
     }
 
@@ -359,7 +381,7 @@ internal class PartyVoiceEngine(
                         }
                     }
                 }
-            }, 350, 300, TimeUnit.MILLISECONDS)
+            }, 1000, 1000, TimeUnit.MILLISECONDS)
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Expected if the user leaves while connect() is still initializing.
         }
