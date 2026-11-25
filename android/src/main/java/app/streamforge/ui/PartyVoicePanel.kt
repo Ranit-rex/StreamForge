@@ -139,7 +139,7 @@ fun PartyVoicePanel() {
     }
 
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        val granted = result[Manifest.permission.RECORD_AUDIO] == true
+        val granted = result[Manifest.permission.RECORD_AUDIO] == true || context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val target = pendingVoiceRoom
         if (granted && target != null) {
             startVoice(target)
