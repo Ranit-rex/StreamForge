@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -185,7 +183,16 @@ fun PartyVoicePanel() {
         loading = false
     }
 
-    LaunchedEffect(Unit) { refreshRooms() }
+    // Keep the public lobby live while the user is outside a room.
+    // This panel sits inside the app's main vertical scroll, so avoid a nested LazyColumn.
+    LaunchedEffect(joined == null, serverUrl) {
+        if (joined == null) {
+            while (true) {
+                refreshRooms()
+                delay(5000)
+            }
+        }
+    }
     LaunchedEffect(joined?.id) {
         val room = joined ?: return@LaunchedEffect
         while (true) {
@@ -242,8 +249,9 @@ fun PartyVoicePanel() {
                     Text("No public rooms right now. Create one and invite friends with its Room ID.", color = VoiceMuted, fontSize = 12.sp, modifier = Modifier.padding(15.dp))
                 }
             } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(rooms, key = { it.id }) { room ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Bound lobby composition on low-memory phones; refresh keeps newest rooms visible.
+                    rooms.sortedByDescending { it.count }.take(20).forEach { room ->
                         Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { scope.launch { joinRoom(room.id) } }) {
                             Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Surface(color = VoiceAccent, shape = CircleShape) { Text("🎙", modifier = Modifier.padding(10.dp), fontSize = 16.sp) }
