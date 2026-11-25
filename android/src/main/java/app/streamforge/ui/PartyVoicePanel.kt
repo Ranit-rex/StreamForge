@@ -432,7 +432,10 @@ fun PartyVoicePanel() {
                             else voiceState.status,
                             color = if (voiceState.micCapturing && voiceState.micEnabled) Color(0xFF75D9AE) else if (voiceState.connected) Color(0xFFFFC46B) else Color(0xFFFF8B8B),
                             fontSize = 9.sp
-                      Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        )
+                    }
+                }
+                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -456,13 +459,6 @@ fun PartyVoicePanel() {
                                 scope.launch { refreshRooms() }
                             }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) {
                                 Text("LEAVE ROOM", fontWeight = FontWeight.Black, fontSize = 10.sp, maxLines = 1)
-                            }
-                        }
-                        Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
-                    }
-                }
- = Color(0xFFFFA6A6), fontWeight = FontWeight.Black) }
-                                }
                             }
                         }
                         Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
