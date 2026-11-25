@@ -16,6 +16,9 @@ import org.webrtc.SurfaceTextureHelper
 import org.webrtc.VideoCapturer
 import org.webrtc.VideoSource
 import org.webrtc.VideoTrack
+import org.webrtc.VideoSink
+import org.webrtc.VideoFrame
+import java.util.concurrent.atomic.AtomicLong
 import android.content.Intent
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
@@ -79,6 +82,7 @@ internal class PartyVoiceEngine(
     private val peers = ConcurrentHashMap<String, PeerConnection>()
     private val remoteTracks = ConcurrentHashMap<String, AudioTrack>()
     private val remoteVideoTracks = ConcurrentHashMap<String, VideoTrack>()
+    private val remoteVideoFrameSinks = ConcurrentHashMap<String, VideoSink>()
     private val videoTransceivers = ConcurrentHashMap<String, RtpTransceiver>()
     private val pendingIce = ConcurrentHashMap<String, ConcurrentLinkedQueue<IceCandidate>>()
     private val remoteSdpReady = ConcurrentHashMap.newKeySet<String>()
@@ -109,6 +113,7 @@ internal class PartyVoiceEngine(
     @Volatile private var screenTextureHelper: SurfaceTextureHelper? = null
     @Volatile private var screenVideoSource: VideoSource? = null
     @Volatile private var screenVideoTrack: VideoTrack? = null
+    @Volatile private var localScreenFrameSink: VideoSink? = null
     @Volatile private var screenSharing = false
     @Volatile private var screenShareStatus = ""
     @Volatile private var audioSource: org.webrtc.AudioSource? = null
@@ -226,6 +231,7 @@ internal class PartyVoiceEngine(
                 try {
                     val currentFactory = factory ?: throw IllegalStateException("Voice connection is not ready")
                     val transceivers = videoTransceivers.values.toList()
+                    Log.i(TAG, "Screen share starting: peers=${peers.size} videoTransceivers=${transceivers.size} requested=${width}x${height}@${fps}")
                     val source = currentFactory.createVideoSource(true)
                     val helper = SurfaceTextureHelper.create("sf-party-screen-capture", eglBase!!.eglBaseContext)
                     val capturer = ScreenCapturerAndroid(permissionData, object : android.media.projection.MediaProjection.Callback() {
@@ -234,12 +240,33 @@ internal class PartyVoiceEngine(
                     capturer.initialize(helper, app, source.capturerObserver)
                     val track = currentFactory.createVideoTrack("sf-party-screen", source)
                     track.setEnabled(true)
-                    if (transceivers.any { !it.sender.setTrack(track, false) }) throw IllegalStateException("Could not attach screen video to every participant")
+                    var attached = 0
+                    transceivers.forEach { transceiver ->
+                        val ok = transceiver.sender.setTrack(track, false)
+                        Log.i(TAG, "Screen sender attach peerTransceiver=${transceiver.mid ?: "pending"} result=${ok} direction=${transceiver.direction}")
+                        if (ok) attached++
+                    }
+                    if (transceivers.isNotEmpty() && attached != transceivers.size) throw IllegalStateException("Could not attach screen video to every participant")
                     screenVideoSource = source
                     screenTextureHelper = helper
                     screenCapturer = capturer
                     screenVideoTrack = track
+                    val lastFrameLogAt = AtomicLong(0L)
+                    val frameSink = object : VideoSink {
+                        override fun onFrame(frame: VideoFrame) {
+                            val now = SystemClock.elapsedRealtime()
+                            val previous = lastFrameLogAt.get()
+                            if (previous == 0L || now - previous >= 5000L) {
+                                if (lastFrameLogAt.compareAndSet(previous, now)) {
+                                    Log.i(TAG, "LOCAL_SCREEN_FRAME ${frame.buffer.width}x${frame.buffer.height} rotation=${frame.rotation}")
+                                }
+                            }
+                        }
+                    }
+                    localScreenFrameSink = frameSink
+                    track.addSink(frameSink)
                     capturer.startCapture(width.coerceIn(640, 1920), height.coerceIn(360, 1080), fps.coerceIn(15, 30))
+                    Log.i(TAG, "ScreenCapturerAndroid startCapture returned; attachedSenders=${attached}")
                     screenSharing = true
                     screenShareStatus = "Your screen is being shared"
                     send(JSONObject().put("type", "screen-share").put("active", true))
@@ -263,9 +290,13 @@ internal class PartyVoiceEngine(
         val wasSharing = screenSharing
         runCatching { videoTransceivers.values.forEach { it.sender.setTrack(null, false) } }
         if (wasSharing) send(JSONObject().put("type", "screen-share").put("active", false))
+        val localTrack = screenVideoTrack
+        val localSink = localScreenFrameSink
+        if (localTrack != null && localSink != null) runCatching { localTrack.removeSink(localSink) }
+        localScreenFrameSink = null
         runCatching { screenCapturer?.stopCapture() }
         runCatching { screenCapturer?.dispose() }
-        runCatching { screenVideoTrack?.dispose() }
+        runCatching { localTrack?.dispose() }
         runCatching { screenVideoSource?.dispose() }
         runCatching { screenTextureHelper?.dispose() }
         screenCapturer = null
@@ -490,7 +521,23 @@ internal class PartyVoiceEngine(
     private fun attachRemoteVideoTrack(peerId: String, track: VideoTrack?) {
         if (track == null || closed) return
         track.setEnabled(true)
-        remoteVideoTracks[peerId] = track
+        remoteVideoTracks.put(peerId, track)?.let { previous ->
+            remoteVideoFrameSinks.remove(peerId)?.let { sink -> runCatching { previous.removeSink(sink) } }
+        }
+        val lastFrameLogAt = AtomicLong(0L)
+        val frameSink = object : VideoSink {
+            override fun onFrame(frame: VideoFrame) {
+                val now = SystemClock.elapsedRealtime()
+                val previous = lastFrameLogAt.get()
+                if (previous == 0L || now - previous >= 5000L) {
+                    if (lastFrameLogAt.compareAndSet(previous, now)) {
+                        Log.i(TAG, "REMOTE_SCREEN_FRAME peer=${peerId} ${frame.buffer.width}x${frame.buffer.height} rotation=${frame.rotation}")
+                    }
+                }
+            }
+        }
+        remoteVideoFrameSinks[peerId] = frameSink
+        track.addSink(frameSink)
         Log.i(TAG, "Remote screen video track attached for " + peerId + " state=" + track.state())
         publish("Screen share received")
     }
@@ -603,7 +650,9 @@ internal class PartyVoiceEngine(
         synchronized(lock) {
             peers.remove(peerId)?.let { runCatching { it.close() } }
             remoteTracks.remove(peerId)
-            remoteVideoTracks.remove(peerId)
+            remoteVideoTracks.remove(peerId)?.let { track ->
+                remoteVideoFrameSinks.remove(peerId)?.let { sink -> runCatching { track.removeSink(sink) } }
+            }
             screenSharingMembers.remove(peerId)
             videoTransceivers.remove(peerId)
             pendingIce.remove(peerId)
@@ -766,7 +815,11 @@ internal class PartyVoiceEngine(
             runCatching { localMicMonitor?.close() }
             localMicMonitor = null
             remoteTracks.clear()
+            remoteVideoTracks.forEach { (peerId, track) ->
+                remoteVideoFrameSinks.remove(peerId)?.let { sink -> runCatching { track.removeSink(sink) } }
+            }
             remoteVideoTracks.clear()
+            remoteVideoFrameSinks.clear()
             videoTransceivers.clear()
             pendingIce.clear()
             remoteSdpReady.clear()
