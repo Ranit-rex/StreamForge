@@ -24,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.RadioButton
@@ -58,12 +59,14 @@ private val VoiceBg = Color(0xFF11151A)
 private val VoiceCard = Color(0xFF1A2028)
 private val VoiceMuted = Color(0xFF9AA6B2)
 private val VoiceAccent = Color(0xFF5865F2)
+private data class VoiceMember(val id: String, val name: String, val muted: Boolean = false)
+
 private data class VoiceRoom(
     val id: String,
     val name: String,
     val visibility: String,
     val count: Int,
-    val members: List<String>,
+    val members: List<VoiceMember>,
     val voiceToken: String = ""
 )
 
@@ -90,15 +93,16 @@ private suspend fun voiceRequest(baseUrl: String, path: String, method: String =
 private fun parseVoiceRoom(json: JSONObject): VoiceRoom {
     val room = json.optJSONObject("room") ?: JSONObject()
     val members = room.optJSONArray("members")
-    val names = mutableListOf<String>()
+    val parsedMembers = mutableListOf<VoiceMember>()
     if (members != null) for (i in 0 until members.length()) {
-        names.add(members.optJSONObject(i)?.optString("displayName", "Guest") ?: "Guest")
+        val item = members.optJSONObject(i) ?: continue
+        parsedMembers.add(VoiceMember(item.optString("memberId"), item.optString("displayName", "Guest"), item.optBoolean("muted")))
     }
     val you = json.optJSONObject("you") ?: JSONObject()
     return VoiceRoom(
         room.optString("roomId"), room.optString("name", "Voice Room"),
-        room.optString("visibility", "public"), room.optInt("memberCount", names.size),
-        names, you.optString("voiceToken")
+        room.optString("visibility", "public"), room.optInt("memberCount", parsedMembers.size),
+        parsedMembers, you.optString("voiceToken")
     )
 }
 
@@ -122,6 +126,8 @@ fun PartyVoicePanel() {
     var loading by remember { mutableStateOf(false) }
     var showCreate by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
+    var selectedMember by remember { mutableStateOf<VoiceMember?>(null) }
+    var selectedMemberVolume by remember { mutableStateOf(1f) }
 
     fun startVoice(room: VoiceRoom) {
         prefs.edit()
@@ -172,12 +178,13 @@ fun PartyVoicePanel() {
             val list = mutableListOf<VoiceRoom>()
             if (array != null) for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
-                val memberNames = mutableListOf<String>()
+                val parsedMembers = mutableListOf<VoiceMember>()
                 val members = item.optJSONArray("members")
                 if (members != null) for (j in 0 until members.length()) {
-                    memberNames.add(members.optJSONObject(j)?.optString("displayName", "Guest") ?: "Guest")
+                    val member = members.optJSONObject(j) ?: continue
+                    parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
                 }
-                list.add(VoiceRoom(item.optString("roomId"), item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), memberNames))
+                list.add(VoiceRoom(item.optString("roomId"), item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers))
             }
             rooms = list
         }.onFailure { error = it.message ?: "Unable to load public lobby" }
@@ -338,47 +345,35 @@ fun PartyVoicePanel() {
                             Text("VOICE MEMBERS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.weight(1f))
                             Text("${room.members.size} HERE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
-                        val displayMembers = room.members.ifEmpty { listOf(displayName.ifBlank { "You" }) }
+                        val displayMembers = room.members.ifEmpty { listOf(VoiceMember(memberId, displayName.ifBlank { "You" })) }
                         displayMembers.chunked(2).forEach { pair ->
                             Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                                pair.forEach { name ->
-                                    val active = if (name == displayName.ifBlank { "You" }) voiceState.localSpeaking else name in voiceState.speaking
+                                pair.forEach { member ->
+                                    val own = member.id == memberId
+                                    val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
+                                    val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers || member.muted
                                     Surface(
                                         color = Color(0xFF242B3B),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier.weight(1f).border(
-                                            width = if (active) 2.dp else 0.dp,
-                                            color = if (active) Color(0xFF48E39A) else Color.Transparent,
-                                            shape = RoundedCornerShape(14.dp)
-                                        )
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                            .border(if (active) 2.dp else 1.dp, if (active) Color(0xFF48E39A) else Color(0xFF303846), RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                if (!own) {
+                                                    selectedMember = member
+                                                    selectedMemberVolume = 1f
+                                                }
+                                            }
                                     ) {
                                         Row(
-                                            Modifier.padding(vertical = 16.dp, horizontal = 8.dp),
+                                            Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(9.dp)
                                         ) {
-                                            if (active) {
-                                                Surface(
-                                                    color = Color(0xFF48E39A),
-                                                    shape = RoundedCornerShape(3.dp),
-                                                    modifier = Modifier.width(10.dp).height(10.dp)
-                                                ) {}
-                                            } else {
-                                                Spacer(Modifier.width(10.dp).height(10.dp))
+                                            Surface(color = if (active) Color(0xFF237D5B) else VoiceAccent, shape = CircleShape) {
+                                                Text(member.name.take(1).uppercase(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp))
                                             }
-                                            Column(
-                                                Modifier.weight(1f),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(7.dp)
-                                            ) {
-                                            Surface(
-                                                color = if (active) Color(0xFF237D5B) else VoiceAccent,
-                                                shape = CircleShape,
-                                                modifier = Modifier.border(if (active) 2.dp else 0.dp, if (active) Color(0xFF65FFB2) else Color.Transparent, CircleShape)
-                                            ) { Text(name.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp)) }
-                                            Text(name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                            Text(if (active) "● SPEAKING" else if (name == displayName) "YOU · CONNECTED" else "CONNECTED", color = if (active) Color(0xFF65FFB2) else VoiceMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                            }
+                                            Text(member.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                                            if (muted) Text("🔇", fontSize = 12.sp)
                                         }
                                     }
                                 }
@@ -424,6 +419,32 @@ fun PartyVoicePanel() {
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
         Text("Rooms and live connection state are temporary. A server restart clears them.", color = VoiceMuted, fontSize = 10.sp)
+    }
+
+    if (selectedMember != null) {
+        val member = selectedMember!!
+        AlertDialog(
+            onDismissRequest = { selectedMember = null },
+            title = { Text(member.name) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Individual volume", fontSize = 12.sp)
+                    Slider(value = selectedMemberVolume, onValueChange = {
+                        selectedMemberVolume = it
+                        PartyVoiceService.setRemoteVolume(context, member.id, it)
+                    }, valueRange = 0f..1f)
+                    Text("${(selectedMemberVolume * 100).toInt()}%", fontSize = 11.sp, color = VoiceMuted)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val currentlyMuted = member.id in voiceState.mutedMembers || member.muted
+                    PartyVoiceService.setRemoteMuted(context, member.id, !currentlyMuted)
+                    selectedMember = null
+                }) { Text(if (member.id in voiceState.mutedMembers || member.muted) "Unmute for me" else "Mute for me") }
+            },
+            dismissButton = { TextButton(onClick = { selectedMember = null }) { Text("Close") } }
+        )
     }
 
     if (showCreate) {
