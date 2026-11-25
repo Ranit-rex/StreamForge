@@ -243,13 +243,13 @@ internal class PartyVoiceEngine(
                 val desc = message.optJSONObject("description") ?: return
                 val pc = ensurePeer(id, initiate = false) ?: return
                 val remote = SessionDescription(SessionDescription.Type.OFFER, desc.optString("sdp"))
-                pc.setRemoteDescription(object : SdpObserverAdapter() {
+                pc.setRemoteDescription(object : SdpObserverAdapter({ error -> publish("Remote offer rejected: $error") }) {
                     override fun onSetSuccess() {
                         flushPendingIce(id, pc)
-                        pc.createAnswer(object : SdpObserverAdapter() {
+                        pc.createAnswer(object : SdpObserverAdapter({ error -> publish("Answer creation failed: $error") }) {
                             override fun onCreateSuccess(answer: SessionDescription?) {
                                 val answerDescription = answer ?: return
-                                pc.setLocalDescription(object : SdpObserverAdapter() {
+                                pc.setLocalDescription(object : SdpObserverAdapter({ error -> publish("Answer setup failed: $error") }) {
                                     override fun onSetSuccess() {
                                         send(JSONObject().put("type", "answer").put("to", id)
                                             .put("description", JSONObject().put("type", "answer").put("sdp", answerDescription.description)))
@@ -263,7 +263,7 @@ internal class PartyVoiceEngine(
             "answer" -> {
                 val id = message.optString("from")
                 val desc = message.optJSONObject("description") ?: return
-                peers[id]?.setRemoteDescription(object : SdpObserverAdapter() {
+                peers[id]?.setRemoteDescription(object : SdpObserverAdapter({ error -> publish("Remote answer rejected: $error") }) {
                     override fun onSetSuccess() {
                         peers[id]?.let { flushPendingIce(id, it) }
                     }
@@ -315,6 +315,7 @@ internal class PartyVoiceEngine(
         val pc = f.createPeerConnection(config, object : PeerConnection.Observer {
             override fun onSignalingChange(state: PeerConnection.SignalingState?) {}
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
+                android.util.Log.i("StreamForgeVoice", "peer=$id ICE state=$state")
                 when (state) {
                     PeerConnection.IceConnectionState.CONNECTED,
                     PeerConnection.IceConnectionState.COMPLETED -> {
@@ -339,9 +340,15 @@ internal class PartyVoiceEngine(
                     }
                 }
             }
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {
+                android.util.Log.i("StreamForgeVoice", "peer=$id receiving=$receiving")
+            }
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                android.util.Log.i("StreamForgeVoice", "peer=$id ICE gathering=$state")
+                if (state == PeerConnection.IceGatheringState.COMPLETE && !mediaConnected) publish("ICE candidates gathered · checking peer route…")
+            }
             override fun onIceCandidate(candidate: IceCandidate) {
+                android.util.Log.d("StreamForgeVoice", "peer=$id local ICE candidate: ${candidate.sdp.take(120)}")
                 send(JSONObject().put("type", "ice").put("to", id).put("candidate",
                     JSONObject().put("sdpMid", candidate.sdpMid)
                         .put("sdpMLineIndex", candidate.sdpMLineIndex)
@@ -354,26 +361,36 @@ internal class PartyVoiceEngine(
             override fun onRenegotiationNeeded() {}
             override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out org.webrtc.MediaStream>?) {
                 val track = receiver?.track() as? AudioTrack
+                android.util.Log.i("StreamForgeVoice", "peer=$id onAddTrack audio=${track != null}")
                 if (track != null) {
                     track.setEnabled(speakerEnabled)
                     remoteTracks[id] = track
+                    publish("Remote audio track received · connecting…")
                 }
             }
             override fun onTrack(transceiver: RtpTransceiver?) {
                 val track = transceiver?.receiver?.track() as? AudioTrack
+                android.util.Log.i("StreamForgeVoice", "peer=$id onTrack audio=${track != null}")
                 if (track != null) {
                     track.setEnabled(speakerEnabled)
                     remoteTracks[id] = track
+                    publish("Remote audio track received · connecting…")
                 }
             }
-        }) ?: return null
+        }) ?: run {
+            publish("Peer connection creation failed · WebRTC unavailable")
+            return null
+        }
         peers[id] = pc
-        localTrack?.let { pc.addTrack(it, listOf("streamforge-party-audio")) }
+        val sender = localTrack?.let { pc.addTrack(it, listOf("streamforge-party-audio")) }
+        if (sender == null) publish("Microphone track could not be attached to peer")
+        else android.util.Log.i("StreamForgeVoice", "peer=$id local audio sender attached")
         if (initiate) {
-            pc.createOffer(object : SdpObserverAdapter() {
+            publish("Creating voice offer…")
+            pc.createOffer(object : SdpObserverAdapter({ error -> publish("Offer creation failed: $error") }) {
                 override fun onCreateSuccess(offer: SessionDescription?) {
                     val offerDescription = offer ?: return
-                    pc.setLocalDescription(object : SdpObserverAdapter() {
+                    pc.setLocalDescription(object : SdpObserverAdapter({ error -> publish("Offer setup failed: $error") }) {
                         override fun onSetSuccess() {
                             send(JSONObject().put("type", "offer").put("to", id)
                                 .put("description", JSONObject().put("type", "offer").put("sdp", offerDescription.description)))
@@ -623,10 +640,16 @@ internal class PartyVoiceEngine(
             .build()
     }
 
-    private open class SdpObserverAdapter : SdpObserver {
+    private open class SdpObserverAdapter(
+        private val onFailure: (String) -> Unit = {}
+    ) : SdpObserver {
         override fun onCreateSuccess(description: SessionDescription?) {}
         override fun onSetSuccess() {}
-        override fun onCreateFailure(error: String?) {}
-        override fun onSetFailure(error: String?) {}
+        override fun onCreateFailure(error: String?) {
+            onFailure(error ?: "SDP creation failed without details")
+        }
+        override fun onSetFailure(error: String?) {
+            onFailure(error ?: "SDP description was rejected without details")
+        }
     }
 }
