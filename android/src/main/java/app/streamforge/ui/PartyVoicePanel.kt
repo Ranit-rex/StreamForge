@@ -174,10 +174,14 @@ fun PartyVoicePanel() {
         val permissionData = result.data
         if (result.resultCode == Activity.RESULT_OK && permissionData != null) {
             val metrics = context.resources.displayMetrics
-            val maxEdge = maxOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1)
-            val scale = screenQuality.toFloat() / maxEdge
-            val width = (metrics.widthPixels * scale).toInt().coerceAtLeast(2).let { it - it % 2 }
-            val height = (metrics.heightPixels * scale).toInt().coerceAtLeast(2).let { it - it % 2 }
+            // Scale the longer edge to the selected quality while preserving the
+            // actual display aspect ratio. Never clamp width and height separately:
+            // that distorts portrait captures and produces cropped/black video.
+            val sourceWidth = metrics.widthPixels.coerceAtLeast(2)
+            val sourceHeight = metrics.heightPixels.coerceAtLeast(2)
+            val scale = screenQuality.toFloat() / maxOf(sourceWidth, sourceHeight)
+            val width = ((sourceWidth * scale).toInt().coerceAtLeast(2) / 2) * 2
+            val height = ((sourceHeight * scale).toInt().coerceAtLeast(2) / 2) * 2
             PartyVoiceService.startScreenShare(context, permissionData, width, height, 30)
         } else {
             // Surface the actual Android activity result instead of assuming the user cancelled.
@@ -672,12 +676,12 @@ private fun PartyScreenVideo(
         factory = { viewContext ->
             SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
-                // Render the WebRTC surface in its own top-level surface layer.
-                // Compose parents can otherwise leave SurfaceView black beneath
-                // their hardware-accelerated layers on some Android devices.
-                setZOrderMediaOverlay(false)
-                setZOrderOnTop(true)
-                holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+                // Keep the renderer as a media overlay within this window.
+                // A translucent always-on-top SurfaceView can cover Dialog content
+                // and clip the video on several Android GPU implementations.
+                setZOrderOnTop(false)
+                setZOrderMediaOverlay(true)
+                holder.setFormat(android.graphics.PixelFormat.OPAQUE)
                 setEnableHardwareScaler(true)
                 setMirror(false)
                 setScalingType(if (zoomed) org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
