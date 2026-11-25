@@ -354,7 +354,15 @@ fun StreamForgeApp(
                             if (isStreaming) {
                                 if (showLiveDashboard) LiveDashboard(
                                     elapsed = elapsedSeconds, bitrate = bitrate, resolution = liveResolution,
-                                    fps = liveFps, networkHealth = networkHealth,
+                                    fps = liveFps, networkHealth = networkHealth, targetBitrateMbps = targetBitrateMbps,
+                                    onBitrateChange = { value ->
+                                        targetBitrateMbps = value
+                                        prefs.edit().putFloat("video_bitrate_mbps", value).apply()
+                                        context.startService(Intent(context, StreamService::class.java).apply {
+                                            action = StreamService.ACTION_SET_LIVE_BITRATE
+                                            putExtra(StreamService.EXTRA_BITRATE, (value * 1_000_000f).toInt())
+                                        })
+                                    },
                                     onHide = { showLiveDashboard = false }, onStop = onStopStream
                                 ) else Surface(color = Color(0xFF2A1B17), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                                     Row(Modifier.fillMaxWidth().clickable { showLiveDashboard = true }.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -966,6 +974,7 @@ private fun ColourSlider(label: String, value: Float, range: ClosedFloatingPoint
 @Composable
 private fun LiveDashboard(
     elapsed: Long, bitrate: Long, resolution: String, fps: Int, networkHealth: String,
+    targetBitrateMbps: Float, onBitrateChange: (Float) -> Unit,
     onHide: () -> Unit, onStop: () -> Unit
 ) {
     Surface(color = Color(0xFF2A1B17), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
@@ -984,6 +993,9 @@ private fun LiveDashboard(
                 LiveMetric("OUTPUT", resolution, Modifier.weight(1f))
                 LiveMetric("FPS", "$fps", Modifier.weight(1f))
             }
+            Text("LIVE QUALITY  ·  ${"%.1f".format(targetBitrateMbps)} Mbps", color = AppText, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Slider(value = targetBitrateMbps, onValueChange = onBitrateChange, valueRange = 0.8f..15f)
+            Text("Network may still lower the actual bitrate automatically when connection quality drops.", color = Muted, fontSize = 9.sp)
             Text(networkHealth, color = if (networkHealth.contains("congested", ignoreCase = true)) Color(0xFFFFB27F) else Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
             OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text("END BROADCAST") }
         }
