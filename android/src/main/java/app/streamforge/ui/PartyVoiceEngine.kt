@@ -67,6 +67,7 @@ internal class PartyVoiceEngine(
     @Volatile private var localSpeaking = false
     @Volatile private var signalingConnected = false
     private var factory: PeerConnectionFactory? = null
+    private var audioModule: JavaAudioDeviceModule? = null
     private var audioSource: AudioSource? = null
     private var localTrack: AudioTrack? = null
     private var socket: WebSocket? = null
@@ -84,11 +85,10 @@ internal class PartyVoiceEngine(
                         PeerConnectionFactory.InitializationOptions.builder(appContext).createInitializationOptions()
                     )
                     if (closed) return@synchronized
-                    val audioModule = JavaAudioDeviceModule.builder(appContext)
+                    audioModule = JavaAudioDeviceModule.builder(appContext)
                         .setUseHardwareAcousticEchoCanceler(true)
                         .setUseHardwareNoiseSuppressor(true)
                         .createAudioDeviceModule()
-                    if (closed) return@synchronized
                     factory = PeerConnectionFactory.builder()
                         .setAudioDeviceModule(audioModule)
                         .createPeerConnectionFactory()
@@ -132,9 +132,11 @@ internal class PartyVoiceEngine(
                     runCatching { localTrack?.dispose() }
                     runCatching { audioSource?.dispose() }
                     runCatching { factory?.dispose() }
+                    runCatching { audioModule?.release() }
                     localTrack = null
                     audioSource = null
                     factory = null
+                    audioModule = null
                 }
             }
         }, "streamforge-voice-init").start()
@@ -415,9 +417,11 @@ internal class PartyVoiceEngine(
             runCatching { localTrack?.dispose() }
             runCatching { audioSource?.dispose() }
             runCatching { factory?.dispose() }
+            runCatching { audioModule?.release() }
             localTrack = null
             audioSource = null
             factory = null
+            audioModule = null
             audioManager.mode = AudioManager.MODE_NORMAL
             @Suppress("DEPRECATION")
             run { audioManager.isSpeakerphoneOn = false }
