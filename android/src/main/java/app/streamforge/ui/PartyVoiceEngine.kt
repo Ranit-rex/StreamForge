@@ -291,17 +291,14 @@ internal class PartyVoiceEngine(
                     screenVideoTrack = createdTrack
                     val lastFrameLogAt = AtomicLong(0L)
                     val frameCount = AtomicLong(0L)
-                    val lastFrameAt = AtomicLong(0L)
-                    val lastRecoveryAt = AtomicLong(0L)
                     val frameSink = object : VideoSink {
                         override fun onFrame(frame: VideoFrame) {
                             val count = frameCount.incrementAndGet()
-                            val now = SystemClock.elapsedRealtime()
-                            lastFrameAt.set(now)
                             if (count == 1L) {
                                 screenShareStatus = "Live · ${frame.buffer.width}×${frame.buffer.height}"
                                 publish("Screen capture frames received")
                             }
+                            val now = SystemClock.elapsedRealtime()
                             val previous = lastFrameLogAt.get()
                             if (previous == 0L || now - previous >= 5000L) {
                                 if (lastFrameLogAt.compareAndSet(previous, now)) {
@@ -320,40 +317,23 @@ internal class PartyVoiceEngine(
                     val scale = maxEdge.toFloat() / sourceLongEdge.toFloat()
                     val captureWidth = ((request.width * scale).toInt().coerceAtLeast(2) / 2) * 2
                     val captureHeight = ((request.height * scale).toInt().coerceAtLeast(2) / 2) * 2
-                    val captureFps = request.fps.coerceIn(15, 30)
-                    val captureStartedAt = SystemClock.elapsedRealtime()
                     screenSharing = true
                     screenShareStatus = "Starting Android screen capture…"
-                    createdCapturer.startCapture(captureWidth, captureHeight, captureFps)
+                    createdCapturer.startCapture(captureWidth, captureHeight, request.fps.coerceIn(15, 30))
                     Log.i(TAG, "ScreenCapturerAndroid startCapture returned: ${captureWidth}x${captureHeight}@${request.fps}; attachedSenders=${attached}")
                     send(JSONObject().put("type", "screen-share").put("active", true))
                     videoTransceivers.keys.forEach { peerId -> renegotiateVideoPeer(peerId) }
                     publish("Screen share starting · waiting for first frame")
 
-                    // Watch the actual frame stream, not merely the capturer's started flag.
-                    // A transient SurfaceTexture/VirtualDisplay stall is recovered by asking
-                    // ScreenCapturerAndroid to resize/reconfigure its existing display once.
+                    // Keep the capturer untouched after start. Reconfiguring a live
+                    // MediaProjection VirtualDisplay on a watchdog timer caused regressions.
                     thread(name = "sf-party-screen-watchdog") {
-                        while (!closed && screenSharing && screenCapturer === createdCapturer) {
-                            Thread.sleep(2500L)
-                            if (closed || !screenSharing || screenCapturer !== createdCapturer) break
-                            val now = SystemClock.elapsedRealtime()
-                            val lastFrame = lastFrameAt.get()
-                            val stalled = if (lastFrame == 0L) now - captureStartedAt >= 6000L else now - lastFrame >= 4500L
-                            if (stalled) {
-                                val previousRecovery = lastRecoveryAt.get()
-                                if (previousRecovery == 0L || now - previousRecovery >= 15000L) {
-                                    lastRecoveryAt.set(now)
-                                    screenShareStatus = "Reconnecting screen capture…"
-                                    Log.w(TAG, "SCREEN_CAPTURE_STALLED frames=${frameCount.get()} ageMs=${if (lastFrame == 0L) now - captureStartedAt else now - lastFrame}; reconfiguring existing VirtualDisplay")
-                                    publish("Screen capture stalled · recovering")
-                                    runCatching { createdCapturer.changeCaptureFormat(captureWidth, captureHeight, captureFps) }
-                                        .onFailure { Log.e(TAG, "Screen capture recovery failed", it) }
-                                } else if (now - previousRecovery >= 8000L) {
-                                    screenShareStatus = "Screen capture is not delivering live frames. Stop sharing and start again."
-                                    Log.e(TAG, "SCREEN_CAPTURE_STILL_STALLED frames=${frameCount.get()}")
-                                    publish("Screen capture is still frozen")
-                                }
+                        Thread.sleep(6000L)
+                        synchronized(lock) {
+                            if (screenSharing && screenCapturer === createdCapturer && frameCount.get() == 0L) {
+                                screenShareStatus = "Capture started, but Android has not delivered video frames. Stop and retry screen share."
+                                Log.e(TAG, "SCREEN_CAPTURE_NO_FRAMES after 6 seconds")
+                                publish("Screen capture produced no frames")
                             }
                         }
                     }
