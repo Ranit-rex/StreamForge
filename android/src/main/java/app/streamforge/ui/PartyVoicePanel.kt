@@ -263,9 +263,9 @@ fun PartyVoicePanel() {
         val known = rooms.firstOrNull { it.id == roomId }?.serverUrl.orEmpty()
         if (known.isNotBlank() && runCatching { voiceRequest(known, "/api/voice/rooms/$roomId") }.isSuccess) return known
         val firstDigit = roomId.firstOrNull()?.digitToIntOrNull()
-        val routedEndpoint = when (firstDigit) {
-            8 -> CLOUDFLARE_VOICE_API
-            in 1..7 -> RENDER_VOICE_POOL[firstDigit - 1]
+        val routedEndpoint = when {
+            firstDigit == 8 -> CLOUDFLARE_VOICE_API
+            firstDigit != null && firstDigit in 1..7 -> RENDER_VOICE_POOL[firstDigit - 1]
             else -> ""
         }
         if (routedEndpoint.isNotBlank() &&
