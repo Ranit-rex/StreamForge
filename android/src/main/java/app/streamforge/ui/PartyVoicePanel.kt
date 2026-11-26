@@ -333,7 +333,19 @@ fun PartyVoicePanel() {
                     ))
                 }
             }
-            parsedRooms
+            // The global directory can briefly retain a room after its Render
+            // process has already removed it. Verify each advertised room against
+            // its actual owner before showing it in the lobby.
+            coroutineScope {
+                parsedRooms.map { candidate ->
+                    async {
+                        runCatching {
+                            val live = voiceRequest(candidate.serverUrl, "/api/voice/rooms/${candidate.id}")
+                            parseVoiceRoom(live).copy(serverUrl = candidate.serverUrl)
+                        }.getOrNull()
+                    }
+                }.awaitAll().filterNotNull().filter { it.count > 0 }
+            }
         }
         serverReady = result.isSuccess
         if (result.isSuccess) {
