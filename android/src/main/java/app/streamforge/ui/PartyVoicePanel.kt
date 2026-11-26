@@ -182,7 +182,7 @@ fun PartyVoicePanel() {
     val prefs = remember { context.getSharedPreferences("streamforge_party", 0) }
     val memberId = remember { prefs.getString("member_id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("member_id", it).apply() } }
     var displayName by remember { mutableStateOf(prefs.getString("display_name", "Streamer") ?: "Streamer") }
-    var serverUrl by remember { mutableStateOf(VoiceServerStore.read(context, VOICE_API)) }
+    var serverUrl by remember { mutableStateOf(prefs.getString("server_url", null)?.trim()?.takeIf { it.startsWith("https://") } ?: VoiceServerStore.read(context, VOICE_API)) }
     var roomName by remember { mutableStateOf("Gaming Party") }
     var roomIdInput by remember { mutableStateOf("") }
     var visibility by remember { mutableStateOf("public") }
@@ -348,21 +348,41 @@ fun PartyVoicePanel() {
     LaunchedEffect(Unit) {
         val savedId = prefs.getString("room_id", "").orEmpty()
         val savedToken = prefs.getString("voice_token", "").orEmpty()
+        val savedServer = prefs.getString("server_url", "").orEmpty().trim().trimEnd('/')
+        if (savedServer.startsWith("https://")) serverUrl = savedServer
         if (savedId.isNotBlank() && savedToken.isNotBlank()) {
             val savedName = prefs.getString("room_name", "Voice Room") ?: "Voice Room"
             val savedVisibility = prefs.getString("room_visibility", "public") ?: "public"
+            // Render the remembered room immediately. The audio service survives
+            // navigation, so waiting for a fresh room-list request only delays the UI.
+            val instantRoom = VoiceRoom(
+                savedId, savedName, savedVisibility, 1,
+                listOf(VoiceMember(memberId, displayName.ifBlank { "You" })),
+                savedToken, savedServer.ifBlank { serverUrl }
+            )
+            joined = instantRoom
+            if (!PartyVoiceService.active.value) startVoice(instantRoom)
+
+            // Refresh room metadata in the background, preferring the exact owner
+            // server saved when the room was joined instead of probing every node.
             val restoredResult = runCatching {
-                val owner = findRoomOwner(savedId)
+                val owner = if (savedServer.startsWith("https://")) {
+                    if (runCatching { voiceRequest(savedServer, "/api/voice/rooms/$savedId") }.isSuccess) {
+                        savedServer
+                    } else {
+                        findRoomOwner(savedId)
+                    }
+                } else {
+                    findRoomOwner(savedId)
+                }
                 val json = voiceRequest(owner, "/api/voice/rooms/$savedId")
                 json to owner
             }
-            val restored = restoredResult.getOrNull()?.let { (json, owner) ->
+            restoredResult.getOrNull()?.let { (json, owner) ->
                 serverUrl = owner
                 prefs.edit().putString("server_url", owner).apply()
-                parseVoiceRoom(json).copy(voiceToken = savedToken, serverUrl = owner)
-            } ?: VoiceRoom(savedId, savedName, savedVisibility, 1, listOf(VoiceMember(memberId, displayName.ifBlank { "You" })), savedToken, serverUrl)
-            joined = restored
-            if (!PartyVoiceService.active.value) startVoice(restored)
+                joined = parseVoiceRoom(json).copy(voiceToken = savedToken, serverUrl = owner)
+            }
         }
     }
 
