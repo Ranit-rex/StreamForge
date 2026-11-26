@@ -2,7 +2,7 @@ name: Android APK build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
     paths:
       - "android/**"
       - "build.gradle.kts"
