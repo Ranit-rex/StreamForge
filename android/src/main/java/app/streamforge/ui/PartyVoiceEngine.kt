@@ -107,6 +107,8 @@ internal class PartyVoiceEngine(
     @Volatile private var lastMicUiPublishAt = 0L
     @Volatile private var lastSpeakingSignalAt = 0L
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var reconnecting = false
+    @Volatile private var reconnectAttempts = 0
     @Volatile private var factory: PeerConnectionFactory? = null
     @Volatile private var audioModule: JavaAudioDeviceModule? = null
     @Volatile private var eglBase: EglBase? = null
@@ -203,6 +205,8 @@ internal class PartyVoiceEngine(
                         return
                     }
                     signalingConnected = true
+                    reconnectAttempts = 0
+                    reconnecting = false
                     publish("Voice room ready · microphone armed")
                 }
 
@@ -214,16 +218,53 @@ internal class PartyVoiceEngine(
 
                 override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
                     signalingConnected = false
-                    Log.e(TAG, "Signaling socket failed: HTTP " + (response?.code ?: -1), error)
-                    if (!closed) publish("Voice server connection failed: " + (error.message ?: "network error"))
+                    val statusCode = response?.code ?: -1
+                    Log.e(TAG, "Signaling socket failed: HTTP " + statusCode)
+                    if (!closed) {
+                        if (statusCode == 401 || statusCode == 404) {
+                            publish("This voice room has ended. Create a new room.")
+                        } else {
+                            publish("Connection interrupted · reconnecting…")
+                            scheduleSignalingReconnect()
+                        }
+                    }
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     signalingConnected = false
-                    if (!closed) publish("Voice server disconnected")
+                    if (!closed && code != 1000 && code != 1008 && code != 4001) {
+                        publish("Connection interrupted · reconnecting…")
+                        scheduleSignalingReconnect()
+                    }
                 }
             }
         )
+    }
+
+    private fun scheduleSignalingReconnect() {
+        synchronized(lock) {
+            if (closed || reconnecting) return
+            reconnecting = true
+        }
+        thread(name = "sf-party-voice-reconnect") {
+            val delays = longArrayOf(1000L, 2000L, 4000L, 8000L, 15000L)
+            val waitMs = delays[reconnectAttempts.coerceIn(0, delays.lastIndex)]
+            reconnectAttempts = (reconnectAttempts + 1).coerceAtMost(delays.lastIndex)
+            try {
+                Thread.sleep(waitMs)
+            } catch (_: InterruptedException) {
+                synchronized(lock) { reconnecting = false }
+                return@thread
+            }
+            synchronized(lock) {
+                if (closed) {
+                    reconnecting = false
+                    return@thread
+                }
+                reconnecting = false
+                openSignalingSocket()
+            }
+        }
     }
 
     fun eglContext(): org.webrtc.EglBase.Context? = eglBase?.eglBaseContext
