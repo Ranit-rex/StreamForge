@@ -20,4 +20,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: "cloudflare-voice"
+          wranglerVersion: "4.168.0"
           command: deploy
