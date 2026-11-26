@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "464964505379",
+    "project_id": "castdoo",
+    "storage_bucket": "castdoo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:464964505379:android:9673e87c44c1588e088696",
+        "android_client_info": {
+          "package_name": "com.castdoo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuNI9MYuqU341vJRiZ0liOihad_N3XkEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
