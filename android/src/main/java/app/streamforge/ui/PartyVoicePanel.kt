@@ -8,6 +8,7 @@ import android.os.Build
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -49,6 +51,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -70,7 +76,7 @@ private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
 private val VoiceBg = Color(0xFF11151A)
 private val VoiceCard = Color(0xFF1A2028)
 private val VoiceMuted = Color(0xFF9AA6B2)
-private val VoiceAccent = Color(0xFF5865F2)
+private val VoiceAccent = Color(0xFFF08A52)
 private data class VoiceMember(val id: String, val name: String, val muted: Boolean = false)
 
 private data class VoiceRoom(
@@ -146,6 +152,7 @@ fun PartyVoicePanel() {
     var remoteScreenFullscreen by remember { mutableStateOf(false) }
     var screenQuality by remember { mutableStateOf(720) }
     var requestingScreenShare by remember { mutableStateOf(false) }
+    var showMoreControls by remember { mutableStateOf(false) }
 
     fun startVoice(room: VoiceRoom) {
         prefs.edit()
@@ -301,79 +308,77 @@ fun PartyVoicePanel() {
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("PARTY VOICE", color = VoiceAccent, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.8.sp)
-                Text("Hang out while you stream.", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+            PartyMark(Modifier.size(42.dp))
+            Column(Modifier.weight(1f).padding(start = 11.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Party", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Your people. One room.", color = VoiceMuted, fontSize = 11.sp)
             }
-            Surface(color = Color(0xFF202B3B), shape = RoundedCornerShape(30.dp)) {
-                Text("LIVE VOICE", color = Color(0xFFB8C7FF), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+            Surface(color = Color(0xFF26352F), shape = CircleShape) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(6.dp).background(Color(0xFF68D6A2), CircleShape))
+                    Text(if (joined != null) "IN PARTY" else "LOBBY", color = Color(0xFF9BE4BD), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
         if (joined == null) {
-            Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("PRIVATE, TEMPORARY ROOMS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Room presence and connection signaling stay in server memory. No voice database.", color = VoiceMuted, fontSize = 10.sp)
+            Surface(color = VoiceCard, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Jump into a room", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text("Join friends with a code or start your own.", color = VoiceMuted, fontSize = 11.sp)
+                        }
+                        PartyGlyph("spark", Modifier.size(28.dp), VoiceAccent)
                     }
-                    Text("● RAM ONLY", color = Color(0xFF75D9AE), fontSize = 9.sp, fontWeight = FontWeight.Black)
-                }
-            }
-            Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text("Join with Room ID", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(value = displayName, onValueChange = { displayName = it.take(24) }, modifier = Modifier.fillMaxWidth(), label = { Text("Your name") }, singleLine = true)
-                    OutlinedTextField(value = roomIdInput, onValueChange = { roomIdInput = it.filter(Char::isDigit).take(6) }, modifier = Modifier.fillMaxWidth(), label = { Text("6-digit Room ID") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    Button(onClick = { scope.launch { joinRoom(roomIdInput) } }, enabled = roomIdInput.length == 6 && !loading, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
-                        Text(if (loading) "Joining…" else "JOIN VOICE ROOM", fontWeight = FontWeight.Bold)
+                    OutlinedTextField(value = displayName, onValueChange = { displayName = it.take(24) }, modifier = Modifier.fillMaxWidth(), label = { Text("Your display name") }, singleLine = true)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = roomIdInput, onValueChange = { roomIdInput = it.filter(Char::isDigit).take(6) }, modifier = Modifier.weight(1f), label = { Text("6-digit room code") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        Button(onClick = { scope.launch { joinRoom(roomIdInput) } }, enabled = roomIdInput.length == 6 && !loading, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
+                            Text(if (loading) "…" else "Join", fontWeight = FontWeight.Bold)
+                        }
                     }
-                    Text("Public rooms appear below. Private rooms are joined by Room ID.", color = VoiceMuted, fontSize = 10.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Public rooms", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { scope.launch { refreshRooms() } }) { Text("Refresh", color = VoiceMuted) }
+                        Button(onClick = { showCreate = true }, shape = RoundedCornerShape(13.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34302E))) {
+                            Text("+ Create", color = Color(0xFFFFB58A), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Public Lobby", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-                TextButton(onClick = { scope.launch { refreshRooms() } }) { Text("REFRESH") }
-                Button(onClick = { showCreate = true }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("＋ Create") }
             }
             if (!serverReady) {
-                Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            androidx.compose.material3.CircularProgressIndicator(
-                                modifier = Modifier.width(20.dp).height(20.dp),
-                                color = VoiceAccent,
-                                strokeWidth = 2.dp
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Server loading…", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                Text("Connecting to StreamForge voice server. This can take a few seconds.", color = VoiceMuted, fontSize = 10.sp)
-                            }
+                Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(22.dp), color = VoiceAccent, strokeWidth = 2.dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Connecting to Party", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("The room list will appear when the server is ready.", color = VoiceMuted, fontSize = 10.sp)
                         }
-                        androidx.compose.material3.LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = VoiceAccent,
-                            trackColor = Color(0xFF303846)
-                        )
                     }
                 }
             } else if (rooms.isEmpty()) {
-                Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                    Text("No public rooms right now. Create one and invite friends with its Room ID.", color = VoiceMuted, fontSize = 12.sp, modifier = Modifier.padding(15.dp))
+                Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        PartyMark(Modifier.size(58.dp))
+                        Text("No one's hanging out yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Create a room and invite your friends with its code.", color = VoiceMuted, fontSize = 11.sp)
+                    }
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Bound lobby composition on low-memory phones; refresh keeps newest rooms visible.
                     rooms.asReversed().take(20).forEach { room ->
-                        Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { scope.launch { joinRoom(room.id) } }) {
-                            Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = VoiceAccent, shape = CircleShape) { Text("🎙", modifier = Modifier.padding(10.dp), fontSize = 16.sp) }
-                                Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Surface(color = VoiceCard, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth().clickable { scope.launch { joinRoom(room.id) } }) {
+                            Row(Modifier.padding(horizontal = 13.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                                PartyMark(Modifier.size(40.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Text(room.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                    Text("Room ID ${room.id} · ${room.count}/6 members", color = VoiceMuted, fontSize = 10.sp)
+                                    Text("${room.count} here  ·  ${room.visibility.replaceFirstChar { it.uppercase() }}", color = VoiceMuted, fontSize = 10.sp)
                                 }
-                                Text("JOIN", color = Color(0xFFB8C7FF), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                Surface(color = Color(0xFF332B27), shape = CircleShape) {
+                                    Text("Join  ↗", color = Color(0xFFFFB58A), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
+                                }
                             }
                         }
                     }
@@ -381,168 +386,142 @@ fun PartyVoicePanel() {
             }
         } else {
             val room = joined!!
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(color = VoiceCard, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(color = VoiceAccent, shape = RoundedCornerShape(12.dp)) { Text("🎙", modifier = Modifier.padding(11.dp), fontSize = 20.sp) }
+                            PartyMark(Modifier.size(46.dp))
                             Column(Modifier.weight(1f).padding(start = 11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(room.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(color = Color(0xFF245D4A), shape = RoundedCornerShape(20.dp)) { Text("● ROOM ACTIVE", color = Color(0xFF8CE0B8), fontSize = 8.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) }
-                                    Text("  ·  ${room.visibility.uppercase()} VOICE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                }
+                                Text(room.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp, maxLines = 1)
+                                Text(if (voiceState.connected) "Connected · ${room.visibility} room" else voiceState.status, color = if (voiceState.connected) Color(0xFF8DD9B2) else VoiceMuted, fontSize = 10.sp, maxLines = 1)
                             }
-                            Text("${room.count}/6", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Surface(color = Color(0xFF26352F), shape = CircleShape) {
+                                Text("${room.count}/6", color = Color(0xFF9BE4BD), fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp))
+                            }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("VOICE CHANNEL", color = Color(0xFFB8C7FF), fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE ID" else "INVITE / ID") }
-                        }
-                        Surface(color = Color(0xFF171C2A), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(if (showRoomCode) room.id else "••••••", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
-                                    Text("Share this code with friends to join", color = VoiceMuted, fontSize = 9.sp)
-                                }
-                                TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "HIDE" else "SHOW") }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("ROOM CODE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                Text(if (showRoomCode) room.id else "••••••", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 3.sp)
                             }
+                            TextButton(onClick = { showRoomCode = !showRoomCode }) { Text(if (showRoomCode) "Hide" else "Show", color = Color(0xFFFFB58A)) }
                         }
                     }
                 }
+
                 if (voiceState.screenSharing || voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null || voiceState.screenShareStatus.isNotBlank()) {
                     val localIsSharing = voiceState.screenSharing || (!voiceState.remoteScreenActive && voiceState.screenShareStatus.isNotBlank())
-                    val remoteIsSharing = !localIsSharing && (voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null)
                     val displayedTrack = if (localIsSharing) voiceState.localScreenTrack else voiceState.remoteScreenTrack
                     Surface(
-                        color = Color(0xFF171D29),
-                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFF1A2025),
+                        shape = RoundedCornerShape(20.dp),
                         modifier = Modifier.fillMaxWidth().then(if (displayedTrack != null) Modifier.clickable {
                             remoteScreenFullscreen = false
                             showRemoteScreen = true
                         } else Modifier)
                     ) {
-                        Column(Modifier.padding(9.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Surface(color = Color(0xFFED535B), shape = RoundedCornerShape(5.dp)) {
-                                    Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp))
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                Surface(color = Color(0xFF8D3E36), shape = CircleShape) {
+                                    Text("LIVE", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
                                 }
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                    Text(if (localIsSharing) "Your screen · LIVE PREVIEW" else "${voiceState.remoteScreenOwner ?: "A member"}'s screen", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        if (displayedTrack != null) {
-                                            if (localIsSharing) voiceState.screenShareStatus.ifBlank { "Your live preview · shared with everyone" }
-                                            else "Everyone can watch · tap preview to open"
-                                        } else {
-                                            voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }
-                                        },
-                                        color = VoiceMuted,
-                                        fontSize = 10.sp
-                                    )
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(if (localIsSharing) "Your screen" else "${voiceState.remoteScreenOwner ?: "A member"}'s screen", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (displayedTrack != null) "Tap to open full screen" else voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }, color = VoiceMuted, fontSize = 10.sp)
                                 }
-                                if (displayedTrack != null) Text("⛶", color = Color.White, fontSize = 20.sp)
+                                if (displayedTrack != null) PartyGlyph("expand", Modifier.size(20.dp), Color.White)
                             }
                             if (displayedTrack != null && !showRemoteScreen) {
                                 PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                             } else if (displayedTrack != null) {
-                                // Do not keep two SurfaceViewRenderers attached to the same
-                                // track while the full-screen viewer is open. Their surface
-                                // ordering can flicker or cover each other on Android.
-                                Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("Screen open in viewer", color = VoiceMuted, fontSize = 10.sp)
-                                    }
+                                Surface(color = Color(0xFF101519), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Screen open in viewer", color = VoiceMuted, fontSize = 10.sp) }
                                 }
                             } else {
-                                Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                            Text("▣", color = Color(0xFF8CE0B8), fontSize = 30.sp)
-                                            Text(voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Surface(color = Color(0xFF101519), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                        PartyGlyph("screen", Modifier.size(34.dp), VoiceAccent)
+                                        Text(voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
                         }
                     }
                 }
-                Surface(color = Color(0xFF181D29), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("VOICE MEMBERS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            Text("${room.members.size} HERE", color = VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
-                        val displayMembers = room.members.ifEmpty { listOf(VoiceMember(memberId, displayName.ifBlank { "You" })) }
-                        displayMembers.chunked(2).forEach { pair ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-                                pair.forEach { member ->
-                                    val own = member.id == memberId
-                                    val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
-                                    val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers
-                                    Surface(
-                                        color = Color(0xFF242B3B),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.weight(1f)
-                                            .border(if (active) 2.dp else 1.dp, if (active) Color(0xFF48E39A) else Color(0xFF303846), RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                if (!own) {
-                                                    selectedMember = member
-                                                    selectedMemberVolume = 1f
-                                                }
-                                            }
-                                    ) {
-                                        Row(
-                                            Modifier.padding(horizontal = 10.dp, vertical = 13.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(9.dp)
-                                        ) {
-                                            Surface(color = if (active) Color(0xFF237D5B) else VoiceAccent, shape = CircleShape) {
-                                                Text(member.name.take(1).uppercase(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp))
-                                            }
-                                            Text(member.name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
-                                            if (muted) Text("🎙 MIC OFF", color = Color(0xFFFFA6A6), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("People here", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text("Tap a member for volume and mute controls.", color = VoiceMuted, fontSize = 10.sp)
+                    }
+                    Text("${room.members.size} / 6", color = VoiceMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                val displayMembers = room.members.ifEmpty { listOf(VoiceMember(memberId, displayName.ifBlank { "You" })) }
+                displayMembers.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        pair.forEach { member ->
+                            val own = member.id == memberId
+                            val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
+                            val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers || member.muted
+                            Surface(
+                                color = if (active) Color(0xFF202C29) else Color(0xFF1B2229),
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.weight(1f).aspectRatio(1f)
+                                    .border(if (active) 2.dp else 1.dp, if (active) Color(0xFF65D99D) else Color(0xFF303A42), RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        if (!own) {
+                                            selectedMember = member
+                                            selectedMemberVolume = 1f
                                         }
                                     }
+                            ) {
+                                Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Surface(color = if (active) Color(0xFF285B49) else Color(0xFF35302C), shape = RoundedCornerShape(22.dp), modifier = Modifier.size(58.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(member.name.take(1).uppercase(), color = if (active) Color(0xFFB6F1D0) else Color(0xFFFFC29F), fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                                            }
+                                        }
+                                        if (muted) {
+                                            Surface(color = Color(0xFF6B3434), shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).size(22.dp)) {
+                                                Box(contentAlignment = Alignment.Center) { PartyGlyph("mute", Modifier.size(12.dp), Color(0xFFFFC3BD)) }
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.height(9.dp))
+                                    Text(member.name + if (own) " (you)" else "", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                    Text(if (muted) "Muted" else if (active) "Speaking" else "In voice", color = if (active) Color(0xFF8FE2B2) else VoiceMuted, fontSize = 10.sp)
                                 }
-                                if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
-                        Text(
-                            if (!voiceState.micEnabled) "MIC MUTED · voice room stays connected"
-                            else if (voiceState.micCapturing) "MIC CAPTURING · speak to light up your tile"
-                            else voiceState.status,
-                            color = if (voiceState.micCapturing && voiceState.micEnabled) Color(0xFF75D9AE) else if (voiceState.connected) Color(0xFFFFC46B) else Color(0xFFFF8B8B),
-                            fontSize = 9.sp
-                        )
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
-                Surface(color = Color(0xFF202638), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text("VOICE CONTROLS", color = VoiceMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(onClick = { PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled) }, modifier = Modifier.weight(1f), enabled = voiceActive) {
-                                Text(if (voiceState.micEnabled) "🎙 MIC ON" else "🎙 MIC MUTED", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
-                            }
-                            OutlinedButton(onClick = { showScreenQuality = true }, modifier = Modifier.weight(1f), enabled = voiceActive) {
-                                Text(if (voiceState.screenSharing) "■ STOP SHARE" else "▣ SCREEN SHARE", fontWeight = FontWeight.Bold, fontSize = 8.sp, maxLines = 1)
-                            }
+                Text(
+                    if (!voiceState.micEnabled) "Microphone muted · you're still connected"
+                    else if (voiceState.micCapturing) "Microphone ready · speak to light up your tile"
+                    else voiceState.status,
+                    color = if (voiceState.micCapturing && voiceState.micEnabled) Color(0xFF8FE2B2) else if (voiceState.connected) VoiceMuted else Color(0xFFFF9A91),
+                    fontSize = 10.sp
+                )
+
+                Surface(color = Color(0xFF20272D), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        PartyDockButton("·", "Mic", active = voiceState.micEnabled, glyph = "mic") {
+                            PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(onClick = { PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled) }, modifier = Modifier.weight(1f), enabled = voiceActive) {
-                                Text(if (voiceState.speakerEnabled) "🔊 SPEAKER ON" else "🔈 SPEAKER OFF", fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
-                            }
-                            Button(onClick = {
-                                PartyVoiceService.leave(context)
-                                joined = null
-                                showRoomCode = false
-                                showRemoteScreen = false
-                                prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
-                                scope.launch { refreshRooms() }
-                            }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) {
-                                Text("LEAVE ROOM", fontWeight = FontWeight.Black, fontSize = 10.sp, maxLines = 1)
-                            }
+                        PartyDockButton("B1", "Share", active = voiceState.screenSharing, glyph = "screen") {
+                            showScreenQuality = true
                         }
-                        Text("Peer-to-peer WebRTC audio · no voice recordings or database storage", color = VoiceMuted, fontSize = 9.sp)
+                        PartyDockButton("B2", "Audio", active = voiceState.speakerEnabled, glyph = "speaker") {
+                            PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled)
+                        }
+                        PartyDockButton("∞", "More", active = showMoreControls, glyph = "infinity") {
+                            showMoreControls = true
+                        }
                     }
                 }
+                Text("Voice stays between members. No recordings.", color = VoiceMuted, fontSize = 9.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             }
         }
         if (error.isNotBlank()) Text(error, color = Color(0xFFFF8B8B), fontSize = 11.sp)
@@ -642,28 +621,61 @@ fun PartyVoicePanel() {
 
     if (selectedMember != null) {
         val member = selectedMember!!
-        AlertDialog(
-            onDismissRequest = { selectedMember = null },
-            title = { Text(member.name) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Individual volume", fontSize = 12.sp)
+        Dialog(onDismissRequest = { selectedMember = null }) {
+            Surface(color = Color(0xFF20272D), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PartyMark(Modifier.size(38.dp))
+                        Text(member.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f).padding(start = 10.dp))
+                        TextButton(onClick = { selectedMember = null }) { Text("Close", color = VoiceMuted) }
+                    }
+                    Text("Individual volume", color = VoiceMuted, fontSize = 11.sp)
                     Slider(value = selectedMemberVolume, onValueChange = {
                         selectedMemberVolume = it
                         PartyVoiceService.setRemoteVolume(context, member.id, it)
                     }, valueRange = 0f..1f)
-                    Text("${(selectedMemberVolume * 100).toInt()}%", fontSize = 11.sp, color = VoiceMuted)
+                    Text("${(selectedMemberVolume * 100).toInt()}%", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Button(
+                        onClick = {
+                            val currentlyMuted = member.id in voiceState.mutedMembers
+                            PartyVoiceService.setRemoteMuted(context, member.id, !currentlyMuted)
+                            selectedMember = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(15.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34302E))
+                    ) { Text(if (member.id in voiceState.mutedMembers || member.muted) "Unmute for me" else "Mute for me", color = Color(0xFFFFB58A)) }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val currentlyMuted = member.id in voiceState.mutedMembers
-                    PartyVoiceService.setRemoteMuted(context, member.id, !currentlyMuted)
-                    selectedMember = null
-                }) { Text(if (member.id in voiceState.mutedMembers || member.muted) "Unmute for me" else "Mute for me") }
-            },
-            dismissButton = { TextButton(onClick = { selectedMember = null }) { Text("Close") } }
-        )
+            }
+        }
+    }
+
+    if (showMoreControls) {
+        Dialog(onDismissRequest = { showMoreControls = false }) {
+            Surface(color = Color(0xFF20272D), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Party controls", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Room ${joined?.id ?: ""}", color = VoiceMuted, fontSize = 11.sp)
+                    Button(onClick = { showRoomCode = true; showMoreControls = false }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34302E))) {
+                        Text("Show invite code", color = Color(0xFFFFB58A))
+                    }
+                    Button(
+                        onClick = {
+                            showMoreControls = false
+                            PartyVoiceService.leave(context)
+                            joined = null
+                            showRoomCode = false
+                            showRemoteScreen = false
+                            prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
+                            scope.launch { refreshRooms() }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B3837))
+                    ) { Text("Leave party", color = Color.White) }
+                }
+            }
+        }
     }
 
     if (showCreate) {
@@ -705,6 +717,109 @@ fun PartyVoicePanel() {
     }
 }
 
+
+@Composable
+private fun PartyMark(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        drawCircle(Color(0xFF3B2C25), radius = size.minDimension * 0.48f)
+        drawCircle(Color(0xFFF08A52), radius = size.minDimension * 0.39f, style = Stroke(width = size.minDimension * 0.055f))
+        val star = Path().apply {
+            moveTo(cx, cy - size.height * 0.25f)
+            lineTo(cx + size.width * 0.055f, cy - size.height * 0.055f)
+            lineTo(cx + size.width * 0.25f, cy)
+            lineTo(cx + size.width * 0.055f, cy + size.height * 0.055f)
+            lineTo(cx, cy + size.height * 0.25f)
+            lineTo(cx - size.width * 0.055f, cy + size.height * 0.055f)
+            lineTo(cx - size.width * 0.25f, cy)
+            lineTo(cx - size.width * 0.055f, cy - size.height * 0.055f)
+            close()
+        }
+        drawPath(star, Color(0xFFFFB58A))
+        drawCircle(Color(0xFFFFD7C0), radius = size.minDimension * 0.055f)
+    }
+}
+
+@Composable
+private fun PartyGlyph(kind: String, modifier: Modifier = Modifier, color: Color = Color.White) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = (size.minDimension * 0.085f).coerceAtLeast(1.5f))
+        when (kind) {
+            "mic", "mute" -> {
+                drawRoundRect(color, Offset(w * .38f, h * .10f), Size(w * .24f, h * .48f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .12f))
+                drawArc(color, 0f, 180f, false, Offset(w * .22f, h * .26f), Size(w * .56f, h * .48f), style = stroke)
+                drawLine(color, Offset(w * .50f, h * .73f), Offset(w * .50f, h * .88f), stroke.width)
+                drawLine(color, Offset(w * .34f, h * .90f), Offset(w * .66f, h * .90f), stroke.width)
+                if (kind == "mute") drawLine(Color(0xFFFF8D83), Offset(w * .18f, h * .18f), Offset(w * .82f, h * .82f), stroke.width * 1.25f)
+            }
+            "screen", "expand" -> {
+                drawRoundRect(color, Offset(w * .12f, h * .15f), Size(w * .76f, h * .58f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .08f), style = stroke)
+                drawLine(color, Offset(w * .50f, h * .74f), Offset(w * .50f, h * .87f), stroke.width)
+                drawLine(color, Offset(w * .32f, h * .88f), Offset(w * .68f, h * .88f), stroke.width)
+                if (kind == "expand") {
+                    drawLine(color, Offset(w * .25f, h * .33f), Offset(w * .25f, h * .22f), stroke.width)
+                    drawLine(color, Offset(w * .25f, h * .22f), Offset(w * .38f, h * .22f), stroke.width)
+                    drawLine(color, Offset(w * .75f, h * .55f), Offset(w * .75f, h * .66f), stroke.width)
+                    drawLine(color, Offset(w * .75f, h * .66f), Offset(w * .62f, h * .66f), stroke.width)
+                }
+            }
+            "speaker" -> {
+                val p = Path().apply {
+                    moveTo(w * .12f, h * .40f); lineTo(w * .32f, h * .40f); lineTo(w * .60f, h * .18f)
+                    lineTo(w * .60f, h * .82f); lineTo(w * .32f, h * .60f); lineTo(w * .12f, h * .60f); close()
+                }
+                drawPath(p, color)
+                drawArc(color, -48f, 96f, false, Offset(w * .42f, h * .26f), Size(w * .48f, h * .48f), style = stroke)
+                drawArc(color, -48f, 96f, false, Offset(w * .52f, h * .12f), Size(w * .48f, h * .76f), style = stroke)
+            }
+            "infinity" -> {
+                val p = Path().apply {
+                    moveTo(w * .50f, h * .50f)
+                    cubicTo(w * .28f, h * .18f, w * .10f, h * .28f, w * .10f, h * .50f)
+                    cubicTo(w * .10f, h * .74f, w * .30f, h * .82f, w * .50f, h * .50f)
+                    cubicTo(w * .70f, h * .18f, w * .90f, h * .28f, w * .90f, h * .50f)
+                    cubicTo(w * .90f, h * .74f, w * .70f, h * .82f, w * .50f, h * .50f)
+                }
+                drawPath(p, color, style = Stroke(width = size.minDimension * .12f))
+            }
+            "spark" -> {
+                val p = Path().apply {
+                    moveTo(w * .50f, h * .06f); lineTo(w * .61f, h * .39f); lineTo(w * .94f, h * .50f)
+                    lineTo(w * .61f, h * .61f); lineTo(w * .50f, h * .94f); lineTo(w * .39f, h * .61f)
+                    lineTo(w * .06f, h * .50f); lineTo(w * .39f, h * .39f); close()
+                }
+                drawPath(p, color)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PartyDockButton(
+    symbol: String,
+    caption: String,
+    active: Boolean,
+    glyph: String,
+    onClick: () -> Unit
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(
+            color = if (active) Color(0xFF3A302A) else Color(0xFF293139),
+            shape = CircleShape,
+            modifier = Modifier.size(52.dp).clickable(onClick = onClick)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                if (symbol == "·") PartyGlyph(glyph, Modifier.size(22.dp), if (active) Color(0xFFFFB58A) else VoiceMuted)
+                else if (symbol == "∞") PartyGlyph(glyph, Modifier.size(24.dp), if (active) Color(0xFFFFB58A) else Color.White)
+                else Text(symbol, color = if (active) Color(0xFFFFB58A) else Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        Text(caption, color = if (active) Color(0xFFFFB58A) else VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
 
 @Composable
 private fun PartyScreenVideo(
