@@ -454,7 +454,7 @@ fun PartyVoicePanel() {
                             } else {
                                 Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                                         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                            Text(if (localIsSharing) "▣" else "▣", color = Color(0xFF8CE0B8), fontSize = 30.sp)
+                                            Text("▣", color = Color(0xFF8CE0B8), fontSize = 30.sp)
                                             Text(voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
