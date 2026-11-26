@@ -76,13 +76,9 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
     val googleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) {
-            busy = false
-            if (result.data != null) errorText = "Google sign-in was cancelled or could not start."
-        } else {
-            try {
-                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                val account = task.getResult(ApiException::class.java)
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            val account = task.getResult(ApiException::class.java)
                 val idToken = account.idToken
                 if (idToken.isNullOrBlank()) {
                     busy = false
@@ -116,10 +112,16 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
                             errorText = error.localizedMessage ?: "Google authentication failed."
                         }
                 }
-            } catch (error: Exception) {
-                busy = false
-                errorText = error.localizedMessage ?: "Google sign-in failed."
+        } catch (error: ApiException) {
+            busy = false
+            errorText = when (error.statusCode) {
+                10 -> "Google sign-in configuration error (code 10). The installed APK signing SHA-1 must match Firebase."
+                12501 -> "Google sign-in was cancelled."
+                else -> "Google sign-in failed (code ${error.statusCode})."
             }
+        } catch (error: Exception) {
+            busy = false
+            errorText = error.localizedMessage ?: "Google sign-in failed."
         }
     }
 
