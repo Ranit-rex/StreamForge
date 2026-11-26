@@ -75,6 +75,30 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
+private val VOICE_POOL = listOf(
+    "https://streamforge-signal-a.onrender.com",
+    "https://streamforge-signal-b.onrender.com",
+    "https://streamforge-signal-c.onrender.com"
+)
+private fun voiceServerCandidates(preferred: String): List<String> =
+    (listOf(preferred) + VOICE_POOL + listOf(VOICE_API)).map { it.trim().trimEnd('/') }.distinct()
+
+private suspend fun voiceRequestAcross(
+    preferred: String,
+    path: String,
+    method: String = "GET",
+    payload: JSONObject? = null
+): Pair<JSONObject, String> {
+    var lastError: Throwable? = null
+    for (endpoint in voiceServerCandidates(preferred).shuffled()) {
+        try {
+            return voiceRequest(endpoint, path, method, payload) to endpoint
+        } catch (error: Throwable) {
+            lastError = error
+        }
+    }
+    throw IllegalStateException(lastError?.message ?: "All Party voice servers are unavailable")
+}
 private val VoiceBg = Color(0xFF11151A)
 private val VoiceCard = Color(0xFF1A2028)
 private val VoiceMuted = Color(0xFF9AA6B2)
@@ -222,30 +246,31 @@ fun PartyVoicePanel() {
     }
 
     suspend fun refreshRooms() {
-        runCatching {
-            val health = voiceRequest(serverUrl, "/api/voice/health")
-            if (!health.optBoolean("ok", false)) throw IllegalStateException("Voice server is starting")
-            serverReady = true
-            val response = voiceRequest(serverUrl, "/api/voice/rooms")
-            val array = response.optJSONArray("rooms")
-            val list = mutableListOf<VoiceRoom>()
-            if (array != null) for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val parsedMembers = mutableListOf<VoiceMember>()
-                val members = item.optJSONArray("members")
-                if (members != null) for (j in 0 until members.length()) {
-                    val member = members.optJSONObject(j) ?: continue
-                    parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
+        var responding = 0
+        val combined = linkedMapOf<String, VoiceRoom>()
+        for (endpoint in voiceServerCandidates(serverUrl)) {
+            runCatching {
+                val health = voiceRequest(endpoint, "/api/voice/health")
+                if (!health.optBoolean("ok", false)) return@runCatching
+                responding++
+                val response = voiceRequest(endpoint, "/api/voice/rooms")
+                val array = response.optJSONArray("rooms")
+                if (array != null) for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val parsedMembers = mutableListOf<VoiceMember>()
+                    val members = item.optJSONArray("members")
+                    if (members != null) for (j in 0 until members.length()) {
+                        val member = members.optJSONObject(j) ?: continue
+                        parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
+                    }
+                    val id = item.optString("roomId")
+                    combined[id] = VoiceRoom(id, item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers)
                 }
-                list.add(VoiceRoom(item.optString("roomId"), item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers))
             }
-            rooms = list
-            error = ""
-        }.onFailure {
-            serverReady = false
-            rooms = emptyList()
-            error = ""
         }
+        serverReady = responding > 0
+        rooms = combined.values.toList()
+        error = ""
     }
 
     suspend fun joinRoom(id: String) {
@@ -253,10 +278,12 @@ fun PartyVoicePanel() {
         error = ""
         runCatching {
             val body = JSONObject().put("roomId", id).put("memberId", memberId).put("displayName", displayName.ifBlank { "Guest" })
-            val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/join", "POST", body))
+            val (joinJson, ownerEndpoint) = voiceRequestAcross(serverUrl, "/api/voice/rooms/join", "POST", body)
+            val room = parseVoiceRoom(joinJson)
             if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
+            serverUrl = ownerEndpoint
             joined = room
-            prefs.edit().putString("display_name", displayName).putString("room_id", id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", serverUrl).putString("voice_token", room.voiceToken).apply()
+            prefs.edit().putString("display_name", displayName).putString("room_id", id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", ownerEndpoint).putString("voice_token", room.voiceToken).apply()
             requestVoice(room)
             roomIdInput = ""
         }.onFailure { error = it.message ?: "Could not join room" }
@@ -271,11 +298,14 @@ fun PartyVoicePanel() {
         if (savedId.isNotBlank() && savedToken.isNotBlank()) {
             val savedName = prefs.getString("room_name", "Voice Room") ?: "Voice Room"
             val savedVisibility = prefs.getString("room_visibility", "public") ?: "public"
-            val restored = runCatching {
-                parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms/$savedId")).copy(voiceToken = savedToken)
-            }.getOrElse {
-                VoiceRoom(savedId, savedName, savedVisibility, 1, listOf(VoiceMember(memberId, displayName.ifBlank { "You" })), savedToken)
+            val restoredResult = runCatching {
+                voiceRequestAcross(serverUrl, "/api/voice/rooms/$savedId")
             }
+            val restored = restoredResult.getOrNull()?.let { (json, owner) ->
+                serverUrl = owner
+                prefs.edit().putString("server_url", owner).apply()
+                parseVoiceRoom(json).copy(voiceToken = savedToken)
+            } ?: VoiceRoom(savedId, savedName, savedVisibility, 1, listOf(VoiceMember(memberId, displayName.ifBlank { "You" })), savedToken)
             joined = restored
             if (!PartyVoiceService.active.value) startVoice(restored)
         }
@@ -685,10 +715,13 @@ fun PartyVoicePanel() {
                         loading = true
                         runCatching {
                             val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
-                            val room = parseVoiceRoom(voiceRequest(serverUrl, "/api/voice/rooms", "POST", payload))
+                            val chosenEndpoint = VOICE_POOL.shuffled().first()
+                            val (createJson, ownerEndpoint) = voiceRequestAcross(chosenEndpoint, "/api/voice/rooms", "POST", payload)
+                            val room = parseVoiceRoom(createJson)
                             if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
+                            serverUrl = ownerEndpoint
                             joined = room
-                            prefs.edit().putString("display_name", displayName).putString("room_id", room.id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", serverUrl).putString("voice_token", room.voiceToken).apply()
+                            prefs.edit().putString("display_name", displayName).putString("room_id", room.id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", ownerEndpoint).putString("voice_token", room.voiceToken).apply()
                             requestVoice(room)
                         }.onFailure { error = it.message ?: "Room creation failed" }
                         loading = false
