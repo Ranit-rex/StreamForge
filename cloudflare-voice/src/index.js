@@ -204,6 +204,7 @@ export class RoomDirectory {
     }
     if (request.method === "GET" && url.pathname === "/monitor-list") {
       const cutoff = Date.now() - 3*60*60*1000;
+      this.sql.exec("DELETE FROM external_rooms WHERE updated_at<=?", cutoff);
       const cloudflareRooms = this.sql.exec("SELECT room_id,name,visibility,member_count,updated_at FROM rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 100", cutoff).toArray()
         .map(r => ({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:6, provider:"Cloudflare", server:"Cloudflare Durable Objects", endpoint:"https://streamforge-cloudflare-voice.mranit66.workers.dev", createdAt:r.updated_at, members:[] }));
       const renderRooms = this.sql.exec("SELECT room_id,name,visibility,member_count,max_members,provider,server,endpoint,created_at,updated_at FROM external_rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 500", cutoff).toArray()
