@@ -134,13 +134,13 @@ export class RoomSession {
     this.ctx.storage.setAlarm(Date.now() + 12_000);
   }
   webSocketError(ws) { try { ws.close(1011, "Socket error"); } catch {} }
-  async syncDirectory() {
+  async syncDirectory(roomId = "") {
     const room = this.publicRoom();
     const directory = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName("global-directory"));
     const path = room ? "/put" : "/delete";
     await directory.fetch("https://directory.internal" + path, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify(room || { roomId: this.room()?.room_id || "" })
+      body: JSON.stringify(room || { roomId })
     });
   }
   async removeMember(memberId) {
@@ -154,7 +154,7 @@ export class RoomSession {
       const room = this.room();
       this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
-      if (room) await this.syncDirectory();
+      if (room) await this.syncDirectory(room.room_id);
     } else {
       const room = this.room();
       this.sql.exec("UPDATE room SET updated_at=?", Date.now());
