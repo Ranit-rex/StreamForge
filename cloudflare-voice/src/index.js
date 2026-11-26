@@ -15,7 +15,6 @@ export class RoomSession {
       );
     `);
   }
-
   json(status, data) {
     return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" } });
   }
@@ -44,7 +43,7 @@ export class RoomSession {
       const body = await request.json();
       const roomId = String(body.roomId || "");
       const memberId = String(body.memberId || "").slice(0, 64);
-      if (!/^\\d{6}$/.test(roomId) || !memberId) return this.json(400, { error: "Invalid room or member ID." });
+      if (roomId.length !== 6 || [...roomId].some(ch => ch < "0" || ch > "9") || !memberId) return this.json(400, { error: "Invalid room or member ID." });
       const now = Date.now();
       const token = crypto.randomUUID() + crypto.randomUUID();
       this.sql.exec("INSERT INTO room (room_id,name,visibility,created_at,updated_at) VALUES (?,?,?,?,?)", roomId, String(body.name || "Voice Room").slice(0,32), body.visibility === "private" ? "private" : "public", now, now);
@@ -73,7 +72,7 @@ export class RoomSession {
     }
     if (request.method === "POST" && url.pathname === "/leave") {
       const body = await request.json();
-      this.removeMember(String(body.memberId || ""));
+      await this.removeMember(String(body.memberId || ""));
       return this.json(200, { ok: true, roomClosed: !this.room() });
     }
     return this.json(404, { error: "Not found." });
@@ -172,7 +171,6 @@ export class RoomSession {
     }
   }
 }
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -196,8 +194,7 @@ export default {
       if (response.ok) await env.DB.prepare("INSERT OR REPLACE INTO rooms (room_id,name,visibility,member_count,updated_at) VALUES (?,?,?,?,?)").bind(roomId, result.room.name, result.room.visibility, result.room.memberCount, Date.now()).run();
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
-    const joinMatch = url.pathname.match(/^\\/api\\/voice\\/rooms\\/join$/);
-    if (joinMatch && request.method === "POST") {
+    if (url.pathname === "/api/voice/rooms/join" && request.method === "POST") {
       const body = await request.json(); const roomId = String(body.roomId || "");
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const response = await stub.fetch("https://room.internal/join", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
@@ -205,9 +202,9 @@ export default {
       if (response.ok && result.room) await env.DB.prepare("UPDATE rooms SET member_count=?,updated_at=? WHERE room_id=?").bind(result.room.memberCount,Date.now(),roomId).run();
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
-    const roomMatch = url.pathname.match(/^\\/api\\/voice\\/rooms\\/(\\d{6})$/);
-    if (roomMatch && request.method === "GET") {
-      const stub = env.ROOMS.get(env.ROOMS.idFromName(roomMatch[1]));
+    const roomIdFromPath = url.pathname.startsWith("/api/voice/rooms/") ? url.pathname.slice("/api/voice/rooms/".length) : "";
+    if (request.method === "GET" && roomIdFromPath.length === 6 && [...roomIdFromPath].every(ch => ch >= "0" && ch <= "9")) {
+      const stub = env.ROOMS.get(env.ROOMS.idFromName(roomIdFromPath));
       return stub.fetch("https://room.internal/info");
     }
     if (url.pathname === "/api/voice/rooms/leave" && request.method === "POST") {
@@ -222,8 +219,7 @@ export default {
       }
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
-    const wsMatch = url.pathname.match(/^\\/api\\/voice\\/signaling$/);
-    if (wsMatch && request.headers.get("Upgrade") === "websocket") {
+    if (url.pathname === "/api/voice/signaling" && request.headers.get("Upgrade") === "websocket") {
       const roomId = url.searchParams.get("roomId") || "";
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const target = new URL("https://room.internal/signaling");
