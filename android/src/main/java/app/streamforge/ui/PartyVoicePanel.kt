@@ -77,8 +77,9 @@ import java.util.UUID
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
+private const val CLOUDFLARE_VOICE_API = "https://streamforge-cloudflare-voice.mranit66.workers.dev"
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
-private val VOICE_FALLBACK_POOL = listOf(
+private val RENDER_VOICE_POOL = listOf(
     VOICE_API,
     "https://streamforge-signal-a.onrender.com",
     "https://streamforge-signal-b.onrender.com",
@@ -87,8 +88,9 @@ private val VOICE_FALLBACK_POOL = listOf(
     "https://streamforge-signal-e.onrender.com",
     "https://streamforge-signal-f.onrender.com"
 )
+private val VOICE_FALLBACK_POOL = RENDER_VOICE_POOL
 private suspend fun voiceServerCandidates(preferred: String): List<String> =
-    (listOf(preferred) + VOICE_FALLBACK_POOL)
+    (listOf(preferred, CLOUDFLARE_VOICE_API) + RENDER_VOICE_POOL)
         .map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
 
 private suspend fun voiceRequestAcross(
@@ -260,23 +262,36 @@ fun PartyVoicePanel() {
     suspend fun findRoomOwner(roomId: String): String {
         val known = rooms.firstOrNull { it.id == roomId }?.serverUrl.orEmpty()
         if (known.isNotBlank() && runCatching { voiceRequest(known, "/api/voice/rooms/$roomId") }.isSuccess) return known
-        val shard = roomId.firstOrNull()?.digitToIntOrNull()?.minus(1)
-        if (shard != null && shard in VOICE_FALLBACK_POOL.indices) {
-            val endpoint = VOICE_FALLBACK_POOL[shard]
-            if (runCatching { voiceRequest(endpoint, "/api/voice/rooms/$roomId") }.isSuccess) return endpoint
+        val firstDigit = roomId.firstOrNull()?.digitToIntOrNull()
+        val routedEndpoint = when (firstDigit) {
+            8 -> CLOUDFLARE_VOICE_API
+            in 1..7 -> RENDER_VOICE_POOL[firstDigit - 1]
+            else -> ""
         }
+        if (routedEndpoint.isNotBlank() &&
+            runCatching { voiceRequest(routedEndpoint, "/api/voice/rooms/$roomId") }.isSuccess
+        ) return routedEndpoint
         for (endpoint in voiceServerCandidates(serverUrl)) {
-            if (endpoint == known) continue
+            if (endpoint == known || endpoint == routedEndpoint) continue
             if (runCatching { voiceRequest(endpoint, "/api/voice/rooms/$roomId") }.isSuccess) return endpoint
         }
         throw IllegalStateException("Room not found. Check the code or refresh the lobby.")
     }
 
     fun nextVoiceServerAndRoomCode(): Pair<String, String> {
-        val slot = (prefs.getInt("next_server_slot", 0) % VOICE_FALLBACK_POOL.size).coerceAtLeast(0)
-        prefs.edit().putInt("next_server_slot", (slot + 1) % VOICE_FALLBACK_POOL.size).apply()
-        val roomCode = (slot + 1).toString() + (10000..99999).random().toString()
-        return VOICE_FALLBACK_POOL[slot] to roomCode
+        // Weighted local scheduler: 6 of every 10 new rooms go to Cloudflare,
+        // while 4 go to the existing Render pool. Existing rooms never move.
+        val schedule = listOf("cloudflare", "cloudflare", "render", "cloudflare", "render",
+            "cloudflare", "render", "cloudflare", "render", "cloudflare")
+        val slot = (prefs.getInt("next_provider_slot", 0) % schedule.size).coerceAtLeast(0)
+        prefs.edit().putInt("next_provider_slot", (slot + 1) % schedule.size).apply()
+        return if (schedule[slot] == "cloudflare") {
+            CLOUDFLARE_VOICE_API to ("8" + (10000..99999).random().toString())
+        } else {
+            val renderSlot = (prefs.getInt("next_render_server_slot", 0) % RENDER_VOICE_POOL.size).coerceAtLeast(0)
+            prefs.edit().putInt("next_render_server_slot", (renderSlot + 1) % RENDER_VOICE_POOL.size).apply()
+            RENDER_VOICE_POOL[renderSlot] to ((renderSlot + 1).toString() + (10000..99999).random().toString())
+        }
     }
 
     suspend fun refreshRooms() {
