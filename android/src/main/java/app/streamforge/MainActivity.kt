@@ -18,6 +18,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.ads.MobileAds
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
+import app.streamforge.ui.CastDooAuthGate
 import app.streamforge.ui.EditorAssetDownloads
 
 class MainActivity : ComponentActivity() {
