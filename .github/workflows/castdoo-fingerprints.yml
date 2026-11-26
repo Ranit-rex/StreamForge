@@ -1,0 +1,67 @@
+name: CastDoo Debug Certificate Fingerprints
+
+on:
+  push:
+    branches:
+      - feature/castdoo-auth-foundation
+    paths:
+      - .github/workflows/castdoo-fingerprints.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fingerprints:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Android debug certificate
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+      - name: Extract certificate fingerprints
+        id: cert
+        shell: bash
+        run: |
+          keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey > cert.txt
+          SHA1="$(awk -F': ' '/SHA1:/{print $2; exit}' cert.txt)"
+          SHA256="$(awk -F': ' '/SHA256:/{print $2; exit}' cert.txt)"
+          {
+            echo "# CastDoo Android debug certificate"
+            echo
+            echo "Package: com.castdoo.app"
+            echo "Certificate type: GitHub Actions debug key"
+            echo
+            echo "SHA-1: $SHA1"
+            echo
+            echo "SHA-256: $SHA256"
+            echo
+            echo "NOTE: This fingerprint matches APKs signed with this exact debug keystore."
+            echo "It is not automatically the same as a developer's local Android Studio debug key."
+          } > CASTDOO_DEBUG_FINGERPRINTS.txt
+          cat CASTDOO_DEBUG_FINGERPRINTS.txt
+      - name: Save fingerprints to branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/castdoo-auth-foundation
+          persist-credentials: true
+      - name: Commit fingerprint report
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CASTDOO_DEBUG_FINGERPRINTS.txt
+          git commit -m "Add CastDoo debug certificate fingerprints" || exit 0
+          git push origin HEAD:feature/castdoo-auth-foundation
