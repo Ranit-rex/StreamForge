@@ -1,0 +1,9 @@
+{
+  "name": "StreamForge Admin",
+  "short_name": "SF Admin",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#090d18",
+  "theme_color": "#090d18",
+  "icons": []
+}
