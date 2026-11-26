@@ -295,32 +295,53 @@ fun PartyVoicePanel() {
     }
 
     suspend fun refreshRooms() {
-        val results = coroutineScope {
-            voiceServerCandidates(serverUrl).map { endpoint ->
-                async {
-                    runCatching {
-                        val response = voiceRequest(endpoint, "/api/voice/rooms")
-                        val parsedRooms = mutableListOf<VoiceRoom>()
-                        val array = response.optJSONArray("rooms")
-                        if (array != null) for (i in 0 until array.length()) {
-                            val item = array.optJSONObject(i) ?: continue
-                            val parsedMembers = mutableListOf<VoiceMember>()
-                            val members = item.optJSONArray("members")
-                            if (members != null) for (j in 0 until members.length()) {
-                                val member = members.optJSONObject(j) ?: continue
-                                parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
-                            }
-                            val id = item.optString("roomId")
-                            parsedRooms.add(VoiceRoom(id, item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers, serverUrl = endpoint))
-                        }
-                        true to parsedRooms
-                    }.getOrElse { false to emptyList<VoiceRoom>() }
+        // One lightweight Cloudflare directory request discovers both Cloudflare
+        // rooms and public Render rooms registered by their owner nodes. Never
+        // fan out lobby polling to all seven sleeping Render Free services.
+        val result = runCatching {
+            val response = voiceRequest(
+                CLOUDFLARE_VOICE_API,
+                "/api/voice/monitor/rooms"
+            )
+            val parsedRooms = mutableListOf<VoiceRoom>()
+            val array = response.optJSONArray("rooms")
+            if (array != null) for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                if (item.optString("visibility", "public").lowercase() == "private") continue
+                val parsedMembers = mutableListOf<VoiceMember>()
+                val members = item.optJSONArray("members")
+                if (members != null) for (j in 0 until members.length()) {
+                    val member = members.optJSONObject(j) ?: continue
+                    parsedMembers.add(VoiceMember(
+                        member.optString("memberId"),
+                        member.optString("displayName", "Guest"),
+                        member.optBoolean("muted")
+                    ))
                 }
-            }.awaitAll()
+                val id = item.optString("roomId")
+                val ownerEndpoint = item.optString("endpoint")
+                    .trim().trimEnd('/')
+                    .ifBlank { CLOUDFLARE_VOICE_API }
+                if (id.length == 6 && ownerEndpoint.startsWith("https://")) {
+                    parsedRooms.add(VoiceRoom(
+                        id,
+                        item.optString("name", "Voice Room"),
+                        "public",
+                        item.optInt("memberCount", parsedMembers.size),
+                        parsedMembers,
+                        serverUrl = ownerEndpoint
+                    ))
+                }
+            }
+            parsedRooms
         }
-        serverReady = results.any { it.first }
-        rooms = results.flatMap { it.second }.distinctBy { it.id }
-        error = ""
+        serverReady = result.isSuccess
+        if (result.isSuccess) {
+            rooms = result.getOrThrow().distinctBy { it.id }
+            error = ""
+        } else if (rooms.isEmpty()) {
+            error = "Public rooms are temporarily unavailable. Retrying automatically…"
+        }
     }
 
     suspend fun joinRoom(id: String) {
@@ -391,18 +412,25 @@ fun PartyVoicePanel() {
         }
     }
 
-    // Keep the public lobby live while the user is outside a room.
-    // This panel sits inside the app's main vertical scroll, so avoid a nested LazyColumn.
-    // Lobby discovery is manual: background polling would wake every sleeping Free node.
+    // Auto-discover public rooms on entry and keep the lobby current.
+    // Poll only the Cloudflare aggregate directory (10s); it includes registered
+    // Render rooms, so the app never wakes every Render Free node.
     LaunchedEffect(joined?.id) {
-        val room = joined ?: return@LaunchedEffect
-        while (true) {
-            delay(4000)
-            runCatching {
-                val roomServer = room.serverUrl.ifBlank { serverUrl }
-                val updated = parseVoiceRoom(voiceRequest(roomServer, "/api/voice/rooms/${room.id}"))
-                joined = updated.copy(voiceToken = room.voiceToken, serverUrl = roomServer)
-            }.onFailure { error = it.message ?: "Room update failed" }
+        if (joined == null) {
+            while (true) {
+                refreshRooms()
+                delay(10_000)
+            }
+        } else {
+            val room = joined ?: return@LaunchedEffect
+            while (true) {
+                delay(4_000)
+                runCatching {
+                    val roomServer = room.serverUrl.ifBlank { serverUrl }
+                    val updated = parseVoiceRoom(voiceRequest(roomServer, "/api/voice/rooms/${room.id}"))
+                    joined = updated.copy(voiceToken = room.voiceToken, serverUrl = roomServer)
+                }.onFailure { error = it.message ?: "Room update failed" }
+            }
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
