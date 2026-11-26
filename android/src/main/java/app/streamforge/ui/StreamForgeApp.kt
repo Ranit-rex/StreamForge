@@ -1100,7 +1100,6 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             QuickTile("♧", "Notifications", "Your announcements", Modifier.weight(1f)) { onNavigate(12) }
-            QuickTile("◉", "Profile", "Account & preferences", Modifier.weight(1f)) { onNavigate(13) }
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
