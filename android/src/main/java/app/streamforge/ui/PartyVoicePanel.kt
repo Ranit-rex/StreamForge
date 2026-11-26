@@ -670,8 +670,10 @@ private fun PartyScreenVideo(
     modifier: Modifier = Modifier,
     zoomed: Boolean = false
 ) {
-    var renderer by remember(track) { mutableStateOf<SurfaceViewRenderer?>(null) }
-    val eglContext = remember(track) { PartyVoiceService.rendererEglContext() }
+    var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    // Resolve the service EGL context on recomposition instead of caching a null
+    // value from the first composition while the foreground voice service starts.
+    val eglContext = PartyVoiceService.rendererEglContext()
 
     if (eglContext == null) {
         Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = modifier) {
@@ -692,9 +694,9 @@ private fun PartyScreenVideo(
                 setZOrderOnTop(false)
                 setZOrderMediaOverlay(true)
                 holder.setFormat(android.graphics.PixelFormat.OPAQUE)
-                setEnableHardwareScaler(true)
+                setEnableHardwareScaler(false)
                 setMirror(false)
-                 setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+                setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
             }
         },
