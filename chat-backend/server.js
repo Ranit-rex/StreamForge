@@ -10,8 +10,8 @@ const rate = new Map();
 // A room is addressed by one six-digit roomId for both public and private rooms.
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
-const SERVICE_SLOT = Math.min(8, Math.max(1, Number(process.env.VOICE_SERVICE_SLOT || 1)));
-const ROOM_QUOTAS = [0, 63, 63, 63, 63, 62, 62, 62, 62];
+const SERVICE_SLOT = Math.min(7, Math.max(1, Number(process.env.VOICE_SERVICE_SLOT || 1)));
+const ROOM_QUOTAS = [0, 72, 72, 72, 71, 71, 71, 71];
 const MAX_ROOMS_PER_SERVICE = ROOM_QUOTAS[SERVICE_SLOT];
 const MAX_ROOM_MEMBERS = 6;
 const voiceSockets = new Map();
@@ -195,7 +195,7 @@ const server = http.createServer(async (req, res) => {
         const requestedRoomId = String(body.roomId || "");
         let roomId;
         if (requestedRoomId) {
-          if (!/^[1-8]\d{5}$/.test(requestedRoomId) || Number(requestedRoomId[0]) !== SERVICE_SLOT) {
+          if (!/^[1-7]\d{5}$/.test(requestedRoomId) || Number(requestedRoomId[0]) !== SERVICE_SLOT) {
             return send(res, 400, { error: "Room code does not belong to this Party node." });
           }
           if (voiceRooms.has(requestedRoomId)) return send(res, 409, { error: "Room code collision. Please retry." });
