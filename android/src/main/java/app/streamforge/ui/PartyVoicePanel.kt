@@ -786,6 +786,33 @@ fun PartyVoicePanel() {
                             val createJson = voiceRequest(ownerEndpoint, "/api/voice/rooms", "POST", payload)
                             val room = parseVoiceRoom(createJson).copy(serverUrl = ownerEndpoint)
                             if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
+                            // Register public Render rooms in Cloudflare's lightweight directory.
+                            // The Discord monitor reads only Cloudflare, so it never wakes all Render nodes.
+                            if (ownerEndpoint != CLOUDFLARE_VOICE_API && room.visibility == "public") {
+                                val renderIndex = RENDER_VOICE_POOL.indexOf(ownerEndpoint)
+                                val renderName = when (renderIndex) {
+                                    0 -> "Legacy"
+                                    in 1..6 -> "Signal " + ('A' + renderIndex - 1)
+                                    else -> "Render node"
+                                }
+                                scope.launch {
+                                    runCatching {
+                                        voiceRequest(
+                                            CLOUDFLARE_VOICE_API,
+                                            "/api/voice/rooms/register-external",
+                                            "POST",
+                                            JSONObject()
+                                                .put("roomId", room.id)
+                                                .put("name", room.name)
+                                                .put("visibility", room.visibility)
+                                                .put("memberCount", room.count)
+                                                .put("server", renderName)
+                                                .put("endpoint", ownerEndpoint)
+                                                .put("createdAt", System.currentTimeMillis())
+                                        )
+                                    }
+                                }
+                            }
                             serverUrl = ownerEndpoint
                             joined = room
                             prefs.edit().putString("display_name", displayName).putString("room_id", room.id).putString("room_name", room.name).putString("room_visibility", room.visibility).putString("server_url", ownerEndpoint).putString("voice_token", room.voiceToken).apply()
