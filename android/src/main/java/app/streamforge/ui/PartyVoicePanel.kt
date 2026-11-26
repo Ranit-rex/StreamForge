@@ -84,31 +84,9 @@ private val VOICE_FALLBACK_POOL = listOf(
     "https://streamforge-signal-e.onrender.com",
     "https://streamforge-signal-f.onrender.com"
 )
-@Volatile private var cachedVoiceRegistry: List<String> = emptyList()
-@Volatile private var voiceRegistryExpiresAt = 0L
-
-private suspend fun voiceServerCandidates(preferred: String): List<String> {
-    if (cachedVoiceRegistry.isEmpty() || System.currentTimeMillis() >= voiceRegistryExpiresAt) {
-        val remote = runCatching {
-            voiceRequest(VOICE_API, "/api/voice/servers").optJSONArray("servers")
-        }.getOrNull()
-        if (remote != null) {
-            val discovered = buildList {
-                for (index in 0 until remote.length()) {
-                    val item = remote.optJSONObject(index) ?: continue
-                    if (!item.optBoolean("enabled", true)) continue
-                    val endpoint = item.optString("endpoint").trim().trimEnd('/')
-                    if (endpoint.startsWith("https://")) add(endpoint)
-                }
-            }.distinct()
-            if (discovered.isNotEmpty()) cachedVoiceRegistry = discovered
-        }
-        voiceRegistryExpiresAt = System.currentTimeMillis() + 60_000L
-    }
-    val registry = cachedVoiceRegistry.ifEmpty { VOICE_FALLBACK_POOL }
-    return (listOf(preferred) + registry + VOICE_FALLBACK_POOL)
+private suspend fun voiceServerCandidates(preferred: String): List<String> =
+    (listOf(preferred) + VOICE_FALLBACK_POOL)
         .map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
-}
 
 private suspend fun voiceRequestAcross(
     preferred: String,
@@ -148,7 +126,7 @@ private suspend fun voiceRequest(baseUrl: String, path: String, method: String =
     try {
         connection.requestMethod = method
         connection.connectTimeout = 10000
-        connection.readTimeout = 12000
+        connection.readTimeout = 75000
         connection.setRequestProperty("Accept", "application/json")
         if (payload != null) {
             connection.doOutput = true
@@ -197,7 +175,7 @@ fun PartyVoicePanel() {
     val voiceActive by PartyVoiceService.active.collectAsState()
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var serverReady by remember { mutableStateOf(false) }
+    var serverReady by remember { mutableStateOf(true) }
     var showCreate by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
     var selectedMember by remember { mutableStateOf<VoiceMember?>(null) }
@@ -279,26 +257,23 @@ fun PartyVoicePanel() {
     suspend fun findRoomOwner(roomId: String): String {
         val known = rooms.firstOrNull { it.id == roomId }?.serverUrl.orEmpty()
         if (known.isNotBlank() && runCatching { voiceRequest(known, "/api/voice/rooms/$roomId") }.isSuccess) return known
+        val shard = roomId.firstOrNull()?.digitToIntOrNull()?.minus(1)
+        if (shard != null && shard in VOICE_FALLBACK_POOL.indices) {
+            val endpoint = VOICE_FALLBACK_POOL[shard]
+            if (runCatching { voiceRequest(endpoint, "/api/voice/rooms/$roomId") }.isSuccess) return endpoint
+        }
         for (endpoint in voiceServerCandidates(serverUrl)) {
             if (endpoint == known) continue
             if (runCatching { voiceRequest(endpoint, "/api/voice/rooms/$roomId") }.isSuccess) return endpoint
         }
-        throw IllegalStateException("Room not found on any Party server. It may have expired.")
+        throw IllegalStateException("Room not found. Check the code or refresh the lobby.")
     }
 
-    suspend fun selectLeastLoadedVoiceServer(): String {
-        val health = voiceServerCandidates(serverUrl).mapNotNull { endpoint ->
-            runCatching {
-                val status = voiceRequest(endpoint, "/api/voice/health")
-                if (!status.optBoolean("ok", false)) return@runCatching null
-                endpoint to (status.optInt("roomCount") * 1000 + status.optInt("connectedMembers"))
-            }.getOrNull()
-        }
-        val leastLoad = health.minOfOrNull { it.second }
-            ?: throw IllegalStateException("All Party servers are unavailable")
-        return health.filter { it.second == leastLoad }
-            .map { it.first }
-            .random()
+    fun nextVoiceServerAndRoomCode(): Pair<String, String> {
+        val slot = (prefs.getInt("next_server_slot", 0) % VOICE_FALLBACK_POOL.size).coerceAtLeast(0)
+        prefs.edit().putInt("next_server_slot", (slot + 1) % VOICE_FALLBACK_POOL.size).apply()
+        val roomCode = (slot + 1).toString() + (10000..99999).random().toString()
+        return VOICE_FALLBACK_POOL[slot] to roomCode
     }
 
     suspend fun refreshRooms() {
@@ -306,10 +281,8 @@ fun PartyVoicePanel() {
         val combined = linkedMapOf<String, VoiceRoom>()
         for (endpoint in voiceServerCandidates(serverUrl)) {
             runCatching {
-                val health = voiceRequest(endpoint, "/api/voice/health")
-                if (!health.optBoolean("ok", false)) return@runCatching
-                responding++
                 val response = voiceRequest(endpoint, "/api/voice/rooms")
+                responding++
                 val array = response.optJSONArray("rooms")
                 if (array != null) for (i in 0 until array.length()) {
                     val item = array.optJSONObject(i) ?: continue
@@ -399,14 +372,7 @@ fun PartyVoicePanel() {
 
     // Keep the public lobby live while the user is outside a room.
     // This panel sits inside the app's main vertical scroll, so avoid a nested LazyColumn.
-    LaunchedEffect(joined == null, serverUrl) {
-        if (joined == null) {
-            while (true) {
-                refreshRooms()
-                delay(5000)
-            }
-        }
-    }
+    // Lobby discovery is manual: background polling would wake every sleeping Free node.
     LaunchedEffect(joined?.id) {
         val room = joined ?: return@LaunchedEffect
         while (true) {
@@ -473,8 +439,8 @@ fun PartyVoicePanel() {
                 Surface(color = VoiceCard, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         PartyMark(Modifier.size(58.dp))
-                        Text("No one's hanging out yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Create a room and invite your friends with its code.", color = VoiceMuted, fontSize = 11.sp)
+                        Text("Public rooms are not loaded yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Tap Refresh to discover rooms across the seven independent nodes.", color = VoiceMuted, fontSize = 11.sp)
                     }
                 }
             } else {
@@ -794,8 +760,8 @@ fun PartyVoicePanel() {
                     scope.launch {
                         loading = true
                         runCatching {
-                            val payload = JSONObject().put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
-                            val ownerEndpoint = selectLeastLoadedVoiceServer()
+                            val (ownerEndpoint, roomCode) = nextVoiceServerAndRoomCode()
+                            val payload = JSONObject().put("roomId", roomCode).put("name", roomName).put("visibility", visibility).put("memberId", memberId).put("displayName", displayName.ifBlank { "Host" })
                             val createJson = voiceRequest(ownerEndpoint, "/api/voice/rooms", "POST", payload)
                             val room = parseVoiceRoom(createJson).copy(serverUrl = ownerEndpoint)
                             if (room.voiceToken.isBlank()) throw IllegalStateException("Voice security token missing. Update the voice server.")
