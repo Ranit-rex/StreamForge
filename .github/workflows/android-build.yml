@@ -73,15 +73,18 @@ jobs:
         run: |
           APK="$(find android/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
-          mv "$APK" "android/build/outputs/apk/debug/StreamForge-Alpha-build-${BUILD_NUMBER}.apk"
+          mv "$APK" "android/build/outputs/apk/debug/CastDoo-Alpha-build-${BUILD_NUMBER}.apk"
       - name: Verify APK package and signing certificate
         shell: bash
         run: |
-          APK="$(find android/build/outputs/apk/debug -maxdepth 1 -type f -name 'StreamForge-Alpha-build-*.apk' | head -n 1)"
+          APK="$(find android/build/outputs/apk/debug -maxdepth 1 -type f -name 'CastDoo-Alpha-build-*.apk' | head -n 1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$APK" && test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
-          echo "Expected applicationId: app.streamforge.mobile"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$APK" && test -x "$APKSIGNER" && test -x "$AAPT"
+          SIGNER_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1)"
+          echo "$SIGNER_OUTPUT"
+          echo "$SIGNER_OUTPUT" | grep -qi "certificate SHA-1 digest: 660c3627e118939405591df55a92cc9c3fa0b322"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.castdoo.app'"
       - name: Save stable debug signing key
         if: steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -92,6 +95,6 @@ jobs:
       - name: Upload direct APK artifact
         uses: actions/upload-artifact@v7
         with:
-          path: android/build/outputs/apk/debug/StreamForge-Alpha-build-${{ env.BUILD_NUMBER }}.apk
+          path: android/build/outputs/apk/debug/CastDoo-Alpha-build-${{ env.BUILD_NUMBER }}.apk
           archive: false
           retention-days: 14

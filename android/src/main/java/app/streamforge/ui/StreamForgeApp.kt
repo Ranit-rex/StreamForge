@@ -260,6 +260,7 @@ fun StreamForgeApp(
                         10 -> ChatIntegrationPanel()
                         9 -> PartyVoicePanel()
                         11 -> VideoEditorPanel()
+                        12 -> CastDooNotificationsPanel()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
@@ -1096,6 +1097,9 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             QuickTile("✂", "Video Editor", "Trim & export videos", Modifier.weight(1f)) { onNavigate(11) }
             QuickTile("◎", "Destinations", "Link creator accounts", Modifier.weight(1f)) { onNavigate(7) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("♧", "Notifications", "Your announcements", Modifier.weight(1f)) { onNavigate(12) }
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
