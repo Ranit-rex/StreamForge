@@ -2,13 +2,14 @@ plugins {
  id("com.android.application")
  id("org.jetbrains.kotlin.android")
  id("org.jetbrains.kotlin.plugin.compose")
+ id("com.google.gms.google-services")
 }
 val streamforgeBuildNumber = providers.gradleProperty("streamforgeBuildNumber").orElse("1073").get().toInt()
 android {
  namespace = "app.streamforge"
  compileSdk = 35
  defaultConfig {
-  applicationId = "app.streamforge.mobile"
+  applicationId = "com.castdoo.app"
   minSdk = 26
   targetSdk = 35
   versionCode = streamforgeBuildNumber
@@ -50,6 +51,9 @@ dependencies {
  implementation("com.github.pedroSG94.RootEncoder:library:2.8.1")
  implementation("com.google.android.gms:play-services-ads:25.5.0")
  implementation("com.google.android.gms:play-services-auth:21.6.0")
+ implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
+ implementation("com.google.firebase:firebase-auth")
+ implementation("com.google.firebase:firebase-firestore")
  implementation("io.github.webrtc-sdk:android:144.7559.15")
  implementation("com.squareup.okhttp3:okhttp:4.11.0")
 }
