@@ -67,6 +67,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -277,28 +280,31 @@ fun PartyVoicePanel() {
     }
 
     suspend fun refreshRooms() {
-        var responding = 0
-        val combined = linkedMapOf<String, VoiceRoom>()
-        for (endpoint in voiceServerCandidates(serverUrl)) {
-            runCatching {
-                val response = voiceRequest(endpoint, "/api/voice/rooms")
-                responding++
-                val array = response.optJSONArray("rooms")
-                if (array != null) for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val parsedMembers = mutableListOf<VoiceMember>()
-                    val members = item.optJSONArray("members")
-                    if (members != null) for (j in 0 until members.length()) {
-                        val member = members.optJSONObject(j) ?: continue
-                        parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
-                    }
-                    val id = item.optString("roomId")
-                    combined[id] = VoiceRoom(id, item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers, serverUrl = endpoint)
+        val results = coroutineScope {
+            voiceServerCandidates(serverUrl).map { endpoint ->
+                async {
+                    runCatching {
+                        val response = voiceRequest(endpoint, "/api/voice/rooms")
+                        val parsedRooms = mutableListOf<VoiceRoom>()
+                        val array = response.optJSONArray("rooms")
+                        if (array != null) for (i in 0 until array.length()) {
+                            val item = array.optJSONObject(i) ?: continue
+                            val parsedMembers = mutableListOf<VoiceMember>()
+                            val members = item.optJSONArray("members")
+                            if (members != null) for (j in 0 until members.length()) {
+                                val member = members.optJSONObject(j) ?: continue
+                                parsedMembers.add(VoiceMember(member.optString("memberId"), member.optString("displayName", "Guest"), member.optBoolean("muted")))
+                            }
+                            val id = item.optString("roomId")
+                            parsedRooms.add(VoiceRoom(id, item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers, serverUrl = endpoint))
+                        }
+                        true to parsedRooms
+                    }.getOrElse { false to emptyList() }
                 }
-            }
+            }.awaitAll()
         }
-        serverReady = responding > 0
-        rooms = combined.values.toList()
+        serverReady = results.any { it.first }
+        rooms = results.flatMap { it.second }.distinctBy { it.id }
         error = ""
     }
 
