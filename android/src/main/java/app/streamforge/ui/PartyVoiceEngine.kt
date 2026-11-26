@@ -177,6 +177,9 @@ internal class PartyVoiceEngine(
                     applyAudioRoute(speakerEnabled)
                     startLocalMicMonitor()
                     openSignalingSocket()
+                    // A user may confirm Android's capture dialog before WebRTC finishes
+                    // booting. Drain that queued request only after the factory/EGL are ready.
+                    startPendingScreenShare()
                 } catch (error: Throwable) {
                     Log.e(TAG, "Voice initialization failed", error)
                     publish("Voice setup failed: " + (error.message ?: "audio initialization error"))
@@ -225,21 +228,48 @@ internal class PartyVoiceEngine(
 
     fun eglContext(): org.webrtc.EglBase.Context? = eglBase?.eglBaseContext
 
+    private data class PendingScreenShare(val permissionData: Intent, val width: Int, val height: Int, val fps: Int)
+
+    @Volatile private var pendingScreenShare: PendingScreenShare? = null
+
     fun startScreenShare(permissionData: Intent, width: Int, height: Int, fps: Int = 30) {
+        synchronized(lock) {
+            if (closed || screenSharing) return
+            // Preserve the one-time MediaProjection grant while WebRTC initializes.
+            pendingScreenShare = PendingScreenShare(permissionData, width, height, fps)
+            screenShareStatus = "Preparing screen capture…"
+            publish("Preparing screen capture…")
+        }
+        startPendingScreenShare()
+    }
+
+    private fun startPendingScreenShare() {
         thread(name = "sf-party-screen-start") {
             synchronized(lock) {
                 if (closed || screenSharing) return@thread
+                val request = pendingScreenShare ?: return@thread
+                val currentFactory = factory
+                val currentEgl = eglBase
+                if (currentFactory == null || currentEgl == null) {
+                    screenShareStatus = "Waiting for voice engine…"
+                    publish("Waiting for voice engine…")
+                    return@thread
+                }
+                pendingScreenShare = null
+                var source: VideoSource? = null
+                var helper: SurfaceTextureHelper? = null
+                var capturer: ScreenCapturerAndroid? = null
+                var track: VideoTrack? = null
                 try {
-                    val currentFactory = factory ?: throw IllegalStateException("Voice connection is not ready")
                     val transceivers = videoTransceivers.values.toList()
-                    Log.i(TAG, "Screen share starting: peers=${peers.size} videoTransceivers=${transceivers.size} requested=${width}x${height}@${fps}")
-                    val source = currentFactory.createVideoSource(true)
-                    val helper = SurfaceTextureHelper.create("sf-party-screen-capture", eglBase!!.eglBaseContext)
-                    val capturer = ScreenCapturerAndroid(permissionData, object : android.media.projection.MediaProjection.Callback() {
+                    Log.i(TAG, "Screen share starting: peers=${peers.size} videoTransceivers=${transceivers.size} requested=${request.width}x${request.height}@${request.fps}")
+                    source = currentFactory.createVideoSource(true)
+                    helper = SurfaceTextureHelper.create("sf-party-screen-capture", currentEgl.eglBaseContext)
+                    capturer = ScreenCapturerAndroid(request.permissionData, object : android.media.projection.MediaProjection.Callback() {
                         override fun onStop() { thread(name = "sf-party-screen-stop") { stopScreenShare() } }
                     })
                     capturer.initialize(helper, app, source.capturerObserver)
-                    val track = currentFactory.createVideoTrack("sf-party-screen", source)
+                    track = currentFactory.createVideoTrack("sf-party-screen", source)
                     track.setEnabled(true)
                     var attached = 0
                     transceivers.forEach { transceiver ->
@@ -247,40 +277,68 @@ internal class PartyVoiceEngine(
                         Log.i(TAG, "Screen sender attach peerTransceiver=${transceiver.mid ?: "pending"} result=${ok} direction=${transceiver.direction}")
                         if (ok) attached++
                     }
-                    if (transceivers.isNotEmpty() && attached != transceivers.size) throw IllegalStateException("Could not attach screen video to every participant")
+                    if (transceivers.isNotEmpty() && attached != transceivers.size) {
+                        throw IllegalStateException("Could not attach screen video to every participant")
+                    }
+
                     screenVideoSource = source
                     screenTextureHelper = helper
                     screenCapturer = capturer
                     screenVideoTrack = track
                     val lastFrameLogAt = AtomicLong(0L)
+                    val frameCount = AtomicLong(0L)
                     val frameSink = object : VideoSink {
                         override fun onFrame(frame: VideoFrame) {
+                            val count = frameCount.incrementAndGet()
+                            if (count == 1L) {
+                                screenShareStatus = "Live · ${frame.buffer.width}×${frame.buffer.height}"
+                                publish("Screen capture frames received")
+                            }
                             val now = SystemClock.elapsedRealtime()
                             val previous = lastFrameLogAt.get()
                             if (previous == 0L || now - previous >= 5000L) {
                                 if (lastFrameLogAt.compareAndSet(previous, now)) {
-                                    Log.i(TAG, "LOCAL_SCREEN_FRAME ${frame.buffer.width}x${frame.buffer.height} rotation=${frame.rotation}")
+                                    Log.i(TAG, "LOCAL_SCREEN_FRAME count=${count} ${frame.buffer.width}x${frame.buffer.height} rotation=${frame.rotation}")
                                 }
                             }
                         }
                     }
                     localScreenFrameSink = frameSink
                     track.addSink(frameSink)
-                    // Width/height already preserve the source aspect ratio. Keep them paired;
-                    // independent min/max clamps distort portrait and landscape streams.
-                    val captureWidth = (width.coerceIn(2, 1920) / 2) * 2
-                    val captureHeight = (height.coerceIn(2, 1920) / 2) * 2
-                    capturer.startCapture(captureWidth, captureHeight, fps.coerceIn(15, 30))
-                    Log.i(TAG, "ScreenCapturerAndroid startCapture returned; attachedSenders=${attached}")
+
+                    // Scale the longest source edge to the requested quality while preserving
+                    // portrait/landscape ratio. Never clamp width and height independently.
+                    val maxEdge = request.width.coerceAtLeast(request.height).coerceIn(2, 1920)
+                    val sourceLongEdge = request.width.coerceAtLeast(request.height).coerceAtLeast(2)
+                    val scale = maxEdge.toFloat() / sourceLongEdge.toFloat()
+                    val captureWidth = ((request.width * scale).toInt().coerceAtLeast(2) / 2) * 2
+                    val captureHeight = ((request.height * scale).toInt().coerceAtLeast(2) / 2) * 2
                     screenSharing = true
-                    screenShareStatus = "Your screen is being shared"
+                    screenShareStatus = "Starting Android screen capture…"
+                    capturer.startCapture(captureWidth, captureHeight, request.fps.coerceIn(15, 30))
+                    Log.i(TAG, "ScreenCapturerAndroid startCapture returned: ${captureWidth}x${captureHeight}@${request.fps}; attachedSenders=${attached}")
                     send(JSONObject().put("type", "screen-share").put("active", true))
-                    // The video m-line is negotiated before capture starts. Renegotiate
-                    // after attaching the sender so peers receive an updated send direction.
                     videoTransceivers.keys.forEach { peerId -> renegotiateVideoPeer(peerId) }
-                    publish(currentStatus)
+                    publish("Screen share starting · waiting for first frame")
+
+                    // Distinguish a running capturer from a working frame pipeline.
+                    thread(name = "sf-party-screen-watchdog") {
+                        Thread.sleep(6000L)
+                        synchronized(lock) {
+                            if (screenSharing && frameCount.get() == 0L) {
+                                screenShareStatus = "Capture started, but Android has not delivered video frames. Stop and retry screen share."
+                                Log.e(TAG, "SCREEN_CAPTURE_NO_FRAMES after 6 seconds")
+                                publish("Screen capture produced no frames")
+                            }
+                        }
+                    }
                 } catch (error: Throwable) {
                     Log.e(TAG, "Screen share start failed", error)
+                    runCatching { capturer?.stopCapture() }
+                    runCatching { capturer?.dispose() }
+                    runCatching { track?.dispose() }
+                    runCatching { source?.dispose() }
+                    runCatching { helper?.dispose() }
                     stopScreenShareInternal()
                     screenShareStatus = "Screen share failed: ${error.message ?: "unknown error"}"
                     publish(currentStatus)
@@ -290,11 +348,15 @@ internal class PartyVoiceEngine(
     }
 
     fun stopScreenShare() {
-        synchronized(lock) { stopScreenShareInternal() }
+        synchronized(lock) {
+            pendingScreenShare = null
+            stopScreenShareInternal()
+        }
         publish(currentStatus)
     }
 
     private fun stopScreenShareInternal() {
+        pendingScreenShare = null
         val wasSharing = screenSharing
         runCatching { videoTransceivers.values.forEach { it.sender.setTrack(null, false) } }
         if (wasSharing) send(JSONObject().put("type", "screen-share").put("active", false))
