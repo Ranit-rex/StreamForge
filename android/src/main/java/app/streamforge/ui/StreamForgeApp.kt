@@ -97,7 +97,7 @@ private val qualityOptions = listOf(
     StreamQuality("1080p Full HD · 60 FPS", 1920, 1080, 60, 7_500_000),
     StreamQuality("1080p Full HD · 30 FPS", 1920, 1080, 30, 5_000_000),
     StreamQuality("720p HD · 60 FPS", 1280, 720, 60, 4_500_000),
-    StreamQuality("720p HD · 30 FPS", 1280, 720, 30, 3_000_000),
+    StreamQuality("720p HD · 30 FPS", 1280, 720, 30, 2_500_000),
     StreamQuality("480p Data Saver · 30 FPS", 854, 480, 30, 1_500_000)
 )
 
@@ -138,7 +138,7 @@ fun StreamForgeApp(
     var colorContrast by remember { mutableFloatStateOf(prefs.getFloat("color_contrast", 1f)) }
     var colorSaturation by remember { mutableFloatStateOf(prefs.getFloat("color_saturation", 1f)) }
     var colorSharpness by remember { mutableFloatStateOf(prefs.getFloat("color_sharpness", 0f)) }
-    var targetBitrateMbps by remember { mutableFloatStateOf(prefs.getFloat("video_bitrate_mbps", qualityOptions[5].bitrate / 1_000_000f).coerceIn(0.8f, 35f)) }
+    var targetBitrateMbps by remember { mutableFloatStateOf(prefs.getFloat("video_bitrate_mbps", 2.5f).coerceIn(0.8f, 35f)) }
     var adaptiveBitrate by remember { mutableStateOf(prefs.getBoolean("adaptive_bitrate", true)) }
     var audioBitrateKbps by remember { mutableFloatStateOf(prefs.getInt("audio_bitrate_kbps", 128).toFloat()) }
     var audioEnhancements by remember { mutableStateOf(prefs.getBoolean("audio_enhancements", true)) }
