@@ -134,6 +134,15 @@ export class RoomSession {
     this.ctx.storage.setAlarm(Date.now() + 12_000);
   }
   webSocketError(ws) { try { ws.close(1011, "Socket error"); } catch {} }
+  async syncDirectory() {
+    const room = this.publicRoom();
+    const directory = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName("global-directory"));
+    const path = room ? "/put" : "/delete";
+    await directory.fetch("https://directory.internal" + path, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(room || { roomId: this.room()?.room_id || "" })
+    });
+  }
   async removeMember(memberId) {
     if (!memberId) return;
     this.sql.exec("DELETE FROM members WHERE member_id=?", memberId);
@@ -145,11 +154,11 @@ export class RoomSession {
       const room = this.room();
       this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
-      if (room) await this.env.DB.prepare("DELETE FROM rooms WHERE room_id=?").bind(room.room_id).run();
+      if (room) await this.syncDirectory();
     } else {
       const room = this.room();
       this.sql.exec("UPDATE room SET updated_at=?", Date.now());
-      if (room) await this.env.DB.prepare("UPDATE rooms SET member_count=?,updated_at=? WHERE room_id=?").bind(remaining,Date.now(),room.room_id).run();
+      if (room) await this.syncDirectory();
     }
   }
   async alarm() {
@@ -162,7 +171,7 @@ export class RoomSession {
       for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, "Room expired"); } catch {} }
       this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
-      await this.env.DB.prepare("DELETE FROM rooms WHERE room_id=?").bind(room.room_id).run();
+      await this.syncDirectory();
     } else if (room) {
       const nextExpiry = room.updated_at + 3 * 60 * 60 * 1000;
       const disconnected = this.members().map(m => m.disconnected_at).filter(Boolean).map(Number);
@@ -171,6 +180,36 @@ export class RoomSession {
     }
   }
 }
+
+export class RoomDirectory {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.sql = ctx.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS rooms (
+      room_id TEXT PRIMARY KEY, name TEXT NOT NULL, visibility TEXT NOT NULL,
+      member_count INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+  }
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/list") {
+      const rows = this.sql.exec("SELECT room_id,name,visibility,member_count,updated_at FROM rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 100", Date.now()-3*60*60*1000).toArray();
+      return Response.json({ rooms: rows.map(r=>({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:6, members:[] })) });
+    }
+    if (request.method === "POST" && url.pathname === "/put") {
+      const r = await request.json();
+      this.sql.exec("INSERT OR REPLACE INTO rooms (room_id,name,visibility,member_count,updated_at) VALUES (?,?,?,?,?)", String(r.roomId), String(r.name||"Voice Room"), String(r.visibility||"public"), Number(r.memberCount)||0, Date.now());
+      return Response.json({ok:true});
+    }
+    if (request.method === "POST" && url.pathname === "/delete") {
+      const r = await request.json();
+      this.sql.exec("DELETE FROM rooms WHERE room_id=?", String(r.roomId||""));
+      return Response.json({ok:true});
+    }
+    return new Response("Not found",{status:404});
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -180,9 +219,10 @@ export default {
     if (url.pathname === "/api/voice/health") return json(200, { ok: true, service: "streamforge-cloudflare-voice", provider: "cloudflare", maxMembers: 6 });
     if (url.pathname === "/api/voice/servers") return json(200, { ok: true, servers: [{ id: "cloudflare-voice", provider: "cloudflare", endpoint: url.origin, enabled: true, weight: 1 }] });
     if (url.pathname === "/api/voice/ice-servers") return json(200, { iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }], relayConfigured: false });
+    const directory = env.DIRECTORY.get(env.DIRECTORY.idFromName("global-directory"));
     if (url.pathname === "/api/voice/rooms" && request.method === "GET") {
-      const rows = await env.DB.prepare("SELECT room_id,name,visibility,member_count,updated_at FROM rooms WHERE visibility='public' AND updated_at > ? ORDER BY updated_at DESC LIMIT 100").bind(Date.now() - 3 * 60 * 60 * 1000).all();
-      return json(200, { rooms: rows.results.map(r => ({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:6, members:[] })) });
+      const response = await directory.fetch("https://directory.internal/list");
+      return new Response(await response.text(), { status: response.status, headers: { ...cors, "content-type": "application/json" } });
     }
     if (url.pathname === "/api/voice/rooms" && request.method === "POST") {
       const body = await request.json();
@@ -191,7 +231,7 @@ export default {
       const stub = env.ROOMS.get(id);
       const response = await stub.fetch("https://room.internal/create", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({...body, roomId}) });
       const result = await response.clone().json().catch(()=>({}));
-      if (response.ok) await env.DB.prepare("INSERT OR REPLACE INTO rooms (room_id,name,visibility,member_count,updated_at) VALUES (?,?,?,?,?)").bind(roomId, result.room.name, result.room.visibility, result.room.memberCount, Date.now()).run();
+      if (response.ok) await directory.fetch("https://directory.internal/put", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(result.room) });
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
     if (url.pathname === "/api/voice/rooms/join" && request.method === "POST") {
@@ -199,7 +239,7 @@ export default {
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const response = await stub.fetch("https://room.internal/join", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
       const result = await response.clone().json().catch(()=>({}));
-      if (response.ok && result.room) await env.DB.prepare("UPDATE rooms SET member_count=?,updated_at=? WHERE room_id=?").bind(result.room.memberCount,Date.now(),roomId).run();
+      if (response.ok && result.room) await directory.fetch("https://directory.internal/put", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(result.room) });
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
     const roomIdFromPath = url.pathname.startsWith("/api/voice/rooms/") ? url.pathname.slice("/api/voice/rooms/".length) : "";
@@ -212,10 +252,10 @@ export default {
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const response = await stub.fetch("https://room.internal/leave", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body) });
       const result = await response.clone().json().catch(()=>({}));
-      if (result.roomClosed) await env.DB.prepare("DELETE FROM rooms WHERE room_id=?").bind(roomId).run();
+      if (result.roomClosed) await directory.fetch("https://directory.internal/delete", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({roomId}) });
       else {
         const info = await (await stub.fetch("https://room.internal/info")).json().catch(()=>null);
-        if (info?.room) await env.DB.prepare("UPDATE rooms SET member_count=?,updated_at=? WHERE room_id=?").bind(info.room.memberCount,Date.now(),roomId).run();
+        if (info?.room) await directory.fetch("https://directory.internal/put", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(info.room) });
       }
       return new Response(JSON.stringify(result), { status:response.status, headers:{...cors,"content-type":"application/json"} });
     }
