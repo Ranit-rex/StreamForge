@@ -75,13 +75,37 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
-private val VOICE_POOL = listOf(
+private val VOICE_FALLBACK_POOL = listOf(
+    VOICE_API,
     "https://streamforge-signal-a.onrender.com",
     "https://streamforge-signal-b.onrender.com",
     "https://streamforge-signal-c.onrender.com"
 )
-private fun voiceServerCandidates(preferred: String): List<String> =
-    (listOf(preferred) + VOICE_POOL + listOf(VOICE_API)).map { it.trim().trimEnd('/') }.distinct()
+@Volatile private var cachedVoiceRegistry: List<String> = emptyList()
+@Volatile private var voiceRegistryExpiresAt = 0L
+
+private suspend fun voiceServerCandidates(preferred: String): List<String> {
+    if (cachedVoiceRegistry.isEmpty() || System.currentTimeMillis() >= voiceRegistryExpiresAt) {
+        val remote = runCatching {
+            voiceRequest(VOICE_API, "/api/voice/servers").optJSONArray("servers")
+        }.getOrNull()
+        if (remote != null) {
+            val discovered = buildList {
+                for (index in 0 until remote.length()) {
+                    val item = remote.optJSONObject(index) ?: continue
+                    if (!item.optBoolean("enabled", true)) continue
+                    val endpoint = item.optString("endpoint").trim().trimEnd('/')
+                    if (endpoint.startsWith("https://")) add(endpoint)
+                }
+            }.distinct()
+            if (discovered.isNotEmpty()) cachedVoiceRegistry = discovered
+        }
+        voiceRegistryExpiresAt = System.currentTimeMillis() + 60_000L
+    }
+    val registry = cachedVoiceRegistry.ifEmpty { VOICE_FALLBACK_POOL }
+    return (listOf(preferred) + registry + VOICE_FALLBACK_POOL)
+        .map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
+}
 
 private suspend fun voiceRequestAcross(
     preferred: String,
@@ -259,15 +283,18 @@ fun PartyVoicePanel() {
     }
 
     suspend fun selectLeastLoadedVoiceServer(): String {
-        val health = VOICE_POOL.mapNotNull { endpoint ->
+        val health = voiceServerCandidates(serverUrl).mapNotNull { endpoint ->
             runCatching {
                 val status = voiceRequest(endpoint, "/api/voice/health")
                 if (!status.optBoolean("ok", false)) return@runCatching null
                 endpoint to (status.optInt("roomCount") * 1000 + status.optInt("connectedMembers"))
             }.getOrNull()
         }
-        return health.minByOrNull { it.second }?.first
+        val leastLoad = health.minOfOrNull { it.second }
             ?: throw IllegalStateException("All Party servers are unavailable")
+        return health.filter { it.second == leastLoad }
+            .map { it.first }
+            .random()
     }
 
     suspend fun refreshRooms() {
