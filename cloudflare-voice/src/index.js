@@ -214,7 +214,7 @@ export class RoomDirectory {
       const body = await request.json();
       const roomId = String(body.roomId || "");
       const visibility = String(body.visibility || "public").toLowerCase();
-      const endpoint = String(body.endpoint || "").trim().replace(/\\/+$/, "");
+            const endpoint = String(body.endpoint || "").trim().replace(/\/+$/, "");
       const allowedEndpoints = new Set([
         "https://streamforge-chat-api.onrender.com",
         "https://streamforge-signal-a.onrender.com",
@@ -224,7 +224,7 @@ export class RoomDirectory {
         "https://streamforge-signal-e.onrender.com",
         "https://streamforge-signal-f.onrender.com"
       ]);
-      if (!/^\\d{6}$/.test(roomId) || visibility !== "public" || !allowedEndpoints.has(endpoint)) {
+            if (!/^\d{6}$/.test(roomId) || visibility !== "public" || !allowedEndpoints.has(endpoint)) {
         return Response.json({ error:"Only valid public Render room registrations are accepted." }, { status:400 });
       }
       const now = Date.now();
