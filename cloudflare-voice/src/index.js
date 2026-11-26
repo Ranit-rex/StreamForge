@@ -135,27 +135,40 @@ export class RoomSession {
     this.ctx.storage.setAlarm(Date.now() + 12_000);
   }
   webSocketError(ws) { try { ws.close(1011, "Socket error"); } catch {} }
-  removeMember(memberId) {
+  async removeMember(memberId) {
     if (!memberId) return;
     this.sql.exec("DELETE FROM members WHERE member_id=?", memberId);
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.deserializeAttachment()?.memberId === memberId) { try { ws.close(1000, "Member left"); } catch {} }
     }
-    if (this.members().length === 0) {
+    const remaining = this.members().length;
+    if (remaining === 0) {
+      const room = this.room();
+      this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
-      this.ctx.storage.deleteAll();
-    } else this.sql.exec("UPDATE room SET updated_at=?", Date.now());
+      if (room) await this.env.DB.prepare("DELETE FROM rooms WHERE room_id=?").bind(room.room_id).run();
+    } else {
+      const room = this.room();
+      this.sql.exec("UPDATE room SET updated_at=?", Date.now());
+      if (room) await this.env.DB.prepare("UPDATE rooms SET member_count=?,updated_at=? WHERE room_id=?").bind(remaining,Date.now(),room.room_id).run();
+    }
   }
   async alarm() {
     const now = Date.now();
     for (const m of this.members()) {
-      if (m.disconnected_at && now - m.disconnected_at >= 10_000) this.removeMember(m.member_id);
+      if (m.disconnected_at && now - m.disconnected_at >= 10_000) await this.removeMember(m.member_id);
     }
     const room = this.room();
     if (room && now - room.updated_at > 3 * 60 * 60 * 1000) {
       for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, "Room expired"); } catch {} }
       this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
+      await this.env.DB.prepare("DELETE FROM rooms WHERE room_id=?").bind(room.room_id).run();
+    } else if (room) {
+      const nextExpiry = room.updated_at + 3 * 60 * 60 * 1000;
+      const disconnected = this.members().map(m => m.disconnected_at).filter(Boolean).map(Number);
+      const nextDisconnect = disconnected.length ? Math.min(...disconnected) + 10_000 : Number.MAX_SAFE_INTEGER;
+      await this.ctx.storage.setAlarm(Math.min(nextExpiry, nextDisconnect));
     }
   }
 }
