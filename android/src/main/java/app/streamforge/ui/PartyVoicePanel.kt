@@ -84,31 +84,12 @@ private val VOICE_FALLBACK_POOL = listOf(
     "https://streamforge-signal-e.onrender.com",
     "https://streamforge-signal-f.onrender.com"
 )
-@Volatile private var cachedVoiceRegistry: List<String> = emptyList()
-@Volatile private var voiceRegistryExpiresAt = 0L
-
-private suspend fun voiceServerCandidates(preferred: String): List<String> {
-    if (cachedVoiceRegistry.isEmpty() || System.currentTimeMillis() >= voiceRegistryExpiresAt) {
-        val remote = runCatching {
-            voiceRequest(VOICE_API, "/api/voice/servers").optJSONArray("servers")
-        }.getOrNull()
-        if (remote != null) {
-            val discovered = buildList {
-                for (index in 0 until remote.length()) {
-                    val item = remote.optJSONObject(index) ?: continue
-                    if (!item.optBoolean("enabled", true)) continue
-                    val endpoint = item.optString("endpoint").trim().trimEnd('/')
-                    if (endpoint.startsWith("https://")) add(endpoint)
-                }
-            }.distinct()
-            if (discovered.isNotEmpty()) cachedVoiceRegistry = discovered
-        }
-        voiceRegistryExpiresAt = System.currentTimeMillis() + 60_000L
-    }
-    val registry = cachedVoiceRegistry.ifEmpty { VOICE_FALLBACK_POOL }
-    return (listOf(preferred) + registry + VOICE_FALLBACK_POOL)
-        .map { it.trim().trimEnd('/') }.filter { it.startsWith("https://") }.distinct()
-}
+// Discovery is client-side so no voice node depends on another node for its registry.
+private suspend fun voiceServerCandidates(preferred: String): List<String> =
+    (listOf(preferred) + VOICE_FALLBACK_POOL)
+        .map { it.trim().trimEnd('/') }
+        .filter { it.startsWith("https://") }
+        .distinct()
 
 private suspend fun voiceRequestAcross(
     preferred: String,
@@ -277,13 +258,16 @@ fun PartyVoicePanel() {
     }
 
     suspend fun findRoomOwner(roomId: String): String {
-        val known = rooms.firstOrNull { it.id == roomId }?.serverUrl.orEmpty()
-        if (known.isNotBlank() && runCatching { voiceRequest(known, "/api/voice/rooms/$roomId") }.isSuccess) return known
-        for (endpoint in voiceServerCandidates(serverUrl)) {
-            if (endpoint == known) continue
-            if (runCatching { voiceRequest(endpoint, "/api/voice/rooms/$roomId") }.isSuccess) return endpoint
-        }
-        throw IllegalStateException("Room not found on any Party server. It may have expired.")
+        // The first room-code digit permanently identifies its owner node (1–7).
+        val ownerIndex = roomId.firstOrNull()?.digitToIntOrNull()?.minus(1)
+        val owner = ownerIndex?.let { VOICE_FALLBACK_POOL.getOrNull(it) }
+            ?: throw IllegalArgumentException("Invalid room code.")
+        runCatching { voiceRequest(owner, "/api/voice/rooms/$roomId") }
+            .getOrElse { failure ->
+                if (failure.message.orEmpty().contains("Room not found", ignoreCase = true)) throw failure
+                throw IllegalStateException("This room's voice server is temporarily unavailable. Please retry.")
+            }
+        return owner
     }
 
     suspend fun selectLeastLoadedVoiceServer(): String {
@@ -291,11 +275,17 @@ fun PartyVoicePanel() {
             runCatching {
                 val status = voiceRequest(endpoint, "/api/voice/health")
                 if (!status.optBoolean("ok", false)) return@runCatching null
-                endpoint to (status.optInt("roomCount") * 1000 + status.optInt("connectedMembers"))
+                val maxRooms = status.optInt("maxRooms", 72).coerceAtLeast(1)
+                val roomCount = status.optInt("roomCount")
+                if (roomCount >= maxRooms) return@runCatching null
+                val connectedMembers = status.optInt("connectedMembers")
+                val roomLoad = roomCount.toDouble() / maxRooms.toDouble()
+                val memberLoad = connectedMembers.toDouble() / (maxRooms * 6.0)
+                endpoint to (roomLoad * 0.7 + memberLoad * 0.3)
             }.getOrNull()
         }
         val leastLoad = health.minOfOrNull { it.second }
-            ?: throw IllegalStateException("All Party servers are unavailable")
+            ?: throw IllegalStateException("All 500 voice rooms are currently occupied. Please try again later.")
         return health.filter { it.second == leastLoad }
             .map { it.first }
             .random()
