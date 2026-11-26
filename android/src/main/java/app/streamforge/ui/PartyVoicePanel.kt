@@ -731,7 +731,8 @@ private fun PartyScreenVideo(
         factory = { viewContext ->
             SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
-                setEnableHardwareScaler(true)
+                // Let WebRTC's FIT transform own scaling; hardware scaler can crop on some devices.
+                setEnableHardwareScaler(false)
                 setMirror(false)
                 setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
@@ -752,7 +753,11 @@ private fun PartyScreenVideo(
         }
         onDispose { if (target != null) track.removeSink(target) }
     }
+    // Capture the renderer instance belonging to this effect. Reading the mutable
+    // Compose state inside onDispose can release the *new* renderer during a state
+    // transition (null -> SurfaceViewRenderer), which produces a brief frame then black.
     DisposableEffect(renderer) {
-        onDispose { renderer?.release() }
+        val target = renderer
+        onDispose { target?.release() }
     }
 }
