@@ -16,7 +16,7 @@ const MAX_ROOM_MEMBERS = 6;
 const VOICE_NODE_ID = /^[1-7]$/.test(String(process.env.VOICE_NODE_ID || ""))
   ? String(process.env.VOICE_NODE_ID)
   : "1";
-const MAX_ACTIVE_ROOMS = Math.max(1, Math.min(500, Number(process.env.MAX_ACTIVE_ROOMS) || 72);
+const MAX_ACTIVE_ROOMS = Math.max(1, Math.min(500, Number(process.env.MAX_ACTIVE_ROOMS) || 72));
 const voiceSockets = new Map();
 const memberDisconnectTimers = new Map();
 const MEMBER_RECONNECT_GRACE_MS = 10000;
