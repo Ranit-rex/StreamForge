@@ -1,6 +1,7 @@
 import http from "node:http";
 import { MongoClient } from "mongodb";
 import { timingSafeEqual } from "node:crypto";
+import { pushConfigured, sendPush } from "./fcm.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
@@ -46,6 +47,16 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),adminKeyConfigured:Boolean(ADMIN_KEY)});
+
+  if (req.method==="POST" && url.pathname==="/api/devices/register") {
+    try {
+      const input=await body(req),token=String(input.token||"").trim();
+      if(!token||token.length>8192)return send(res,400,{error:"Valid FCM token required"});
+      const d=await database();
+      await d.collection("push_devices").updateOne({token},{$set:{token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
+      return send(res,200,{registered:true});
+    } catch(error){return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"});}
+  }
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
   if (!authorized(req)) return send(res,401,{error:"Admin key invalid or not configured"});
   if (!URI) {
@@ -57,6 +68,19 @@ async function handler(req,res) {
   }
   try {
     const d = await database();
+
+    if(req.method==="GET"&&url.pathname==="/api/push/status"){
+      const registeredDevices=await d.collection("push_devices").countDocuments({enabled:true});
+      return send(res,200,{configured:pushConfigured(),registeredDevices});
+    }
+    if(req.method==="POST"&&url.pathname==="/api/push/send"){
+      const input=await body(req),title=String(input.title||"").trim(),message=String(input.message||"").trim();
+      if(!title||!message)return send(res,400,{error:"Title and message are required"});
+      const rows=await d.collection("push_devices").find({enabled:true}).project({token:1}).toArray();
+      const result=await sendPush(rows.map(x=>x.token),title.slice(0,100),message.slice(0,2000),d);
+      await d.collection("admin_audit_logs").insertOne({action:"push.sent",sent:result.sent,failed:result.failed,createdAt:new Date()});
+      return send(res,200,{...result,devices:rows.length});
+    }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
         d.collection("admin_announcements").countDocuments(),
