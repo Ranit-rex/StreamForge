@@ -1,0 +1,15 @@
+name = "streamforge-cloudflare-voice"
+main = "src/index.js"
+compatibility_date = "2026-11-26"
+
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "RoomDirectory"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomDirectory", "RoomSession"]
