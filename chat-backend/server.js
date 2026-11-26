@@ -28,19 +28,24 @@ function getVoiceServerRegistry() {
     if (Array.isArray(parsed)) configured = parsed;
   } catch { /* Keep the safe built-in registry when config is invalid. */ }
   const source = configured.length ? configured : DEFAULT_VOICE_SERVERS;
+  const normalized = source.map(item => {
+    let endpoint = String(item?.endpoint || "").trim();
+    while (endpoint.endsWith("/")) endpoint = endpoint.slice(0, -1);
+    return {
+      id: String(item?.id || endpoint),
+      provider: String(item?.provider || "custom"),
+      region: String(item?.region || "unknown"),
+      endpoint,
+      enabled: item?.enabled !== false,
+      weight: Math.max(1, Number(item?.weight) || 1)
+    };
+  });
   const seen = new Set();
-  return source.filter(item => {
-    const endpoint = String(item?.endpoint || "").trim().replace(/\/+$/, "");
-    if (!item?.enabled || !/^https:\/\//i.test(endpoint) || seen.has(endpoint)) return false;
-    seen.add(endpoint);
+  return normalized.filter(item => {
+    if (!item.enabled || !item.endpoint.startsWith("https://") || seen.has(item.endpoint)) return false;
+    seen.add(item.endpoint);
     return true;
-  }).map(item => ({
-    id: String(item.id || item.endpoint),
-    provider: String(item.provider || "custom"),
-    region: String(item.region || "unknown"),
-    endpoint: String(item.endpoint).trim().replace(/\/+$/, ""),
-    weight: Math.max(1, Number(item.weight) || 1)
-  }));
+  }).map(({ enabled, ...item }) => item);
 }
 
 
