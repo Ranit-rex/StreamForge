@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
+            CastDooAuthGate {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
                     pendingRecordingOnly = false
@@ -173,6 +174,7 @@ class MainActivity : ComponentActivity() {
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) },
                 compactMode = false
             )
+            }
         }
     }
 
