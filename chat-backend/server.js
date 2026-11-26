@@ -11,6 +11,12 @@ const rate = new Map();
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
+// Each Render service owns a fixed, non-overlapping room-code range and quota.
+// Quotas across the seven nodes add up to exactly 500 concurrent rooms.
+const VOICE_NODE_ID = /^[1-7]$/.test(String(process.env.VOICE_NODE_ID || ""))
+  ? String(process.env.VOICE_NODE_ID)
+  : "1";
+const MAX_ACTIVE_ROOMS = Math.max(1, Math.min(500, Number(process.env.MAX_ACTIVE_ROOMS) || 72);
 const voiceSockets = new Map();
 const memberDisconnectTimers = new Map();
 const MEMBER_RECONNECT_GRACE_MS = 10000;
@@ -78,6 +84,9 @@ function removeVoiceMember(roomId, memberId, reason = "Member left room") {
 function cleanRooms() {
   const now = Date.now();
   for (const [id, room] of voiceRooms) {
+    // Never expire a room while at least one signaling socket is connected.
+    // The TTL only cleans abandoned rooms after their members have disconnected.
+    if (voiceSockets.get(id)?.size) continue;
     if (now - room.updatedAt > ROOM_TTL_MS || room.members.length === 0) voiceRooms.delete(id);
   }
 }
@@ -146,7 +155,9 @@ const server = http.createServer(async (req, res) => {
         const connectedMembers = [...voiceSockets.values()].reduce((sum, peers) => sum + peers.size, 0);
         return send(res, 200, {
           ok: true, service: "streamforge-chat-api", voiceSignaling: "ready",
-          roomCount: voiceRooms.size, connectedMembers, turnConfigured: true,
+          roomCount: voiceRooms.size, maxRooms: MAX_ACTIVE_ROOMS,
+          availableRoomSlots: Math.max(0, MAX_ACTIVE_ROOMS - voiceRooms.size),
+          nodeId: VOICE_NODE_ID, connectedMembers, turnConfigured: true,
           timestamp: new Date().toISOString()
         });
       }
@@ -185,8 +196,12 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req);
         const visibility = body.visibility === "private" ? "private" : "public";
         const name = String(body.name || "Voice Room").trim().slice(0, 32) || "Voice Room";
+        if (voiceRooms.size >= MAX_ACTIVE_ROOMS) {
+          return send(res, 429, { error: "This voice server has reached its room limit. Try another server." });
+        }
         let roomId;
-        do { roomId = String(Math.floor(100000 + Math.random() * 900000)); } while (voiceRooms.has(roomId));
+        // First digit identifies the independent owner node, preventing cross-node collisions.
+        do { roomId = VOICE_NODE_ID + String(Math.floor(10000 + Math.random() * 90000)); } while (voiceRooms.has(roomId));
         const memberId = String(body.memberId || "").slice(0, 64);
         const displayName = String(body.displayName || "Host").trim().slice(0, 24) || "Host";
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
