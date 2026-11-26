@@ -32,6 +32,7 @@ import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -128,6 +129,11 @@ class StreamService : Service(), ConnectChecker {
     private var activeVideoBitrate = 4_500_000
     private var lastBitrateAdjustmentAt = 0L
     private var stableNetworkSince = 0L
+    private var thermalStatus = PowerManager.THERMAL_STATUS_NONE
+    private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
+        thermalStatus = status
+        applyThermalBitrateLimit()
+    }
     private var activeStreamWidth = 1280
     private var activeStreamHeight = 720
     private var activeSceneIndex = 0
@@ -191,6 +197,13 @@ class StreamService : Service(), ConnectChecker {
         val memoryInfo = ActivityManager.MemoryInfo()
         activityManager?.getMemoryInfo(memoryInfo)
         lowRamDevice = activityManager?.isLowRamDevice == true || (memoryInfo.totalMem in 1L..2_500_000_000L)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                val powerManager = getSystemService(PowerManager::class.java)
+                thermalStatus = powerManager.currentThermalStatus
+                powerManager.addThermalStatusListener({ command -> Handler(Looper.getMainLooper()).post(command) }, thermalListener)
+            }
+        }
         val studioPrefs = getSharedPreferences("streamforge_studio", 0)
         val audioBitrate = studioPrefs.getInt("audio_bitrate_kbps", 128).coerceIn(64, 320) * 1_000
         val audioEnhancements = studioPrefs.getBoolean("audio_enhancements", true)
@@ -198,7 +211,7 @@ class StreamService : Service(), ConnectChecker {
         gameAudioGain.value = studioPrefs.getFloat("audio_game_gain", 1f).coerceIn(0f, 2f)
         stream = GenericStream(this, this, NoVideoSource(), microphoneSource).apply {
             // Low-RAM devices render at a capped cadence to reduce CPU/GPU heat.
-            getGlInterface().setForceRender(true, if (lowRamDevice) 33 else 5)
+            getGlInterface().setForceRender(true, 33)
             prepareAudio(44_100, true, audioBitrate, echoCanceler = audioEnhancements, noiseSuppressor = audioEnhancements)
             // A smaller queue detects upload congestion sooner on mobile networks.
             getStreamClient().resizeCache(200)
@@ -1007,6 +1020,24 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
+    private fun applyThermalBitrateLimit() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !streaming.value) return
+        val threshold = PowerManager.THERMAL_STATUS_MODERATE
+        if (thermalStatus < threshold) return
+        val factor = if (thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) 0.70f else 0.85f
+        val reduced = (activeVideoBitrate * factor).toInt().coerceAtLeast(900_000)
+        if (reduced < activeVideoBitrate) {
+            activeVideoBitrate = reduced
+            runCatching { stream?.setVideoBitrateOnFly(reduced) }
+            stableNetworkSince = 0L
+            networkHealth.value = if (thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
+                "Device temperature high · bitrate reduced"
+            } else {
+                "Device warming · bitrate reduced"
+            }
+        }
+    }
+
     private fun setLiveBitrate(requested: Int) {
         val active = stream ?: return
         if (!streaming.value || !active.isStreaming) return
@@ -1374,6 +1405,7 @@ class StreamService : Service(), ConnectChecker {
         Handler(Looper.getMainLooper()).post { showFloatingControls() }
         YouTubeLiveChat.start(this)
         status.value = "LIVE"
+        applyThermalBitrateLimit()
         updateOngoingNotification(if (recording.value) "LIVE · Local recording active" else "LIVE · Streaming active")
     }
     override fun onConnectionFailed(reason: String) {
@@ -1405,7 +1437,7 @@ class StreamService : Service(), ConnectChecker {
                 }
             } else {
                 if (stableNetworkSince == 0L) stableNetworkSince = now
-                if (now - stableNetworkSince >= 30_000L && activeVideoBitrate < requestedVideoBitrate) {
+                if (thermalStatus < PowerManager.THERMAL_STATUS_MODERATE && now - stableNetworkSince >= 30_000L && activeVideoBitrate < requestedVideoBitrate) {
                     activeVideoBitrate = (activeVideoBitrate * 1.05).toInt().coerceAtMost(requestedVideoBitrate)
                     runCatching { activeStream.setVideoBitrateOnFly(activeVideoBitrate) }
                     stableNetworkSince = now
@@ -1430,6 +1462,9 @@ class StreamService : Service(), ConnectChecker {
     override fun onAuthSuccess() { status.value = "Destination authenticated" }
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching { getSystemService(PowerManager::class.java).removeThermalStatusListener(thermalListener) }
+        }
         // Do not call stopRecording() here: it can call stopSelf() and tear down
         // MediaProjection a second time while Android is already destroying us.
         if (recording.value) runCatching { stream?.stopRecord() }
