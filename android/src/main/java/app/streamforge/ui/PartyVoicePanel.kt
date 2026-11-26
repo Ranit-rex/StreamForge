@@ -259,7 +259,7 @@ fun PartyVoicePanel() {
     }
 
     suspend fun selectLeastLoadedVoiceServer(): String {
-        val health = voiceServerCandidates(serverUrl).mapNotNull { endpoint ->
+        val health = VOICE_POOL.mapNotNull { endpoint ->
             runCatching {
                 val status = voiceRequest(endpoint, "/api/voice/health")
                 if (!status.optBoolean("ok", false)) return@runCatching null
