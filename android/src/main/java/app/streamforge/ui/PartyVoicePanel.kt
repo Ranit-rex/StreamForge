@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -152,7 +154,6 @@ fun PartyVoicePanel() {
     var remoteScreenFullscreen by remember { mutableStateOf(false) }
     var screenQuality by remember { mutableStateOf(720) }
     var requestingScreenShare by remember { mutableStateOf(false) }
-    var showMoreControls by remember { mutableStateOf(false) }
 
     fun startVoice(room: VoiceRoom) {
         prefs.edit()
@@ -457,44 +458,49 @@ fun PartyVoicePanel() {
                     Text("${room.members.size} / 6", color = VoiceMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
                 val displayMembers = room.members.ifEmpty { listOf(VoiceMember(memberId, displayName.ifBlank { "You" })) }
-                displayMembers.chunked(2).forEach { pair ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                        pair.forEach { member ->
-                            val own = member.id == memberId
-                            val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
-                            val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers || member.muted
-                            Surface(
-                                color = if (active) Color(0xFF202C29) else Color(0xFF1B2229),
-                                shape = RoundedCornerShape(20.dp),
-                                modifier = Modifier.weight(1f).aspectRatio(1f)
-                                    .border(if (active) 2.dp else 1.dp, if (active) Color(0xFF65D99D) else Color(0xFF303A42), RoundedCornerShape(20.dp))
-                                    .clickable {
-                                        if (!own) {
-                                            selectedMember = member
-                                            selectedMemberVolume = 1f
-                                        }
-                                    }
-                            ) {
-                                Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Surface(color = if (active) Color(0xFF285B49) else Color(0xFF35302C), shape = RoundedCornerShape(22.dp), modifier = Modifier.size(58.dp)) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Text(member.name.take(1).uppercase(), color = if (active) Color(0xFFB6F1D0) else Color(0xFFFFC29F), fontSize = 25.sp, fontWeight = FontWeight.ExtraBold)
+                Column(
+                    modifier = Modifier.fillMaxWidth().height(224.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    displayMembers.chunked(3).forEach { group ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                            group.forEach { member ->
+                                val own = member.id == memberId
+                                val active = if (own) voiceState.localSpeaking else member.id in voiceState.speaking
+                                val muted = if (own) !voiceState.micEnabled else member.id in voiceState.mutedMembers || member.muted
+                                Surface(
+                                    color = if (active) Color(0xFF202C29) else Color(0xFF1B2229),
+                                    shape = RoundedCornerShape(15.dp),
+                                    modifier = Modifier.weight(1f).aspectRatio(1f)
+                                        .border(if (active) 2.dp else 1.dp, if (active) Color(0xFF65D99D) else Color(0xFF303A42), RoundedCornerShape(15.dp))
+                                        .clickable {
+                                            if (!own) {
+                                                selectedMember = member
+                                                selectedMemberVolume = 1f
                                             }
                                         }
-                                        if (muted) {
-                                            Surface(color = Color(0xFF6B3434), shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).size(22.dp)) {
-                                                Box(contentAlignment = Alignment.Center) { PartyGlyph("mute", Modifier.size(12.dp), Color(0xFFFFC3BD)) }
+                                ) {
+                                    Column(Modifier.fillMaxSize().padding(5.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Surface(color = if (active) Color(0xFF285B49) else Color(0xFF35302C), shape = RoundedCornerShape(13.dp), modifier = Modifier.size(40.dp)) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Text(member.name.take(1).uppercase(), color = if (active) Color(0xFFB6F1D0) else Color(0xFFFFC29F), fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                                                }
+                                            }
+                                            if (muted) {
+                                                Surface(color = Color(0xFF6B3434), shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).size(17.dp)) {
+                                                    Box(contentAlignment = Alignment.Center) { PartyGlyph("mute", Modifier.size(10.dp), Color(0xFFFFC3BD)) }
+                                                }
                                             }
                                         }
+                                        Spacer(Modifier.height(5.dp))
+                                        Text(member.name + if (own) " (you)" else "", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                        Text(if (muted) "Muted" else if (active) "Speaking" else "In voice", color = if (active) Color(0xFF8FE2B2) else VoiceMuted, fontSize = 8.sp, maxLines = 1)
                                     }
-                                    Spacer(Modifier.height(9.dp))
-                                    Text(member.name + if (own) " (you)" else "", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                                    Text(if (muted) "Muted" else if (active) "Speaking" else "In voice", color = if (active) Color(0xFF8FE2B2) else VoiceMuted, fontSize = 10.sp)
                                 }
                             }
+                            repeat(3 - group.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
                 Text(
@@ -506,18 +512,23 @@ fun PartyVoicePanel() {
                 )
 
                 Surface(color = Color(0xFF20272D), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        PartyDockButton("·", "Mic", active = voiceState.micEnabled, glyph = "mic") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 10.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        PartyDockButton("Mic", active = voiceState.micEnabled, glyph = "mic") {
                             PartyVoiceService.setMicEnabled(context, !voiceState.micEnabled)
                         }
-                        PartyDockButton("B1", "Share", active = voiceState.screenSharing, glyph = "screen") {
+                        PartyDockButton("Share", active = voiceState.screenSharing, glyph = "screen") {
                             showScreenQuality = true
                         }
-                        PartyDockButton("B2", "Audio", active = voiceState.speakerEnabled, glyph = "speaker") {
+                        PartyDockButton("Speaker", active = voiceState.speakerEnabled, glyph = "speaker") {
                             PartyVoiceService.setSpeakerEnabled(context, !voiceState.speakerEnabled)
                         }
-                        PartyDockButton("∞", "More", active = showMoreControls, glyph = "infinity") {
-                            showMoreControls = true
+                        PartyDockButton("Leave", active = false, glyph = "leave") {
+                            PartyVoiceService.leave(context)
+                            joined = null
+                            showRoomCode = false
+                            showRemoteScreen = false
+                            prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
+                            scope.launch { refreshRooms() }
                         }
                     }
                 }
@@ -650,34 +661,6 @@ fun PartyVoicePanel() {
         }
     }
 
-    if (showMoreControls) {
-        Dialog(onDismissRequest = { showMoreControls = false }) {
-            Surface(color = Color(0xFF20272D), shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Party controls", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("Room ${joined?.id ?: ""}", color = VoiceMuted, fontSize = 11.sp)
-                    Button(onClick = { showRoomCode = true; showMoreControls = false }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34302E))) {
-                        Text("Show invite code", color = Color(0xFFFFB58A))
-                    }
-                    Button(
-                        onClick = {
-                            showMoreControls = false
-                            PartyVoiceService.leave(context)
-                            joined = null
-                            showRoomCode = false
-                            showRemoteScreen = false
-                            prefs.edit().remove("room_id").remove("voice_token").remove("room_name").apply()
-                            scope.launch { refreshRooms() }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B3837))
-                    ) { Text("Leave party", color = Color.White) }
-                }
-            }
-        }
-    }
-
     if (showCreate) {
         AlertDialog(
             onDismissRequest = { showCreate = false },
@@ -785,6 +768,12 @@ private fun PartyGlyph(kind: String, modifier: Modifier = Modifier, color: Color
                 }
                 drawPath(p, color, style = Stroke(width = size.minDimension * .12f))
             }
+            "leave" -> {
+                drawRoundRect(color, Offset(w * .12f, h * .12f), Size(w * .55f, h * .76f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * .07f), style = stroke)
+                drawLine(color, Offset(w * .53f, h * .50f), Offset(w * .92f, h * .50f), stroke.width)
+                drawLine(color, Offset(w * .75f, h * .32f), Offset(w * .92f, h * .50f), stroke.width)
+                drawLine(color, Offset(w * .75f, h * .68f), Offset(w * .92f, h * .50f), stroke.width)
+            }
             "spark" -> {
                 val p = Path().apply {
                     moveTo(w * .50f, h * .06f); lineTo(w * .61f, h * .39f); lineTo(w * .94f, h * .50f)
@@ -799,7 +788,6 @@ private fun PartyGlyph(kind: String, modifier: Modifier = Modifier, color: Color
 
 @Composable
 private fun PartyDockButton(
-    symbol: String,
     caption: String,
     active: Boolean,
     glyph: String,
@@ -809,15 +797,21 @@ private fun PartyDockButton(
         Surface(
             color = if (active) Color(0xFF3A302A) else Color(0xFF293139),
             shape = CircleShape,
-            modifier = Modifier.size(52.dp).clickable(onClick = onClick)
+            modifier = Modifier.size(48.dp).clickable(onClick = onClick)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                if (symbol == "·") PartyGlyph(glyph, Modifier.size(22.dp), if (active) Color(0xFFFFB58A) else VoiceMuted)
-                else if (symbol == "∞") PartyGlyph(glyph, Modifier.size(24.dp), if (active) Color(0xFFFFB58A) else Color.White)
-                else Text(symbol, color = if (active) Color(0xFFFFB58A) else Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                PartyGlyph(glyph, Modifier.size(23.dp), when {
+                    caption == "Leave" -> Color(0xFFFF9189)
+                    active -> Color(0xFFFFB58A)
+                    else -> Color.White
+                })
             }
         }
-        Text(caption, color = if (active) Color(0xFFFFB58A) else VoiceMuted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        Text(caption, color = when {
+            caption == "Leave" -> Color(0xFFFF9189)
+            active -> Color(0xFFFFB58A)
+            else -> VoiceMuted
+        }, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
