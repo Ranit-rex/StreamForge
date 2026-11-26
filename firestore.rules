@@ -1,0 +1,174 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validPublicIdClaim(publicId, uid) {
+      return existsAfter(/databases/$(database)/documents/publicIds/$(publicId))
+        && getAfter(/databases/$(database)/documents/publicIds/$(publicId)).data.uid == uid;
+    }
+
+    // User profile: only the account owner can read or edit their private profile.
+    // Profile creation and public-ID reservation must happen in one Firestore transaction.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'publicId', 'displayName', 'email', 'photoUrl',
+          'createdAt', 'updatedAt', 'termsAcceptedAt', 'termsVersion',
+          'provider', 'accountStatus'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'publicId', 'displayName', 'createdAt', 'updatedAt',
+          'termsAcceptedAt', 'termsVersion', 'provider', 'accountStatus'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.publicId is string
+        && request.resource.data.publicId.matches('^[A-Z0-9]{5}$')
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.termsVersion is string
+        && request.resource.data.termsVersion.size() <= 20
+        && request.resource.data.provider == 'google.com'
+        && request.resource.data.accountStatus == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.termsAcceptedAt == request.time
+        && validPublicIdClaim(request.resource.data.publicId, uid);
+
+      allow update: if isOwner(uid)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.publicId == resource.data.publicId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'photoUrl', 'updatedAt'
+        ])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 60
+        && request.resource.data.updatedAt == request.time;
+
+      // Account deletion must be performed by a trusted deletion workflow,
+      // not by deleting only this document from the client.
+      allow delete: if false;
+    }
+
+    // Global five-character ID registry. A claim is permanent and immutable.
+    // Client profile creation must atomically create this document too.
+    match /publicIds/{publicId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && publicId.matches('^[A-Z0-9]{5}$')
+        && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.keys().hasAll(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && !exists(/databases/$(database)/documents/publicIds/$(publicId))
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.publicId == publicId;
+      allow update, delete: if false;
+    }
+
+    // Direct messages / voice-call signaling containers.
+    // Only listed participants can access a room; membership cannot be
+    // changed by a normal client after creation.
+    match /chatRooms/{roomId} {
+      function isParticipant() {
+        return signedIn() && request.auth.uid in resource.data.participants;
+      }
+
+      allow read: if isParticipant();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'participants', 'createdBy', 'createdAt', 'type', 'lastMessageAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'participants', 'createdBy', 'createdAt', 'type'
+        ])
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() >= 2
+        && request.resource.data.participants.size() <= 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.type in ['direct', 'voice'];
+
+      allow update: if isParticipant()
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageAt']);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function parentRoom() {
+          return get(/databases/$(database)/documents/chatRooms/$(roomId)).data;
+        }
+
+        function roomMember() {
+          return signedIn() && request.auth.uid in parentRoom().participants;
+        }
+
+        allow read: if roomMember();
+        allow create: if roomMember()
+          && request.resource.data.keys().hasOnly([
+            'senderId', 'text', 'createdAt', 'type'
+          ])
+          && request.resource.data.keys().hasAll([
+            'senderId', 'text', 'createdAt', 'type'
+          ])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 5000
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.type in ['text', 'system'];
+        allow update, delete: if false;
+      }
+    }
+
+    // Friend/invite requests. Only the sender and recipient may read;
+    // sender creates, recipient may accept/decline via status-only update.
+    match /invites/{inviteId} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.fromUid
+          || request.auth.uid == resource.data.toUid);
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'fromUid', 'toUid', 'status', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'fromUid', 'toUid', 'status', 'createdAt'
+        ])
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if signedIn()
+        && request.auth.uid == resource.data.toUid
+        && request.resource.data.fromUid == resource.data.fromUid
+        && request.resource.data.toUid == resource.data.toUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && resource.data.status == 'pending'
+        && request.resource.data.status in ['accepted', 'declined']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+
+      allow delete: if false;
+    }
+
+    // Everything else is closed until a collection has explicit rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
