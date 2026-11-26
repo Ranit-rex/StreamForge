@@ -64,6 +64,8 @@ import java.net.URL
 import java.util.UUID
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
+import org.webrtc.VideoSink
+import org.webrtc.VideoFrame
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
 private val VoiceBg = Color(0xFF11151A)
@@ -135,6 +137,7 @@ fun PartyVoicePanel() {
     val voiceActive by PartyVoiceService.active.collectAsState()
     var error by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var serverReady by remember { mutableStateOf(false) }
     var showCreate by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
     var selectedMember by remember { mutableStateOf<VoiceMember?>(null) }
@@ -142,7 +145,6 @@ fun PartyVoicePanel() {
     var showScreenQuality by remember { mutableStateOf(false) }
     var showRemoteScreen by remember { mutableStateOf(false) }
     var remoteScreenFullscreen by remember { mutableStateOf(false) }
-    var remoteScreenZoomed by remember { mutableStateOf(false) }
     var screenQuality by remember { mutableStateOf(720) }
 
     fun startVoice(room: VoiceRoom) {
@@ -212,6 +214,9 @@ fun PartyVoicePanel() {
 
     suspend fun refreshRooms() {
         runCatching {
+            val health = voiceRequest(serverUrl, "/api/voice/health")
+            if (!health.optBoolean("ok", false)) throw IllegalStateException("Voice server is starting")
+            serverReady = true
             val response = voiceRequest(serverUrl, "/api/voice/rooms")
             val array = response.optJSONArray("rooms")
             val list = mutableListOf<VoiceRoom>()
@@ -226,7 +231,12 @@ fun PartyVoicePanel() {
                 list.add(VoiceRoom(item.optString("roomId"), item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers))
             }
             rooms = list
-        }.onFailure { error = it.message ?: "Unable to load public lobby" }
+            error = ""
+        }.onFailure {
+            serverReady = false
+            rooms = emptyList()
+            error = ""
+        }
     }
 
     suspend fun joinRoom(id: String) {
@@ -326,7 +336,28 @@ fun PartyVoicePanel() {
                 TextButton(onClick = { scope.launch { refreshRooms() } }) { Text("REFRESH") }
                 Button(onClick = { showCreate = true }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("＋ Create") }
             }
-            if (rooms.isEmpty()) {
+            if (!serverReady) {
+                Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                modifier = Modifier.width(20.dp).height(20.dp),
+                                color = VoiceAccent,
+                                strokeWidth = 2.dp
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Server loading…", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Text("Connecting to StreamForge voice server. This can take a few seconds.", color = VoiceMuted, fontSize = 10.sp)
+                            }
+                        }
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = VoiceAccent,
+                            trackColor = Color(0xFF303846)
+                        )
+                    }
+                }
+            } else if (rooms.isEmpty()) {
                 Surface(color = VoiceCard, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                     Text("No public rooms right now. Create one and invite friends with its Room ID.", color = VoiceMuted, fontSize = 12.sp, modifier = Modifier.padding(15.dp))
                 }
@@ -387,7 +418,6 @@ fun PartyVoicePanel() {
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth().then(if (displayedTrack != null) Modifier.clickable {
                             remoteScreenFullscreen = false
-                            remoteScreenZoomed = false
                             showRemoteScreen = true
                         } else Modifier)
                     ) {
@@ -403,7 +433,7 @@ fun PartyVoicePanel() {
                                 if (displayedTrack != null) Text("⛶", color = Color.White, fontSize = 20.sp)
                             }
                             if (displayedTrack != null && !showRemoteScreen) {
-                                PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth().aspectRatio(16f / 9f), false)
+                                PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth(), useSourceAspectRatio = true)
                             } else if (displayedTrack != null) {
                                 // Do not keep two SurfaceViewRenderers attached to the same
                                 // track while the full-screen viewer is open. Their surface
@@ -535,9 +565,6 @@ fun PartyVoicePanel() {
                         TextButton(onClick = { remoteScreenFullscreen = !remoteScreenFullscreen }) {
                             Text(if (remoteScreenFullscreen) "EXIT ZOOM" else "⛶ ZOOM")
                         }
-                        TextButton(onClick = { remoteScreenZoomed = !remoteScreenZoomed }) {
-                            Text(if (remoteScreenZoomed) "FIT" else "FILL")
-                        }
                         TextButton(onClick = {
                             showRemoteScreen = false
                             remoteScreenFullscreen = false
@@ -547,7 +574,7 @@ fun PartyVoicePanel() {
                         PartyScreenVideo(
                             remoteTrack,
                             Modifier.fillMaxWidth().weight(1f),
-                            remoteScreenZoomed
+                            useSourceAspectRatio = false
                         )
                     } else {
                         Surface(color = Color(0xFF111823), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -558,7 +585,7 @@ fun PartyVoicePanel() {
                             }
                         }
                     }
-                    Text("Pinch-free viewing · use ZOOM to fill the viewer and FULL for edge-to-edge mode", color = VoiceMuted, fontSize = 9.sp)
+                    Text("Full phone screen stays visible · use FULL for edge-to-edge mode", color = VoiceMuted, fontSize = 9.sp)
                 }
             }
         }
@@ -668,9 +695,28 @@ fun PartyVoicePanel() {
 private fun PartyScreenVideo(
     track: VideoTrack,
     modifier: Modifier = Modifier,
-    zoomed: Boolean = false
+    useSourceAspectRatio: Boolean = false
 ) {
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
+    var sourceAspectRatio by remember(track) { mutableStateOf(16f / 9f) }
+    val sizeSink = remember(track) {
+        object : VideoSink {
+            override fun onFrame(frame: VideoFrame) {
+                val rotated = frame.rotation % 180 != 0
+                val frameWidth = if (rotated) frame.buffer.height else frame.buffer.width
+                val frameHeight = if (rotated) frame.buffer.width else frame.buffer.height
+                if (frameWidth > 0 && frameHeight > 0) {
+                    val ratio = frameWidth.toFloat() / frameHeight.toFloat()
+                    if (ratio in 0.2f..5f) sourceAspectRatio = ratio
+                }
+            }
+        }
+    }
+    DisposableEffect(track, sizeSink) {
+        track.addSink(sizeSink)
+        onDispose { track.removeSink(sizeSink) }
+    }
+    val videoModifier = if (useSourceAspectRatio) modifier.aspectRatio(sourceAspectRatio) else modifier
     // Resolve the service EGL context on recomposition instead of caching a null
     // value from the first composition while the foreground voice service starts.
     val eglContext = PartyVoiceService.rendererEglContext()
@@ -700,7 +746,7 @@ private fun PartyScreenVideo(
                 renderer = this
             }
         },
-        modifier = modifier,
+        modifier = videoModifier,
         update = { view ->
             view.setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
         }
