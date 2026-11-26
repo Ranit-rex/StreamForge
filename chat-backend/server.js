@@ -20,7 +20,10 @@ const DEFAULT_VOICE_SERVERS = [
   { id: "render-legacy", provider: "render", region: "singapore", endpoint: "https://streamforge-chat-api.onrender.com", enabled: true, weight: 1 },
   { id: "render-a", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-a.onrender.com", enabled: true, weight: 1 },
   { id: "render-b", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-b.onrender.com", enabled: true, weight: 1 },
-  { id: "render-c", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-c.onrender.com", enabled: true, weight: 1 }
+  { id: "render-c", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-c.onrender.com", enabled: true, weight: 1 },
+  { id: "render-d", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-d.onrender.com", enabled: true, weight: 1 },
+  { id: "render-e", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-e.onrender.com", enabled: true, weight: 1 },
+  { id: "render-f", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-f.onrender.com", enabled: true, weight: 1 }
 ];
 
 function getVoiceServerRegistry() {
