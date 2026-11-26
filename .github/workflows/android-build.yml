@@ -79,9 +79,10 @@ jobs:
         run: |
           APK="$(find android/build/outputs/apk/debug -maxdepth 1 -type f -name 'CastDoo-Alpha-build-*.apk' | head -n 1)"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$APK" && test -x "$APKSIGNER"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -n "$APK" && test -x "$APKSIGNER" && test -x "$AAPT"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
-          aapt dump badging "$APK" | grep -F "package: name='com.castdoo.app'"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.castdoo.app'"
       - name: Save stable debug signing key
         if: steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
