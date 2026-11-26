@@ -378,7 +378,7 @@ internal class PartyVoiceEngine(
         screenVideoSource = null
         screenTextureHelper = null
         screenSharing = false
-        screenShareStatus = "Screen sharing stopped"
+        screenShareStatus = ""
     }
 
     fun setMicEnabled(enabled: Boolean) {
