@@ -408,8 +408,8 @@ fun PartyVoicePanel() {
                         }
                     }
                 }
-                if (voiceState.screenSharing || voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null) {
-                    val localIsSharing = voiceState.screenSharing
+                if (voiceState.screenSharing || voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null || voiceState.screenShareStatus.isNotBlank()) {
+                    val localIsSharing = voiceState.screenSharing || (!voiceState.remoteScreenActive && voiceState.screenShareStatus.isNotBlank())
                     val remoteIsSharing = !localIsSharing && (voiceState.remoteScreenActive || voiceState.remoteScreenTrack != null)
                     val displayedTrack = if (localIsSharing) voiceState.localScreenTrack else voiceState.remoteScreenTrack
                     Surface(
@@ -427,7 +427,16 @@ fun PartyVoicePanel() {
                                 }
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                     Text(if (localIsSharing) "Your screen · LIVE PREVIEW" else "${voiceState.remoteScreenOwner ?: "A member"}'s screen", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    Text(if (displayedTrack != null) if (localIsSharing) "Your live preview · shared with everyone" else "Everyone can watch · tap preview to open" else "Connecting live video…", color = VoiceMuted, fontSize = 10.sp)
+                                    Text(
+                                        if (displayedTrack != null) {
+                                            if (localIsSharing) voiceState.screenShareStatus.ifBlank { "Your live preview · shared with everyone" }
+                                            else "Everyone can watch · tap preview to open"
+                                        } else {
+                                            voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }
+                                        },
+                                        color = VoiceMuted,
+                                        fontSize = 10.sp
+                                    )
                                 }
                                 if (displayedTrack != null) Text("⛶", color = Color.White, fontSize = 20.sp)
                             }
@@ -445,8 +454,8 @@ fun PartyVoicePanel() {
                             } else {
                                 Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                                         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                            Text("▣", color = Color(0xFF8CE0B8), fontSize = 30.sp)
-                                            Text("Waiting for screen video…", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(if (localIsSharing) "▣" else "▣", color = Color(0xFF8CE0B8), fontSize = 30.sp)
+                                            Text(voiceState.screenShareStatus.ifBlank { "Waiting for screen video…" }, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                     }
                                 }
                             }
