@@ -5,7 +5,7 @@ on:
     paths:
       - "cloudflare-voice/**"
   push:
-    branches: [main]
+    branches: [cloudflare-voice]
     paths:
       - "cloudflare-voice/**"
 
