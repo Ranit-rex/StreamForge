@@ -62,7 +62,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
-import org.webrtc.TextureViewRenderer
+import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import org.webrtc.VideoSink
 import org.webrtc.VideoFrame
@@ -697,7 +697,7 @@ private fun PartyScreenVideo(
     modifier: Modifier = Modifier,
     useSourceAspectRatio: Boolean = false
 ) {
-    var renderer by remember { mutableStateOf<TextureViewRenderer?>(null) }
+    var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
     var sourceAspectRatio by remember(track) { mutableStateOf(16f / 9f) }
     val sizeSink = remember(track) {
         object : VideoSink {
@@ -732,7 +732,7 @@ private fun PartyScreenVideo(
 
     AndroidView(
         factory = { viewContext ->
-            TextureViewRenderer(viewContext).apply {
+            SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
                 setEnableHardwareScaler(false)
                 setMirror(false)
