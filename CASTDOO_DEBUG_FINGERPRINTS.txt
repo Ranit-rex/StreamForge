@@ -3,10 +3,9 @@
 Package: com.castdoo.app
 Certificate type: GitHub Actions debug key
 
-SHA-1: 31:DD:72:55:A7:42:D7:4E:D7:5B:5D:BF:52:15:E6:D6:D7:28:C2:27
+SHA-1: 3B:93:10:4D:FC:71:96:8D:CE:1C:73:23:32:2F:A7:B5:88:E1:7F:3C
 
-SHA-256: 27:8F:C4:64:9E:ED:72:A3:A7:CC:5C:31:62:BB:A3:19:78:3D:A7:85:FA:9D:18:5C:47:6A:9C:7D:DE:7A:D0:23
-
+SHA-256: 11:A6:AC:AC:F8:44:8A:2E:05:7A:07:39:2E:78:25:E4:B7:77:76:21:A3:CB:8A:58:A8:6D:BF:FB:C7:CA:EC:3F
 
 NOTE: This fingerprint matches APKs signed with this exact debug keystore.
 It is not automatically the same as a developer's local Android Studio debug key.
