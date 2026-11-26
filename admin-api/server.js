@@ -48,6 +48,13 @@ async function handler(req,res) {
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),adminKeyConfigured:Boolean(ADMIN_KEY)});
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
   if (!authorized(req)) return send(res,401,{error:"Admin key invalid or not configured"});
+  if (!URI) {
+    const defaults={versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}};
+    if (req.method==="GET" && url.pathname==="/api/overview") return send(res,200,{announcements:0,events24h:0,config:defaults,storageConfigured:false});
+    if (req.method==="GET" && url.pathname==="/api/announcements") return send(res,200,[]);
+    if (req.method==="GET" && url.pathname==="/api/config") return send(res,200,defaults);
+    return send(res,503,{error:"MongoDB is not connected yet. Add MONGODB_URI in this Render service to enable saving."});
+  }
   try {
     const d = await database();
     if (req.method === "GET" && url.pathname === "/api/overview") {
