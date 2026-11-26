@@ -79,7 +79,10 @@ private val VOICE_FALLBACK_POOL = listOf(
     VOICE_API,
     "https://streamforge-signal-a.onrender.com",
     "https://streamforge-signal-b.onrender.com",
-    "https://streamforge-signal-c.onrender.com"
+    "https://streamforge-signal-c.onrender.com",
+    "https://streamforge-signal-d.onrender.com",
+    "https://streamforge-signal-e.onrender.com",
+    "https://streamforge-signal-f.onrender.com"
 )
 @Volatile private var cachedVoiceRegistry: List<String> = emptyList()
 @Volatile private var voiceRegistryExpiresAt = 0L
@@ -121,7 +124,8 @@ private suspend fun voiceRequestAcross(
             lastError = error
         }
     }
-    throw IllegalStateException(lastError?.message ?: "All Party voice servers are unavailable")
+    // Keep internal hostnames out of user-facing error text.
+    throw IllegalStateException("Voice network is temporarily unavailable. Please retry.")
 }
 private val VoiceBg = Color(0xFF11151A)
 private val VoiceCard = Color(0xFF1A2028)
