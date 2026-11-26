@@ -15,7 +15,22 @@ android {
   versionCode = streamforgeBuildNumber
   versionName = "Alpha build $streamforgeBuildNumber"
  }
- buildTypes { release { isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
+ signingConfigs {
+  getByName("debug") {
+   storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+   storePassword = "android"
+   keyAlias = "androiddebugkey"
+   keyPassword = "android"
+  }
+ }
+ buildTypes {
+  getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
+  getByName("release") {
+   isMinifyEnabled = true
+   isShrinkResources = true
+   proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+  }
+ }
  splits {
   abi {
    isEnable = true
