@@ -815,6 +815,8 @@ internal class PartyVoiceEngine(
 
     private fun releaseMedia() {
         stopScreenShareInternal()
+        runCatching { audioModule?.setMicrophoneMute(true) }
+        runCatching { localTrack?.setEnabled(false) }
         runCatching { localMicMonitor?.close() }
         localMicMonitor = null
         runCatching { localTrack?.dispose() }
@@ -832,6 +834,13 @@ internal class PartyVoiceEngine(
     fun close() {
         synchronized(lock) {
             if (closed) return
+            // Hard mute first, then release the audio device module below.
+            micEnabled = false
+            runCatching { localTrack?.setEnabled(false) }
+            runCatching { audioModule?.setMicrophoneMute(true) }
+            micCapturing = false
+            localSpeaking = false
+            localLevel = 0f
             closed = true
             signalingConnected = false
             mediaConnected = false
