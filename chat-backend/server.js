@@ -10,7 +10,18 @@ const rate = new Map();
 // A room is addressed by one six-digit roomId for both public and private rooms.
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
-const SERVICE_SLOT = Math.min(7, Math.max(1, Number(process.env.VOICE_SERVICE_SLOT || 1)));
+const RENDER_SERVICE_SLOTS = new Map([
+  ["srv-dc0ttsrm8hqs73fk4jv0", 1],
+  ["srv-dc3sh5uq1p3s73c6up50", 2],
+  ["srv-dc3sh6t6e07s73df971g", 3],
+  ["srv-dc3sh7s9v7es73d58b4g", 4],
+  ["srv-dc3u7fec6qcc73bunhb0", 5],
+  ["srv-dc3u7gmc6qcc73bunlb0", 6],
+  ["srv-dc3u7ic9v7es73da8dh0", 7]
+]);
+const configuredSlot = Number(process.env.VOICE_SERVICE_SLOT);
+const detectedSlot = RENDER_SERVICE_SLOTS.get(String(process.env.RENDER_SERVICE_ID || ""));
+const SERVICE_SLOT = Math.min(7, Math.max(1, configuredSlot || detectedSlot || 1));
 const ROOM_QUOTAS = [0, 72, 72, 72, 71, 71, 71, 71];
 const MAX_ROOMS_PER_SERVICE = ROOM_QUOTAS[SERVICE_SLOT];
 const MAX_ROOM_MEMBERS = 6;
