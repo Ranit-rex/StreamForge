@@ -1,0 +1,24 @@
+name: Validate Cloudflare Voice Worker
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare-voice/**"
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare-voice/**"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare-voice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run check
