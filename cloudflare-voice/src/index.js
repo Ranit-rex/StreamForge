@@ -189,12 +189,52 @@ export class RoomDirectory {
       room_id TEXT PRIMARY KEY, name TEXT NOT NULL, visibility TEXT NOT NULL,
       member_count INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS external_rooms (
+      room_id TEXT PRIMARY KEY, name TEXT NOT NULL, visibility TEXT NOT NULL,
+      member_count INTEGER NOT NULL, max_members INTEGER NOT NULL,
+      provider TEXT NOT NULL, server TEXT NOT NULL, endpoint TEXT NOT NULL,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
   }
   async fetch(request) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/list") {
       const rows = this.sql.exec("SELECT room_id,name,visibility,member_count,updated_at FROM rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 100", Date.now()-3*60*60*1000).toArray();
       return Response.json({ rooms: rows.map(r=>({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:6, members:[] })) });
+    }
+    if (request.method === "GET" && url.pathname === "/monitor-list") {
+      const cutoff = Date.now() - 3*60*60*1000;
+      const cloudflareRooms = this.sql.exec("SELECT room_id,name,visibility,member_count,updated_at FROM rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 100", cutoff).toArray()
+        .map(r => ({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:6, provider:"Cloudflare", server:"Cloudflare Durable Objects", endpoint:"https://streamforge-cloudflare-voice.mranit66.workers.dev", createdAt:r.updated_at, members:[] }));
+      const renderRooms = this.sql.exec("SELECT room_id,name,visibility,member_count,max_members,provider,server,endpoint,created_at,updated_at FROM external_rooms WHERE visibility='public' AND updated_at>? ORDER BY updated_at DESC LIMIT 500", cutoff).toArray()
+        .map(r => ({ roomId:r.room_id, name:r.name, visibility:r.visibility, memberCount:r.member_count, maxMembers:r.max_members, provider:r.provider, server:r.server, endpoint:r.endpoint, createdAt:r.created_at, members:[] }));
+      return Response.json({ rooms: [...cloudflareRooms, ...renderRooms] });
+    }
+    if (request.method === "POST" && url.pathname === "/register-external") {
+      const body = await request.json();
+      const roomId = String(body.roomId || "");
+      const visibility = String(body.visibility || "public").toLowerCase();
+      const endpoint = String(body.endpoint || "").trim().replace(/\\/+$/, "");
+      const allowedEndpoints = new Set([
+        "https://streamforge-chat-api.onrender.com",
+        "https://streamforge-signal-a.onrender.com",
+        "https://streamforge-signal-b.onrender.com",
+        "https://streamforge-signal-c.onrender.com",
+        "https://streamforge-signal-d.onrender.com",
+        "https://streamforge-signal-e.onrender.com",
+        "https://streamforge-signal-f.onrender.com"
+      ]);
+      if (!/^\\d{6}$/.test(roomId) || visibility !== "public" || !allowedEndpoints.has(endpoint)) {
+        return Response.json({ error:"Only valid public Render room registrations are accepted." }, { status:400 });
+      }
+      const now = Date.now();
+      const server = String(body.server || "Render").slice(0,32);
+      const name = String(body.name || "Voice Room").slice(0,32);
+      const count = Math.max(0, Math.min(6, Number(body.memberCount) || 0));
+      const createdAt = Math.max(0, Number(body.createdAt) || now);
+      this.sql.exec("INSERT OR REPLACE INTO external_rooms (room_id,name,visibility,member_count,max_members,provider,server,endpoint,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        roomId,name,"public",count,6,"Render",server,endpoint,createdAt,now);
+      return Response.json({ ok:true, roomId });
     }
     if (request.method === "POST" && url.pathname === "/put") {
       const r = await request.json();
@@ -220,6 +260,17 @@ export default {
     if (url.pathname === "/api/voice/servers") return json(200, { ok: true, servers: [{ id: "cloudflare-voice", provider: "cloudflare", endpoint: url.origin, enabled: true, weight: 1 }] });
     if (url.pathname === "/api/voice/ice-servers") return json(200, { iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }], relayConfigured: false });
     const directory = env.DIRECTORY.get(env.DIRECTORY.idFromName("global-directory"));
+    if (url.pathname === "/api/voice/monitor/rooms" && request.method === "GET") {
+      const response = await directory.fetch("https://directory.internal/monitor-list");
+      return new Response(await response.text(), { status: response.status, headers: { ...cors, "content-type": "application/json" } });
+    }
+    if (url.pathname === "/api/voice/rooms/register-external" && request.method === "POST") {
+      const body = await request.json();
+      const response = await directory.fetch("https://directory.internal/register-external", {
+        method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)
+      });
+      return new Response(await response.text(), { status: response.status, headers:{...cors,"content-type":"application/json"} });
+    }
     if (url.pathname === "/api/voice/rooms" && request.method === "GET") {
       const response = await directory.fetch("https://directory.internal/list");
       return new Response(await response.text(), { status: response.status, headers: { ...cors, "content-type": "application/json" } });
