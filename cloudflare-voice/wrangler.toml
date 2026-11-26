@@ -1,0 +1,17 @@
+name = "streamforge-cloudflare-voice"
+main = "src/index.js"
+compatibility_date = "2026-11-26"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomSession"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "streamforge-voice-directory"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
