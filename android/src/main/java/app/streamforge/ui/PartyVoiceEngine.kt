@@ -263,17 +263,21 @@ internal class PartyVoiceEngine(
                 try {
                     val transceivers = videoTransceivers.values.toList()
                     Log.i(TAG, "Screen share starting: peers=${peers.size} videoTransceivers=${transceivers.size} requested=${request.width}x${request.height}@${request.fps}")
-                    source = currentFactory.createVideoSource(true)
-                    helper = SurfaceTextureHelper.create("sf-party-screen-capture", currentEgl.eglBaseContext)
-                    capturer = ScreenCapturerAndroid(request.permissionData, object : android.media.projection.MediaProjection.Callback() {
+                    val createdSource = currentFactory.createVideoSource(true)
+                    source = createdSource
+                    val createdHelper = SurfaceTextureHelper.create("sf-party-screen-capture", currentEgl.eglBaseContext)
+                    helper = createdHelper
+                    val createdCapturer = ScreenCapturerAndroid(request.permissionData, object : android.media.projection.MediaProjection.Callback() {
                         override fun onStop() { thread(name = "sf-party-screen-stop") { stopScreenShare() } }
                     })
-                    capturer.initialize(helper, app, source.capturerObserver)
-                    track = currentFactory.createVideoTrack("sf-party-screen", source)
-                    track.setEnabled(true)
+                    capturer = createdCapturer
+                    createdCapturer.initialize(createdHelper, app, createdSource.capturerObserver)
+                    val createdTrack = currentFactory.createVideoTrack("sf-party-screen", createdSource)
+                    track = createdTrack
+                    createdTrack.setEnabled(true)
                     var attached = 0
                     transceivers.forEach { transceiver ->
-                        val ok = transceiver.sender.setTrack(track, false)
+                        val ok = transceiver.sender.setTrack(createdTrack, false)
                         Log.i(TAG, "Screen sender attach peerTransceiver=${transceiver.mid ?: "pending"} result=${ok} direction=${transceiver.direction}")
                         if (ok) attached++
                     }
@@ -281,10 +285,10 @@ internal class PartyVoiceEngine(
                         throw IllegalStateException("Could not attach screen video to every participant")
                     }
 
-                    screenVideoSource = source
-                    screenTextureHelper = helper
-                    screenCapturer = capturer
-                    screenVideoTrack = track
+                    screenVideoSource = createdSource
+                    screenTextureHelper = createdHelper
+                    screenCapturer = createdCapturer
+                    screenVideoTrack = createdTrack
                     val lastFrameLogAt = AtomicLong(0L)
                     val frameCount = AtomicLong(0L)
                     val frameSink = object : VideoSink {
@@ -304,7 +308,7 @@ internal class PartyVoiceEngine(
                         }
                     }
                     localScreenFrameSink = frameSink
-                    track.addSink(frameSink)
+                    createdTrack.addSink(frameSink)
 
                     // Scale the longest source edge to the requested quality while preserving
                     // portrait/landscape ratio. Never clamp width and height independently.
@@ -315,7 +319,7 @@ internal class PartyVoiceEngine(
                     val captureHeight = ((request.height * scale).toInt().coerceAtLeast(2) / 2) * 2
                     screenSharing = true
                     screenShareStatus = "Starting Android screen capture…"
-                    capturer.startCapture(captureWidth, captureHeight, request.fps.coerceIn(15, 30))
+                    createdCapturer.startCapture(captureWidth, captureHeight, request.fps.coerceIn(15, 30))
                     Log.i(TAG, "ScreenCapturerAndroid startCapture returned: ${captureWidth}x${captureHeight}@${request.fps}; attachedSenders=${attached}")
                     send(JSONObject().put("type", "screen-share").put("active", true))
                     videoTransceivers.keys.forEach { peerId -> renegotiateVideoPeer(peerId) }
