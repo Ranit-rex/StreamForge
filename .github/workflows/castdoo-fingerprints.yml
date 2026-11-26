@@ -43,8 +43,7 @@ jobs:
             -storepass android \
             -alias androiddebugkey > cert.txt
           SHA1="$(awk -F': ' '/SHA1:/{print $2; exit}' cert.txt)"
-          SHA256="$(awk -F': ' '/SHA256:/{print $2; exit}' cert.txt)
-          "
+          SHA256="$(awk -F': ' '/SHA256:/{print $2; exit}' cert.txt)"
           if [ -z "$SHA1" ] || [ -z "$SHA256" ]; then
             cat cert.txt
             echo "Could not extract SHA fingerprints"
