@@ -64,8 +64,6 @@ import java.net.URL
 import java.util.UUID
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
-import org.webrtc.VideoSink
-import org.webrtc.VideoFrame
 
 private const val VOICE_API = "https://streamforge-chat-api.onrender.com"
 private val VoiceBg = Color(0xFF11151A)
@@ -433,7 +431,7 @@ fun PartyVoicePanel() {
                                 if (displayedTrack != null) Text("⛶", color = Color.White, fontSize = 20.sp)
                             }
                             if (displayedTrack != null && !showRemoteScreen) {
-                                PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth(), useSourceAspectRatio = true)
+                                PartyScreenVideo(displayedTrack, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                             } else if (displayedTrack != null) {
                                 // Do not keep two SurfaceViewRenderers attached to the same
                                 // track while the full-screen viewer is open. Their surface
@@ -551,7 +549,7 @@ fun PartyVoicePanel() {
             Surface(
                 color = Color(0xFF080B10),
                 shape = if (remoteScreenFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(20.dp),
-                modifier = if (remoteScreenFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().padding(10.dp).height(580.dp)
+                modifier = if (remoteScreenFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 24.dp)
             ) {
                 Column(
                     Modifier.fillMaxSize().padding(if (remoteScreenFullscreen) 12.dp else 14.dp),
@@ -698,32 +696,21 @@ private fun PartyScreenVideo(
     useSourceAspectRatio: Boolean = false
 ) {
     var renderer by remember { mutableStateOf<SurfaceViewRenderer?>(null) }
-    var sourceAspectRatio by remember(track) { mutableStateOf(16f / 9f) }
-    val sizeSink = remember(track) {
-        object : VideoSink {
-            override fun onFrame(frame: VideoFrame) {
-                val rotated = frame.rotation % 180 != 0
-                val frameWidth = if (rotated) frame.buffer.height else frame.buffer.width
-                val frameHeight = if (rotated) frame.buffer.width else frame.buffer.height
-                if (frameWidth > 0 && frameHeight > 0) {
-                    val ratio = frameWidth.toFloat() / frameHeight.toFloat()
-                    if (ratio in 0.2f..5f) sourceAspectRatio = ratio
-                }
-            }
-        }
-    }
-    DisposableEffect(track, sizeSink) {
-        track.addSink(sizeSink)
-        onDispose { track.removeSink(sizeSink) }
-    }
-    val videoModifier = if (useSourceAspectRatio) modifier.aspectRatio(sourceAspectRatio) else modifier
-    // Resolve the service EGL context on recomposition instead of caching a null
-    // value from the first composition while the foreground voice service starts.
+    // Both the lobby preview and viewer use FIT. The preview is always a compact
+    // 16:9 viewport; portrait captures are letterboxed, never cropped or stretched.
     val eglContext = PartyVoiceService.rendererEglContext()
 
     if (eglContext == null) {
-        Surface(color = Color(0xFF090D14), shape = RoundedCornerShape(11.dp), modifier = modifier) {
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Surface(
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(11.dp),
+            modifier = modifier
+        ) {
+            Column(
+                Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text("Preparing video renderer…", color = Color.White, fontSize = 11.sp)
             }
         }
@@ -734,20 +721,25 @@ private fun PartyScreenVideo(
         factory = { viewContext ->
             SurfaceViewRenderer(viewContext).apply {
                 init(eglContext, null)
-                setEnableHardwareScaler(false)
+                setEnableHardwareScaler(true)
                 setMirror(false)
                 setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
                 renderer = this
+                Log.i("StreamForgeScreen", "Renderer initialized; trackState=${track.state()}")
             }
         },
-        modifier = videoModifier,
+        modifier = modifier,
         update = { view ->
             view.setScalingType(org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+            if (renderer !== view) renderer = view
         }
     )
     DisposableEffect(renderer, track) {
         val target = renderer
-        if (target != null) track.addSink(target)
+        if (target != null) {
+            Log.i("StreamForgeScreen", "Attaching video sink; trackState=${track.state()}")
+            track.addSink(target)
+        }
         onDispose { if (target != null) track.removeSink(target) }
     }
     DisposableEffect(renderer) {
