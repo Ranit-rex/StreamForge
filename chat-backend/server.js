@@ -10,6 +10,9 @@ const rate = new Map();
 // A room is addressed by one six-digit roomId for both public and private rooms.
 const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
+const SERVICE_SLOT = Math.min(7, Math.max(1, Number(process.env.VOICE_SERVICE_SLOT || 1)));
+const ROOM_QUOTAS = [0, 72, 72, 72, 71, 71, 71, 71];
+const MAX_ROOMS_PER_SERVICE = ROOM_QUOTAS[SERVICE_SLOT];
 const MAX_ROOM_MEMBERS = 6;
 const voiceSockets = new Map();
 const memberDisconnectTimers = new Map();
@@ -146,7 +149,8 @@ const server = http.createServer(async (req, res) => {
         const connectedMembers = [...voiceSockets.values()].reduce((sum, peers) => sum + peers.size, 0);
         return send(res, 200, {
           ok: true, service: "streamforge-chat-api", voiceSignaling: "ready",
-          roomCount: voiceRooms.size, connectedMembers, turnConfigured: true,
+          serviceSlot: SERVICE_SLOT, roomCount: voiceRooms.size, roomQuota: MAX_ROOMS_PER_SERVICE,
+          connectedMembers, turnConfigured: true,
           timestamp: new Date().toISOString()
         });
       }
@@ -185,8 +189,20 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req);
         const visibility = body.visibility === "private" ? "private" : "public";
         const name = String(body.name || "Voice Room").trim().slice(0, 32) || "Voice Room";
+        if (voiceRooms.size >= MAX_ROOMS_PER_SERVICE) {
+          return send(res, 429, { error: "This Party node has reached its room quota. Please retry to use another node." });
+        }
+        const requestedRoomId = String(body.roomId || "");
         let roomId;
-        do { roomId = String(Math.floor(100000 + Math.random() * 900000)); } while (voiceRooms.has(roomId));
+        if (requestedRoomId) {
+          if (!/^[1-7]\\d{5}$/.test(requestedRoomId) || Number(requestedRoomId[0]) !== SERVICE_SLOT) {
+            return send(res, 400, { error: "Room code does not belong to this Party node." });
+          }
+          if (voiceRooms.has(requestedRoomId)) return send(res, 409, { error: "Room code collision. Please retry." });
+          roomId = requestedRoomId;
+        } else {
+          do { roomId = String(Math.floor(100000 + Math.random() * 900000)); } while (voiceRooms.has(roomId));
+        }
         const memberId = String(body.memberId || "").slice(0, 64);
         const displayName = String(body.displayName || "Host").trim().slice(0, 24) || "Host";
         if (!memberId) return send(res, 400, { error: "Member ID is required" });
