@@ -12,6 +12,8 @@ const voiceRooms = new Map();
 const ROOM_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_ROOM_MEMBERS = 6;
 const voiceSockets = new Map();
+const memberDisconnectTimers = new Map();
+const MEMBER_RECONNECT_GRACE_MS = 10000;
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
 const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute", "screen-share"]);
 const DEFAULT_VOICE_SERVERS = [
@@ -49,6 +51,27 @@ function getVoiceServerRegistry() {
 }
 
 
+function removeVoiceMember(roomId, memberId, reason = "Member left room") {
+  const room = voiceRooms.get(roomId);
+  if (!room) return;
+  const timerKey = roomId + ":" + memberId;
+  const timer = memberDisconnectTimers.get(timerKey);
+  if (timer) clearTimeout(timer);
+  memberDisconnectTimers.delete(timerKey);
+  room.members = room.members.filter(member => member.memberId !== memberId);
+  const peers = voiceSockets.get(roomId);
+  const socket = peers?.get(memberId);
+  if (socket) { peers.delete(memberId); socket.close(1000, reason); }
+  for (const peer of peers?.values() || []) {
+    if (peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify({ type: "peer-left", memberId }));
+  }
+  if (room.members.length === 0) {
+    voiceRooms.delete(roomId);
+    for (const peer of peers?.values() || []) peer.close(1000, "Room closed");
+    voiceSockets.delete(roomId);
+    console.log(JSON.stringify({ event: "voice_room_closed", roomId, reason: "empty" }));
+  } else { room.updatedAt = Date.now(); }
+}
 function cleanRooms() {
   const now = Date.now();
   for (const [id, room] of voiceRooms) {
@@ -188,16 +211,8 @@ const server = http.createServer(async (req, res) => {
         const room = voiceRooms.get(String(body.roomId || ""));
         if (!room) return send(res, 200, { ok: true });
         const leavingId = String(body.memberId || "");
-        const activeSocket = voiceSockets.get(room.roomId)?.get(leavingId);
-        if (activeSocket) activeSocket.close(1000, "Member left room");
-        room.members = room.members.filter(m => m.memberId !== leavingId);
-        room.updatedAt = Date.now();
-        if (room.members.length === 0) {
-          voiceRooms.delete(room.roomId);
-          for (const peer of voiceSockets.get(room.roomId)?.values() || []) peer.close(1000, "Room closed");
-          voiceSockets.delete(room.roomId);
-        }
-        return send(res, 200, { ok: true });
+        removeVoiceMember(room.roomId, leavingId, "Member left room");
+        return send(res, 200, { ok: true, roomClosed: !voiceRooms.has(room.roomId) });
       }
       if (req.method === "GET" && /^\/api\/voice\/rooms\/\d{6}$/.test(url.pathname)) {
         const room = voiceRooms.get(url.pathname.split("/").pop());
@@ -270,6 +285,10 @@ wss.on("connection", (ws, _req, identity) => {
   ws.roomId = roomId;
   ws.displayName = member.displayName;
   ws.isAlive = true;
+  const disconnectTimerKey = roomId + ":" + memberId;
+  const pendingDisconnect = memberDisconnectTimers.get(disconnectTimerKey);
+  if (pendingDisconnect) clearTimeout(pendingDisconnect);
+  memberDisconnectTimers.delete(disconnectTimerKey);
   const previousSocket = peers.get(memberId);
   if (previousSocket && previousSocket !== ws) previousSocket.close(4001, "Replaced by a newer connection");
   peers.set(memberId, ws);
@@ -312,16 +331,24 @@ wss.on("connection", (ws, _req, identity) => {
   });
 
   ws.on("close", () => {
+    const current = voiceSockets.get(roomId);
+    // Ignore close events from a previous socket replaced by a reconnect.
+    if (current?.get(memberId) !== ws) return;
+    current.delete(memberId);
+    if (current.size === 0) voiceSockets.delete(roomId);
     const roomMember = voiceRooms.get(roomId)?.members.find(m => m.memberId === memberId);
     if (roomMember) roomMember.screenSharing = false;
-    const current = voiceSockets.get(roomId);
-    if (current?.get(memberId) === ws) current.delete(memberId);
-    if (current?.size === 0) voiceSockets.delete(roomId);
-    for (const [id, peer] of current || []) {
-      if (id !== memberId && peer.readyState === WebSocket.OPEN) {
-        peer.send(JSON.stringify({ type: "peer-left", memberId }));
-      }
+    for (const peer of current?.values() || []) {
+      if (peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify({ type: "peer-left", memberId }));
     }
+    // Brief grace period lets mobile clients reconnect without losing membership.
+    const timerKey = roomId + ":" + memberId;
+    const timer = setTimeout(() => {
+      memberDisconnectTimers.delete(timerKey);
+      if (!voiceSockets.get(roomId)?.has(memberId)) removeVoiceMember(roomId, memberId, "Disconnected");
+    }, MEMBER_RECONNECT_GRACE_MS);
+    timer.unref?.();
+    memberDisconnectTimers.set(timerKey, timer);
   });
   ws.on("error", () => ws.terminate());
 });
