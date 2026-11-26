@@ -289,10 +289,14 @@ class PartyVoiceService : Service() {
         val oldEndpoint = endpoint
         val oldRoomId = roomId
         val oldMemberId = memberId
+        // Disable the microphone before tearing down WebRTC so no capture survives
+        // a room exit, even if the signaling socket is already disconnected.
+        micEnabled = false
+        runCatching { engine?.setMicEnabled(false) }
         engine?.close()
         engine = null
         active.value = false
-        state.value = VoiceEngineState(status = "Left voice room")
+        state.value = VoiceEngineState(micEnabled = false, micCapturing = false, localSpeaking = false, localLevel = 0f, status = "Left voice room")
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
             .remove("room_id").remove("room_name").remove("room_visibility").remove("voice_token")
             .apply()
