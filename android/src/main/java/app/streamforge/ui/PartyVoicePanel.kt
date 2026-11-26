@@ -314,7 +314,7 @@ fun PartyVoicePanel() {
                             parsedRooms.add(VoiceRoom(id, item.optString("name"), item.optString("visibility"), item.optInt("memberCount"), parsedMembers, serverUrl = endpoint))
                         }
                         true to parsedRooms
-                    }.getOrElse { false to emptyList() }
+                    }.getOrElse { false to emptyList<VoiceRoom>() }
                 }
             }.awaitAll()
         }
