@@ -125,6 +125,8 @@ class PartyVoiceService : Service() {
         }
     }
 
+    private data class PendingShare(val data: Intent, val width: Int, val height: Int, val fps: Int)
+    @Volatile private var pendingShare: PendingShare? = null
     private var engine: PartyVoiceEngine? = null
     private var endpoint = ""
     private var roomId = ""
@@ -183,15 +185,34 @@ class PartyVoiceService : Service() {
                 engine?.setRemoteMuted(intent.getStringExtra(EXTRA_PEER_ID).orEmpty(), intent.getBooleanExtra(EXTRA_ENABLED, false))
             }
             ACTION_START_SCREEN_SHARE -> {
-                val projection = intent.getParcelableExtra<Intent>(EXTRA_PROJECTION_DATA)
+                val projection = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(EXTRA_PROJECTION_DATA)
+                }
                 if (projection != null) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
                     }
-                    engine?.startScreenShare(projection, intent.getIntExtra(EXTRA_SCREEN_WIDTH, 1280), intent.getIntExtra(EXTRA_SCREEN_HEIGHT, 720), intent.getIntExtra(EXTRA_SCREEN_FPS, 30))
+                    val request = PendingShare(
+                        projection,
+                        intent.getIntExtra(EXTRA_SCREEN_WIDTH, 1280),
+                        intent.getIntExtra(EXTRA_SCREEN_HEIGHT, 720),
+                        intent.getIntExtra(EXTRA_SCREEN_FPS, 30)
+                    )
+                    pendingShare = request
+                    val currentEngine = engine
+                    if (currentEngine != null) {
+                        pendingShare = null
+                        currentEngine.startScreenShare(request.data, request.width, request.height, request.fps)
+                    } else {
+                        state.value = state.value.copy(screenShareStatus = "Waiting for voice connection…", status = "Preparing screen share…")
+                    }
                 }
             }
             ACTION_STOP_SCREEN_SHARE -> {
+                pendingShare = null
                 engine?.stopScreenShare()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && active.value) {
                     ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
@@ -211,7 +232,7 @@ class PartyVoiceService : Service() {
         engine?.close()
         state.value = VoiceEngineState(micEnabled = micEnabled, speakerEnabled = speakerEnabled, status = "Starting microphone…")
         active.value = true
-        engine = PartyVoiceEngine(this, endpoint, roomId, memberId, token, displayName) { next ->
+        val createdEngine = PartyVoiceEngine(this, endpoint, roomId, memberId, token, displayName) { next ->
             val previous = state.value
             state.value = next
             micEnabled = next.micEnabled
@@ -219,7 +240,14 @@ class PartyVoiceService : Service() {
             if (previous.micEnabled != next.micEnabled || previous.micCapturing != next.micCapturing || previous.connected != next.connected) {
                 updateNotification()
             }
-        }.also { it.connect() }
+        }
+        engine = createdEngine
+        createdEngine.connect()
+        // Android's one-time projection grant may arrive before WebRTC is ready.
+        pendingShare?.let { request ->
+            pendingShare = null
+            createdEngine.startScreenShare(request.data, request.width, request.height, request.fps)
+        }
         updateNotification()
     }
 
@@ -293,6 +321,7 @@ class PartyVoiceService : Service() {
         // a room exit, even if the signaling socket is already disconnected.
         micEnabled = false
         runCatching { engine?.setMicEnabled(false) }
+        pendingShare = null
         engine?.close()
         engine = null
         active.value = false
