@@ -158,7 +158,7 @@ export class RoomSession {
     } else {
       const room = this.room();
       this.sql.exec("UPDATE room SET updated_at=?", Date.now());
-      if (room) await this.syncDirectory();
+      if (room) await this.syncDirectory(room.room_id);
     }
   }
   async alarm() {
@@ -171,7 +171,7 @@ export class RoomSession {
       for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, "Room expired"); } catch {} }
       this.sql.exec("DELETE FROM members");
       this.sql.exec("DELETE FROM room");
-      await this.syncDirectory();
+      await this.syncDirectory(room.room_id);
     } else if (room) {
       const nextExpiry = room.updated_at + 3 * 60 * 60 * 1000;
       const disconnected = this.members().map(m => m.disconnected_at).filter(Boolean).map(Number);
