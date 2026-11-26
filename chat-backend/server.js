@@ -195,7 +195,7 @@ const server = http.createServer(async (req, res) => {
         const requestedRoomId = String(body.roomId || "");
         let roomId;
         if (requestedRoomId) {
-          if (!/^[1-7]\\d{5}$/.test(requestedRoomId) || Number(requestedRoomId[0]) !== SERVICE_SLOT) {
+          if (!/^[1-7]\d{5}$/.test(requestedRoomId) || Number(requestedRoomId[0]) !== SERVICE_SLOT) {
             return send(res, 400, { error: "Room code does not belong to this Party node." });
           }
           if (voiceRooms.has(requestedRoomId)) return send(res, 409, { error: "Room code collision. Please retry." });
