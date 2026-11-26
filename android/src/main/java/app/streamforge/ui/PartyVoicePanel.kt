@@ -145,6 +145,7 @@ fun PartyVoicePanel() {
     var showRemoteScreen by remember { mutableStateOf(false) }
     var remoteScreenFullscreen by remember { mutableStateOf(false) }
     var screenQuality by remember { mutableStateOf(720) }
+    var requestingScreenShare by remember { mutableStateOf(false) }
 
     fun startVoice(room: VoiceRoom) {
         prefs.edit()
@@ -173,6 +174,7 @@ fun PartyVoicePanel() {
     }
 
     val screenSharePermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        requestingScreenShare = false
         val permissionData = result.data
         if (result.resultCode == Activity.RESULT_OK && permissionData != null) {
             val metrics = context.resources.displayMetrics
@@ -623,10 +625,15 @@ fun PartyVoicePanel() {
                     }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB94150))) { Text("■ STOP SHARE") }
                 } else {
                     Button(onClick = {
-                        showScreenQuality = false
-                        val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                        screenSharePermission.launch(manager.createScreenCaptureIntent())
-                    }, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) { Text("▣ START SCREEN SHARE") }
+                        if (!requestingScreenShare) {
+                            requestingScreenShare = true
+                            showScreenQuality = false
+                            val manager = context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                            screenSharePermission.launch(manager.createScreenCaptureIntent())
+                        }
+                    }, enabled = !requestingScreenShare, colors = ButtonDefaults.buttonColors(containerColor = VoiceAccent)) {
+                        Text(if (requestingScreenShare) "WAITING FOR ANDROID…" else "▣ START SCREEN SHARE")
+                    }
                 }
             },
             dismissButton = { TextButton(onClick = { showScreenQuality = false }) { Text("CANCEL") } }
