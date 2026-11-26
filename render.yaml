@@ -1,0 +1,126 @@
+services:
+  - type: web
+    name: streamforge-chat-api
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "1"
+      - key: MAX_ACTIVE_ROOMS
+        value: "72"
+
+  - type: web
+    name: streamforge-signal-a
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "2"
+      - key: MAX_ACTIVE_ROOMS
+        value: "72"
+
+  - type: web
+    name: streamforge-signal-b
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "3"
+      - key: MAX_ACTIVE_ROOMS
+        value: "72"
+
+  - type: web
+    name: streamforge-signal-c
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "4"
+      - key: MAX_ACTIVE_ROOMS
+        value: "71"
+
+  - type: web
+    name: streamforge-signal-d
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "5"
+      - key: MAX_ACTIVE_ROOMS
+        value: "71"
+
+  - type: web
+    name: streamforge-signal-e
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "6"
+      - key: MAX_ACTIVE_ROOMS
+        value: "71"
+
+  - type: web
+    name: streamforge-signal-f
+    runtime: node
+    plan: standard
+    region: singapore
+    repo: https://github.com/Ranit-rex/StreamForge
+    branch: capacity-500-production
+    buildCommand: cd chat-backend && npm ci
+    startCommand: cd chat-backend && npm start
+    healthCheckPath: /api/voice/health
+    numInstances: 1
+    maxShutdownDelaySeconds: 300
+    envVars:
+      - key: VOICE_NODE_ID
+        value: "7"
+      - key: MAX_ACTIVE_ROOMS
+        value: "71"
