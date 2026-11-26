@@ -2,7 +2,7 @@ name: Deploy StreamForge Cloudflare Voice
 
 on:
   push:
-    branches: [main]
+    branches: [cloudflare-voice]
     paths:
       - "cloudflare-voice/**"
       - ".github/workflows/deploy-cloudflare-voice.yml"
