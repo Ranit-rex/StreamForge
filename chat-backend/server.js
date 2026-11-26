@@ -14,6 +14,35 @@ const MAX_ROOM_MEMBERS = 6;
 const voiceSockets = new Map();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024, perMessageDeflate: false });
 const SIGNAL_TYPES = new Set(["offer", "answer", "ice", "speaking", "mute", "screen-share"]);
+const DEFAULT_VOICE_SERVERS = [
+  { id: "render-legacy", provider: "render", region: "singapore", endpoint: "https://streamforge-chat-api.onrender.com", enabled: true, weight: 1 },
+  { id: "render-a", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-a.onrender.com", enabled: true, weight: 1 },
+  { id: "render-b", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-b.onrender.com", enabled: true, weight: 1 },
+  { id: "render-c", provider: "render", region: "singapore", endpoint: "https://streamforge-signal-c.onrender.com", enabled: true, weight: 1 }
+];
+
+function getVoiceServerRegistry() {
+  let configured = [];
+  try {
+    const parsed = JSON.parse(process.env.VOICE_SERVER_REGISTRY || "[]");
+    if (Array.isArray(parsed)) configured = parsed;
+  } catch { /* Keep the safe built-in registry when config is invalid. */ }
+  const source = configured.length ? configured : DEFAULT_VOICE_SERVERS;
+  const seen = new Set();
+  return source.filter(item => {
+    const endpoint = String(item?.endpoint || "").trim().replace(/\\/+$/, "");
+    if (!item?.enabled || !/^https:\\/\\//i.test(endpoint) || seen.has(endpoint)) return false;
+    seen.add(endpoint);
+    return true;
+  }).map(item => ({
+    id: String(item.id || item.endpoint),
+    provider: String(item.provider || "custom"),
+    region: String(item.region || "unknown"),
+    endpoint: String(item.endpoint).trim().replace(/\\/+$/, ""),
+    weight: Math.max(1, Number(item.weight) || 1)
+  }));
+}
+
 
 function cleanRooms() {
   const now = Date.now();
@@ -88,6 +117,13 @@ const server = http.createServer(async (req, res) => {
           ok: true, service: "streamforge-chat-api", voiceSignaling: "ready",
           roomCount: voiceRooms.size, connectedMembers, turnConfigured: true,
           timestamp: new Date().toISOString()
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/api/voice/servers") {
+        return send(res, 200, {
+          ok: true,
+          servers: getVoiceServerRegistry(),
+          updatedAt: new Date().toISOString()
         });
       }
       if (req.method === "GET" && url.pathname === "/api/voice/ice-servers") {
