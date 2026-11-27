@@ -207,7 +207,13 @@ async function handler(req,res) {
     if (req.method === "GET" && url.pathname === "/api/push/status") {
       const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
       const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
-      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
+      const registeredUsers = await d.collection("push_devices").distinct("uid",{enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
+      let totalUsers = null;
+      if (SERVICE_ACCOUNT) {
+        try { const count = await getFirestore().collection("users").count().get(); totalUsers = count.data().count; }
+        catch (error) { console.error("firebase_user_count_failed",error.message); }
+      }
+      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,totalUsers,registeredUsers:registeredUsers.length,registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
       const input = await body(req);
