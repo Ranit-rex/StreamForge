@@ -4,12 +4,12 @@ import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -36,10 +36,6 @@ import app.streamforge.notifications.CastDooPushRegistration
 private const val CASTDOO_WEB_CLIENT_ID =
     "464964505379-adhjuamik8b98s9fhmg0ggpmbm6q12d9.apps.googleusercontent.com"
 private const val CASTDOO_TERMS_VERSION = "1.0"
-private const val CASTDOO_TERMS_URL =
-    "https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-auth-foundation/CASTDOO_TERMS.md"
-private const val CASTDOO_PRIVACY_URL =
-    "https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-auth-foundation/CASTDOO_PRIVACY.md"
 
 @Composable
 fun CastDooAuthGate(content: @Composable () -> Unit) {
@@ -55,6 +51,7 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
     var acceptedTerms by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf("") }
+    var legalPage by remember { mutableStateOf("") }
 
     LaunchedEffect(authenticated) {
         if (authenticated) {
@@ -143,6 +140,20 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
         }
     }
 
+    if (legalPage.isNotBlank()) {
+        val privacy = legalPage == "privacy"
+        AlertDialog(
+            onDismissRequest = { legalPage = "" },
+            title = { Text(if (privacy) "Privacy policy" else "Terms & conditions") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(if (privacy) AUTH_PRIVACY_TEXT else AUTH_TERMS_TEXT, fontSize = 12.sp, lineHeight = 18.sp)
+                }
+            },
+            confirmButton = { TextButton(onClick = { legalPage = "" }) { Text("Close") } }
+        )
+    }
+
     if (checking) {
         Box(
             Modifier.fillMaxSize().background(Color(0xFF0B1018)),
@@ -196,7 +207,7 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.clickable {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CASTDOO_TERMS_URL)))
+                                    legalPage = "terms"
                                 }
                             )
                             Text("and", color = Color(0xFFADB8C6), fontSize = 13.sp)
@@ -206,7 +217,7 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.clickable {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(CASTDOO_PRIVACY_URL)))
+                                    legalPage = "privacy"
                                 }
                             )
                         }
@@ -288,3 +299,31 @@ private fun createCastDooProfile(
         onComplete(false, error.localizedMessage ?: "Could not create your CastDoo profile.")
     }
 }
+
+
+private const val AUTH_PRIVACY_TEXT = """CASTDOO PRIVACY POLICY
+
+CastDoo processes your Google account ID, name, email and profile photo to create and secure your account. Depending on features used, it may also process your CastDoo ID, friends and invitations, settings, notification device tokens, streaming sessions and technical diagnostics.
+
+We use this information to authenticate you, provide requested features, deliver notifications, prevent abuse, maintain security and improve reliability. Google and Firebase provide authentication and selected app data services. MongoDB Atlas stores service records and notification device registrations. Firebase Cloud Messaging and UnifiedPush may be used to deliver notifications.
+
+We do not intend to sell personal information. Data may be processed by infrastructure providers or disclosed when legally required. Records are retained as needed to operate the service, meet legal obligations and protect security. Contact the support channel inside the app for account requests.
+
+No online service can guarantee absolute security. This notice should be reviewed against the final operating entity, local laws, retention practices and actual service configuration before public release.
+"""
+
+private const val AUTH_TERMS_TEXT = """CASTDOO TERMS AND CONDITIONS
+
+By creating or using a CastDoo account, you agree to use the service lawfully and respectfully.
+
+1. Keep your Google account secure and provide accurate profile information.
+2. Do not use CastDoo to break laws, infringe rights, harass people, distribute harmful content or disrupt the service.
+3. You are responsible for content you stream, record, upload, share or send and must have the rights and permissions needed to use it.
+4. Features may change or be interrupted. Unlimited storage, bandwidth or uninterrupted service is not guaranteed.
+5. Sign in and some features rely on Google, Firebase and other providers whose terms may also apply.
+6. Access may be restricted when reasonably necessary to protect users, the service or comply with law.
+7. Account deletion and subscription cancellation controls will be provided in app before paid subscriptions are enabled.
+8. These terms may be updated as the service changes.
+
+This is a prototype service notice, not legal advice. Review it for the final operating entity and applicable jurisdictions.
+"""
