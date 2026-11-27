@@ -50,7 +50,7 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT)});
-  const publicRelease = url.pathname.match(/^\/api\/releases\/(beta|stable)$/);
+  const publicRelease = url.pathname.match(/^\/api\/releases\/stable$/);
   if (req.method === "GET" && publicRelease) {
     try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:publicRelease[1]}); return send(res,200,release || {track:publicRelease[1],versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
@@ -79,7 +79,7 @@ async function handler(req,res) {
   try {
     const d = await database();
 
-    const releaseMatch = url.pathname.match(/^\/api\/releases\/(beta|stable)$/);
+    const releaseMatch = url.pathname.match(/^\/api\/releases\/stable$/);
     if (releaseMatch && req.method === "POST") {
       const input = await body(req), track = releaseMatch[1];
       const versionCode = Math.max(1, Number(input.versionCode) || 1);
