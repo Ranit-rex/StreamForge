@@ -155,7 +155,7 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
             installedCode = installedCode,
             mandatory = true,
             updateEnabled = validUpdateUrl,
-            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current.updateUrl))) }
+            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current!!.updateUrl))) }
         )
         updateAvailable && !continueWithoutUpdate -> CastDooUpdateScreen(
             release = current!!,
