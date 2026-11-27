@@ -85,3 +85,5 @@ jobs:
           path: android/build/outputs/apk/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
           if-no-files-found: error
           retention-days: 14
+
+# Rebuild trigger: latest shared Kotlin compile fix is included.
