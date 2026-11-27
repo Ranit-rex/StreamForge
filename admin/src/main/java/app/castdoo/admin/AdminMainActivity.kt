@@ -85,7 +85,7 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
     val installedCode = BuildConfig.VERSION_CODE.toLong()
     val latestCode = current?.optLong("versionCode", 0) ?: 0
     val minimumCode = current?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
-    val mandatory = current != null && (minimumCode > installedCode || current.optBoolean("forceUpdate", false))
+    val mandatory = current != null && minimumCode > installedCode
     val optionalUpdate = current != null && latestCode > installedCode
     val updateUrl = current?.optString("updateUrl").orEmpty()
     val validUrl = updateUrl.startsWith("https://")
