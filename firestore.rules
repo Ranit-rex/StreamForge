@@ -119,57 +119,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // User-owned FCM tokens. Tokens are never readable by other users or admins from clients.
-    match /users/{uid}/deviceTokens/{tokenId} {
-      allow read: if isOwner(uid);
-      allow create, update: if isOwner(uid)
-        && request.resource.data.keys().hasOnly(['token','platform','updatedAt'])
-        && request.resource.data.keys().hasAll(['token','platform','updatedAt'])
-        && request.resource.data.token is string
-        && request.resource.data.token.size() <= 4096
-        && request.resource.data.platform == 'android'
-        && request.resource.data.updatedAt == request.time;
-      allow delete: if isOwner(uid);
-    }
-
-    // Notifications are written by trusted server/admin SDK only.
-    // Each user's inbox can only be read and marked as read by that user.
-    match /users/{uid}/notifications/{notificationId} {
-      allow get, list: if isOwner(uid);
-      allow create, delete: if false;
-      allow update: if isOwner(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read','readAt'])
-        && request.resource.data.read == true
-        && request.resource.data.readAt == request.time;
-    }
-
-    // Admin-created broadcast campaigns. Admin custom claim is assigned out-of-band.
-    match /notificationCampaigns/{campaignId} {
-      allow read: if isAdmin();
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly([
-          'title','body','imageUrl','actionUrl','target','targetUids',
-          'priority','createdAt','createdBy','status'
-        ])
-        && request.resource.data.keys().hasAll([
-          'title','body','target','priority','createdAt','createdBy','status'
-        ])
-        && request.resource.data.title is string
-        && request.resource.data.title.size() > 0
-        && request.resource.data.title.size() <= 100
-        && request.resource.data.body is string
-        && request.resource.data.body.size() > 0
-        && request.resource.data.body.size() <= 2000
-        && request.resource.data.target in ['all','selected']
-        && request.resource.data.priority in ['normal','important']
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.status == 'queued'
-        && (request.resource.data.target == 'all'
-          || (request.resource.data.targetUids is list && request.resource.data.targetUids.size() <= 500));
-      allow update, delete: if false;
-    }
-
     // Public release metadata is read-only to clients; Admin SDK publishes it.
     match /appReleases/{track} {
       allow get: if track in ['beta', 'stable'];
