@@ -35,7 +35,7 @@ const VAPID_SUBJECT = (process.env.WEB_PUSH_SUBJECT || "mailto:support@castdoo.a
 const unifiedPushConfigured = () => Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 const fcmConfigured = () => Boolean(SERVICE_ACCOUNT);
 const pushConfigured = () => unifiedPushConfigured() || fcmConfigured();
-if (pushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+if (unifiedPushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 let client;
 let db;
 let connecting;
@@ -307,7 +307,7 @@ async function handler(req,res) {
       const title = String(input.title || "").trim().slice(0,100);
       const message = String(input.message || input.body || "").trim().slice(0,2000);
       if (!title || !message) return send(res,400,{error:"Title and message are required"});
-      if (!pushConfigured()) return send(res,503,{error:"UnifiedPush delivery is not configured. Add WEB_PUSH_PUBLIC_KEY and WEB_PUSH_PRIVATE_KEY to the Render service."});
+      if (!pushConfigured()) return send(res,503,{error:"Push delivery is not configured. Configure the CastDoo Firebase Admin service account for FCM."});
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
       const filter = {
