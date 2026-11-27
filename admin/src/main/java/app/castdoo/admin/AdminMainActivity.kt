@@ -120,6 +120,27 @@ private fun AdminRoot(
 ) {
     val authorized by AdminUiState.authorized
     val error by AdminUiState.error
+    LaunchedEffect(auth.currentUser?.uid) {
+        val signedInUser = auth.currentUser
+        if (signedInUser != null) {
+            signedInUser.getIdToken(true)
+                .addOnSuccessListener { token ->
+                    if (token.claims["admin"] == true) {
+                        AdminUiState.authorized.value = true
+                        AdminUiState.error.value = ""
+                    } else {
+                        auth.signOut()
+                        AdminUiState.authorized.value = false
+                        AdminUiState.error.value = "This Google account is not authorized as a CastDoo admin."
+                    }
+                }
+                .addOnFailureListener {
+                    auth.signOut()
+                    AdminUiState.authorized.value = false
+                    AdminUiState.error.value = "Could not verify admin permissions."
+                }
+        }
+    }
     var section by remember { mutableStateOf("overview") }
     Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
         if (!authorized || auth.currentUser == null) {
