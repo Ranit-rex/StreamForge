@@ -38,5 +38,5 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
-    implementation("com.google.firebase:firebase-functions")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
