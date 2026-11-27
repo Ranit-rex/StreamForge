@@ -20,6 +20,7 @@ if (pushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, V
 let client;
 let db;
 let connecting;
+const pairingFailures = new Map();
 
 async function database() {
   if (!URI) throw Object.assign(new Error("MongoDB connection is not configured on the admin service."), { status: 503 });
@@ -92,10 +93,17 @@ async function handler(req,res) {
       if (!PAIRING_CODE) return send(res,503,{error:"Admin device pairing is not configured on the server"});
       const input = await body(req);
       const supplied = String(input.code || "").trim();
+      const ip = String(req.socket.remoteAddress || "unknown");
+      const attempt = pairingFailures.get(ip) || {count:0,startedAt:Date.now()};
+      if (Date.now() - attempt.startedAt > 10 * 60 * 1000) { attempt.count = 0; attempt.startedAt = Date.now(); }
+      if (attempt.count >= 8) return send(res,429,{error:"Too many pairing attempts. Try again in 10 minutes."});
       if (!supplied || supplied.length !== PAIRING_CODE.length ||
           !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(PAIRING_CODE))) {
+        attempt.count += 1;
+        pairingFailures.set(ip, attempt);
         return send(res,401,{error:"Invalid pairing code"});
       }
+      pairingFailures.delete(ip);
       const d = await database();
       const token = crypto.randomBytes(32).toString("base64url");
       const now = new Date();
@@ -128,6 +136,16 @@ async function handler(req,res) {
       );
       return send(res,200,{registered:true});
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"}); }
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/unpair") {
+    try {
+      const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+      if (!match) return send(res,401,{error:"Admin device token required"});
+      const tokenHash = crypto.createHash("sha256").update(match[1]).digest("hex");
+      const d = await database();
+      const result = await d.collection("admin_devices").updateOne({tokenHash,revokedAt:null},{$set:{revokedAt:new Date()}});
+      return send(res,result.modifiedCount ? 200 : 404,{revoked:Boolean(result.modifiedCount)});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device unpair failed"}); }
   }
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
   if (!(await authorized(req))) return send(res,401,{error:"Admin account not authorized"});
