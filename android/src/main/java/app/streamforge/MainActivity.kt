@@ -23,6 +23,7 @@ import app.streamforge.ui.EditorAssetDownloads
 import app.streamforge.ui.CastDooReleaseGate
 import app.streamforge.ui.CastDooReleaseChannel
 import app.streamforge.notifications.CastDooUnifiedPushService
+import app.streamforge.notifications.CastDooFcmRegistration
 
 class MainActivity : ComponentActivity() {
     private var pendingEndpoint = ""
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CastDooFcmRegistration.register(this)
         CastDooReleaseChannel.initialize(this)
         EditorAssetDownloads.schedule(this)
         MobileAds.initialize(this)
