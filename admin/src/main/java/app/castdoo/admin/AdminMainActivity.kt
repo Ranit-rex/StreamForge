@@ -249,7 +249,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
         }
     }
 
-    Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
+    Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), color = Color(0xFF0B1018)) {
         if (token.isBlank()) {
             Column(
                 Modifier.fillMaxSize().padding(24.dp),
