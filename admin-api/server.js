@@ -231,7 +231,7 @@ async function authorized(req) {
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
-  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseAdminConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,fcmConfigured:Boolean(SERVICE_ACCOUNT),webPushConfigured:pushConfigured(),pushTransport:"FCM + Web Push"});
   if (url.pathname === "/api/friends" || url.pathname.startsWith("/api/friends/")) {
     try { return await friendRoutes(req, res, url); }
     catch (error) {
@@ -318,7 +318,7 @@ async function handler(req,res) {
       );
       await d.collection("admin_events").insertOne({type:"push.fcm_device_registered",uid:identity.uid,platform:"android",createdAt:now});
       return send(res,200,{registered:true,transport:"FCM",tracked:true});
-    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
+    } catch(error) { console.error("fcm_device_registration_failed",error.message); return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
   }
   if (req.method === "POST" && url.pathname === "/api/devices/register") {
     try {
