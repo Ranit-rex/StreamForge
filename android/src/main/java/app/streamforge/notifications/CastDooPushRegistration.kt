@@ -22,6 +22,10 @@ object CastDooPushRegistration {
         Thread { registerAppSession(user) }.start()
 
         try {
+            if (UnifiedPush.getDistributors(appContext).isEmpty()) {
+                Log.w("CastDooPush", "No UnifiedPush distributor is installed; install a distributor to receive background push notifications")
+                return
+            }
             if (UnifiedPush.getAckDistributor(appContext) != null) {
                 UnifiedPush.register(appContext, messageForDistributor = PUSH_INSTANCE_MESSAGE)
             } else {
