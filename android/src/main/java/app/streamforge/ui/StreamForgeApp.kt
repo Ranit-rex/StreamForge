@@ -129,6 +129,7 @@ fun StreamForgeApp(
     var captureMode by remember { mutableStateOf(if (android.os.Build.VERSION.SDK_INT >= 34) "GAME" else "FULL") }
     var showLiveDashboard by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    var accountSection by remember { mutableStateOf("profile") }
     var showMiniAssistant by remember { mutableStateOf(false) }
     var uiThemeMode by remember { mutableStateOf(prefs.getString("ui_theme_mode", "dark") ?: "dark") }
     var uiAccent by remember { mutableStateOf(prefs.getString("ui_accent", "#FF6A35") ?: "#FF6A35") }
@@ -260,7 +261,16 @@ fun StreamForgeApp(
                         10 -> ChatIntegrationPanel()
                         9 -> PartyVoicePanel()
                         7 -> DestinationsPanel()
-                        8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
+                        8 -> MoreToolsPanel(onNavigate = { target ->
+                            accountSection = when (target) {
+                                12 -> "friends"
+                                13 -> "premium"
+                                14 -> "legal"
+                                else -> "profile"
+                            }
+                            selectedTab = 11
+                        })
+                        11 -> CastDooAccountPanel(section = accountSection, onSectionChange = { accountSection = it })
                         4 -> {
                         SettingsPanel(
                             uiThemeMode = uiThemeMode,
@@ -544,7 +554,7 @@ fun StreamForgeApp(
                     )
                     destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 else selectedTab == tab,
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 || selectedTab == 11 else selectedTab == tab,
                             onClick = { selectedTab = tab },
                             icon = { Text(icon, fontSize = 17.sp) },
                             label = { Text(label, fontSize = 10.sp, maxLines = 1) },
@@ -1094,6 +1104,15 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             QuickTile("◎", "Destinations", "Link creator accounts", Modifier.weight(1f)) { onNavigate(7) }
+        }
+        SectionHeading("COMMUNITY", "Your CastDoo account")
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("◉", "Profile", "Google account & photo", Modifier.weight(1f)) { onNavigate(11) }
+            QuickTile("♧", "Friends", "Add up to 6 friends", Modifier.weight(1f)) { onNavigate(12) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("✦", "Premium", "Subscription preview", Modifier.weight(1f)) { onNavigate(13) }
+            QuickTile("▣", "Privacy & terms", "In-app information", Modifier.weight(1f)) { onNavigate(14) }
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
