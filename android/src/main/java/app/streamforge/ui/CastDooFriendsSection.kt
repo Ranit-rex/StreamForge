@@ -44,10 +44,10 @@ fun CastDooFriendsSection() {
     var showAdd by remember { mutableStateOf(false) }
     var busyId by remember { mutableStateOf("") }
 
-    LaunchedEffect(uid) {
-        if (uid == null) return@LaunchedEffect
-        runCatching { db.collection("users").document(uid).get() }
-            .onSuccess { task -> task.addOnSuccessListener { doc ->
+    DisposableEffect(uid) {
+        if (uid == null) return@DisposableEffect onDispose { }
+        db.collection("users").document(uid).get()
+            .addOnSuccessListener { doc ->
                 publicId = doc.getString("publicId").orEmpty()
                 val profile = hashMapOf<String, Any>(
                     "uid" to uid,
@@ -55,10 +55,10 @@ fun CastDooFriendsSection() {
                     "displayName" to (doc.getString("displayName") ?: user?.displayName ?: "CastDoo User"),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
-                (doc.getString("photoUrl") ?: user.photoUrl?.toString())?.let { profile["photoUrl"] = it }
+                (doc.getString("photoUrl") ?: user?.photoUrl?.toString())?.let { profile["photoUrl"] = it }
                 db.collection("publicProfiles").document(uid).set(profile, SetOptions.merge())
-            } }
-        db.collection("friendships").whereArrayContains("members", uid)
+            }
+        val registration = db.collection("friendships").whereArrayContains("members", uid)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     feedback = error.localizedMessage ?: "Friends could not be loaded."
@@ -86,6 +86,7 @@ fun CastDooFriendsSection() {
                     )
                 }
             }
+        onDispose { registration.remove() }
     }
 
     if (showAdd) AlertDialog(
