@@ -6,6 +6,8 @@ import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -14,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -50,6 +54,8 @@ fun CastDooProfileScreen() {
     var editName by remember { mutableStateOf("") }
     var showSignOut by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    var legalPage by remember { mutableStateOf("") }
+    var showPlans by remember { mutableStateOf(false) }
 
     LaunchedEffect(user?.uid) {
         val uid = user?.uid ?: return@LaunchedEffect
@@ -120,6 +126,43 @@ fun CastDooProfileScreen() {
         dismissButton = { TextButton(onClick = { showEdit = false }) { Text("Cancel") } }
     )
 
+    if (legalPage.isNotBlank()) {
+        val isPrivacy = legalPage == "privacy"
+        AlertDialog(
+            onDismissRequest = { legalPage = "" },
+            title = { Text(if (isPrivacy) "Privacy policy" else "Terms & conditions") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (isPrivacy) CASTDOO_PRIVACY_TEXT else CASTDOO_TERMS_TEXT,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { legalPage = "" }) { Text("Close") } }
+        )
+    }
+    if (showPlans) AlertDialog(
+        onDismissRequest = { showPlans = false },
+        title = { Text("CastDoo plans") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Free · ₹0", fontWeight = FontWeight.Bold)
+                Text("Core streaming, basic profile and friends.")
+                Divider()
+                Text("Plus · Demo ₹99/month", fontWeight = FontWeight.Bold)
+                Text("Higher quality presets, extended analytics and custom profile themes.")
+                Divider()
+                Text("Studio · Demo ₹199/month", fontWeight = FontWeight.Bold)
+                Text("Advanced creator tools and expanded stream controls.")
+                Text("Prototype only. These are sample prices and no payment or auto renewal is active.", color = ProfileMuted, fontSize = 11.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = { showPlans = false }) { Text("Got it") } }
+    )
+
     if (showSignOut) AlertDialog(
         onDismissRequest = { showSignOut = false },
         title = { Text("Sign out of CastDoo?") },
@@ -158,7 +201,12 @@ fun CastDooProfileScreen() {
             Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     Box(Modifier.size(68.dp).clip(CircleShape).background(ProfileCardAlt), contentAlignment = Alignment.Center) {
-                        Text(displayName.trim().firstOrNull()?.uppercase() ?: "C", color = ProfileBlue, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                        if (user?.photoUrl != null) {
+                            AsyncImage(model = user.photoUrl, contentDescription = "Google profile photo",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
+                        } else {
+                            Text(displayName.trim().firstOrNull()?.uppercase() ?: "C", color = ProfileBlue, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(displayName.ifBlank { "CastDoo User" }, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
@@ -203,12 +251,19 @@ fun CastDooProfileScreen() {
         ProfileActionCard("Studio settings", "Video quality, audio, appearance and release channel", "›") {
             message = "Open Studio Settings from the Settings tab in bottom navigation."
         }
-        ProfileActionCard("Privacy policy", "How CastDoo handles your account and data", "↗") {
-            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge"))) }
+        ProfileActionCard("Privacy policy", "Read how CastDoo uses account and app data", "›") { legalPage = "privacy" }
+        ProfileActionCard("Terms & conditions", "Read the CastDoo service terms", "›") { legalPage = "terms" }
+        ProfileSectionTitle("YOUR PLAN")
+        Surface(color = ProfileCard, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable { showPlans = true }) {
+            Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("CastDoo Free", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Current prototype plan · no payment is collected", color = ProfileMuted, fontSize = 10.sp)
+                }
+                Text("View plans  ›", color = ProfileBlue, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
         }
-        ProfileActionCard("Terms & conditions", "Review the CastDoo service terms", "↗") {
-            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-admin-beta-platform/CASTDOO_TERMS.md"))) }
-        }
+        CastDooFriendsSection()
         ProfileSectionTitle("SESSION")
         Surface(color = ProfileCard, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -253,3 +308,30 @@ private fun ProfileActionCard(title: String, subtitle: String, trailing: String,
         }
     }
 }
+
+private const val CASTDOO_PRIVACY_TEXT = """CASTDOO PRIVACY POLICY
+
+CastDoo processes your Google account ID, name, email and profile photo to create and secure your account. Depending on the features you use, it may also process your CastDoo ID, friends and invitations, settings, notification device tokens, streaming sessions and technical diagnostics.
+
+We use this information to sign you in, provide app features, deliver notifications, prevent abuse, maintain security and improve reliability. Google and Firebase provide authentication and selected app data services. MongoDB Atlas stores service records and notification device registrations. Firebase Cloud Messaging and UnifiedPush may be used to deliver notifications.
+
+We do not intend to sell personal information. Data may be processed by infrastructure providers or disclosed when legally required. Records are retained for as long as needed to operate the service, meet legal obligations and protect security. Account deletion and data export controls are being added; until available, contact the support channel published inside the app for account requests.
+
+No online service can guarantee absolute security. This notice should be reviewed against the final operating entity, local laws, retention settings and actual service configuration before public release.
+"""
+
+private const val CASTDOO_TERMS_TEXT = """CASTDOO TERMS AND CONDITIONS
+
+By creating or using a CastDoo account, you agree to use the service lawfully and respectfully.
+
+1. Keep your Google account secure and provide accurate profile information.
+2. Do not use CastDoo to break laws, infringe rights, harass people, distribute harmful content or disrupt the service.
+3. You are responsible for content you stream, record, upload, share or send and must have the rights and permissions needed to use it.
+4. Features may change or be interrupted. Unlimited storage, bandwidth or uninterrupted service is not guaranteed.
+5. Sign in and some features rely on Google, Firebase and other providers whose terms may also apply.
+6. Access may be restricted when reasonably necessary to protect users, the service or comply with law.
+7. Account deletion and subscription cancellation controls will be provided in app before paid subscriptions are enabled.
+8. These terms may be updated as the service changes.
+
+This is a prototype service notice, not legal advice. Review it for the final operating entity and applicable jurisdictions.
+"""
