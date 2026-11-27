@@ -26,7 +26,7 @@ object CastDooFcmRegistration {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                if (token.isNotBlank()) user.getIdToken(true)
+                if (token.isNotBlank()) user.getIdToken(false)
                     .addOnSuccessListener { result -> result.token?.let { sendToken(context.applicationContext, token, it) } }
                     .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not authenticate FCM registration", error) }
             }
