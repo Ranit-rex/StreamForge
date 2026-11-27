@@ -1,13 +1,6 @@
 name: CastDoo Main APK
 on:
   workflow_dispatch:
-    inputs:
-      release_track:
-        description: "Release channel for this build"
-        required: true
-        type: choice
-        options: [stable, beta]
-        default: stable
   push:
     branches: [feature/castdoo-auth-foundation, 'feature/**']
     paths:
@@ -66,7 +59,7 @@ jobs:
         run: |
           BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER))
           if [ "$BUILD_NUMBER" -lt 1074 ]; then BUILD_NUMBER=1074; fi
-          TRACK="${{ inputs.release_track || 'stable' }}"
+          TRACK="stable"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "RELEASE_TRACK=$TRACK" >> "$GITHUB_ENV"
       - name: Build Main APK
