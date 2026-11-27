@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.tasks.Tasks
@@ -39,7 +40,13 @@ class CastDooUnifiedPushService : PushService() {
                 val payload = JSONObject().put("endpoint", endpoint.url).put("p256dh", keys.pubKey)
                     .put("auth", keys.auth).put("instance", instance)
                 connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-                connection.responseCode
+                val status = connection.responseCode
+                if (status !in 200..299) {
+                    val response = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    Log.e("CastDooPush", "UnifiedPush endpoint registration rejected ($status): $response")
+                } else {
+                    Log.i("CastDooPush", "UnifiedPush endpoint registered")
+                }
             } catch (_: Exception) {
                 // The next app launch re-registers with the UnifiedPush distributor.
             } finally { connection?.disconnect() }
@@ -69,9 +76,17 @@ class CastDooUnifiedPushService : PushService() {
         runCatching { NotificationManagerCompat.from(this).notify(campaignId.hashCode(), notification) }
     }
 
-    override fun onRegistrationFailed(reason: FailedReason, instance: String) = Unit
-    override fun onTempUnavailable(instance: String) = Unit
-    override fun onUnregistered(instance: String) = Unit
+    override fun onRegistrationFailed(reason: FailedReason, instance: String) {
+        Log.e("CastDooPush", "UnifiedPush registration failed: $reason ($instance)")
+    }
+
+    override fun onTempUnavailable(instance: String) {
+        Log.w("CastDooPush", "UnifiedPush distributor temporarily unavailable ($instance)")
+    }
+
+    override fun onUnregistered(instance: String) {
+        Log.w("CastDooPush", "UnifiedPush registration was removed ($instance)")
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
