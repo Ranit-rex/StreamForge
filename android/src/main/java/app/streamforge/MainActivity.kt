@@ -192,7 +192,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleNotificationAction(source: Intent?) {
         val actionUrl = source?.getStringExtra(CastDooUnifiedPushService.EXTRA_ACTION_URL).orEmpty()
-        source?.removeExtra(CastDooPushMessagingService.EXTRA_ACTION_URL)
+        source?.removeExtra(CastDooUnifiedPushService.EXTRA_ACTION_URL)
         if (actionUrl.startsWith("https://")) {
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))) }
         }
