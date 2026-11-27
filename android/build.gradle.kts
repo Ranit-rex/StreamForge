@@ -74,8 +74,18 @@ dependencies {
  implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
  implementation("com.google.firebase:firebase-auth")
  implementation("com.google.firebase:firebase-firestore")
- implementation("com.google.firebase:firebase-messaging")
  implementation("com.google.firebase:firebase-functions")
  implementation("io.github.webrtc-sdk:android:144.7559.15")
  implementation("com.squareup.okhttp3:okhttp:4.11.0")
+ implementation("org.unifiedpush.android:connector:3.3.5")
+}
+
+configurations.configureEach {
+ val tink = "com.google.crypto.tink:tink-android:1.23.0"
+ resolutionStrategy {
+  force(tink)
+  dependencySubstitution {
+   substitute(module("com.google.crypto.tink:tink")).using(module(tink))
+  }
+ }
 }
