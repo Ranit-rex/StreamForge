@@ -262,6 +262,7 @@ fun StreamForgeApp(
                         9 -> PartyVoicePanel()
                         11 -> VideoEditorPanel()
                         12 -> CastDooNotificationsPanel()
+                        13 -> CastDooProfileScreen()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
@@ -545,11 +546,12 @@ fun StreamForgeApp(
                         Triple(2, "Scenes", "▦"),
                         Triple(9, "Party", "◉"),
                         Triple(6, "Live Chat", "▤"),
-                        Triple(8, "More", "•••")
+                        Triple(8, "More", "•••"),
+                        Triple(13, "Profile", "◉")
                     )
                     destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 || selectedTab == 11 else selectedTab == tab,
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 || selectedTab == 11 || selectedTab == 12 else selectedTab == tab,
                             onClick = { selectedTab = tab },
                             icon = { Text(icon, fontSize = 17.sp) },
                             label = { Text(label, fontSize = 10.sp, maxLines = 1) },
