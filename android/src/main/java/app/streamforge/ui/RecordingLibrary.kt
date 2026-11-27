@@ -97,7 +97,7 @@ fun RecordingLibrary() {
                                     busy = false
                                     Toast.makeText(
                                         context,
-                                        if (result != null) "Saved to Movies / StreamForge" else "Export failed",
+                                        if (result != null) "Saved to Movies / CastDoo" else "Export failed",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
