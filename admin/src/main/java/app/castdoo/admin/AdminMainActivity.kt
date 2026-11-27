@@ -61,6 +61,7 @@ class AdminMainActivity : ComponentActivity() {
 private fun AdminVersionGate(content: @Composable () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var retry by remember { mutableIntStateOf(0) }
+    var continueWithoutUpdate by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var release by remember { mutableStateOf<JSONObject?>(null) }
     LaunchedEffect(retry) {
@@ -95,7 +96,7 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             actionLabel = "Retry",
             onAction = { retry++ }
         )
-        mandatory || optionalUpdate -> AdminGateScreen(
+        (mandatory || optionalUpdate) && !(optionalUpdate && !mandatory && continueWithoutUpdate) -> AdminGateScreen(
             message = if (mandatory) "This Admin build is no longer supported. Install the latest version to continue." else "A newer Admin app version is available.",
             versionName = current.optString("versionName", "Admin update"),
             versionCode = latestCode,
@@ -104,7 +105,7 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             actionLabel = "Download Admin update",
             actionEnabled = validUrl,
             onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) },
-            onContinue = if (!mandatory) content else null
+            onContinue = if (!mandatory) { { continueWithoutUpdate = true } } else null
         )
         else -> content()
     }
