@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.RemoteMessage
 import app.streamforge.MainActivity
 import org.json.JSONObject
@@ -22,19 +23,25 @@ private const val CHANNEL_ID = "castdoo_updates"
 
 object CastDooFcmRegistration {
     fun register(context: Context) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
         FirebaseMessaging.getInstance().token
-            .addOnSuccessListener { token -> if (token.isNotBlank()) sendToken(context.applicationContext, token) }
+            .addOnSuccessListener { token ->
+                if (token.isNotBlank()) user.getIdToken(true)
+                    .addOnSuccessListener { result -> result.token?.let { sendToken(context.applicationContext, token, it) } }
+                    .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not authenticate FCM registration", error) }
+            }
             .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not get FCM token", error) }
     }
 
-    internal fun sendToken(context: Context, token: String) {
+    internal fun sendToken(context: Context, token: String, idToken: String) {
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL("$CASTDOO_ADMIN_API/api/devices/register-fcm").openConnection() as HttpURLConnection).apply {
+                connection = (URL("$CASTDOO_ADMIN_API/api/devices/fcm/register").openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 15000
                     readTimeout = 15000
+                    setRequestProperty("Authorization", "Bearer $idToken")
                     setRequestProperty("Content-Type", "application/json")
                     doOutput = true
                 }
@@ -54,7 +61,7 @@ object CastDooFcmRegistration {
 
 class CastDooFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
-        CastDooFcmRegistration.sendToken(applicationContext, token)
+        CastDooFcmRegistration.register(applicationContext)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
