@@ -5,6 +5,7 @@ import webpush from "web-push";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
+import { getFirestore } from "firebase-admin/firestore";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
@@ -218,6 +219,10 @@ async function handler(req,res) {
           } else { throw new Error("Device has no supported push transport"); }
           sent++;
           await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
+          if (SERVICE_ACCOUNT && device.uid) {
+            try { await getFirestore().collection("users").doc(device.uid).collection("notifications").add({title:notification.title,body:notification.body,read:false,createdAt:new Date(),campaignId,actionUrl:notification.actionUrl}); }
+            catch (firestoreError) { console.error("push_inbox_write_failed",firestoreError.message); }
+          }
         } catch (error) {
           failed++;
           const code = String(error.code || "");
