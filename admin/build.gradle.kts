@@ -4,10 +4,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val privateAdminPairingCode = providers.gradleProperty("castdooPrivateAdminPairingCode").orElse("").get()
+val escapedPrivateAdminPairingCode = privateAdminPairingCode.replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "app.castdoo.admin"
     compileSdk = 35
     defaultConfig {
+        buildConfigField("String", "PRIVATE_ADMIN_PAIRING_CODE", "\"$escapedPrivateAdminPairingCode\"")
         applicationId = "com.castdoo.admin"
         minSdk = 26
         targetSdk = 35
@@ -21,7 +25,7 @@ android {
     kotlin {
         compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 dependencies {
