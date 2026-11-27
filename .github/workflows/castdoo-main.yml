@@ -2,7 +2,7 @@ name: CastDoo Main APK
 on:
   workflow_dispatch:
   push:
-    branches: [feature/castdoo-auth-foundation, feature/castdoo-mongodb-push-admin-pairing]
+    branches: [feature/castdoo-auth-foundation, 'feature/**']
     paths:
       - "android/**"
       - "build.gradle.kts"
