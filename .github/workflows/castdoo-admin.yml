@@ -57,7 +57,7 @@ jobs:
       - name: Calculate build number
         shell: bash
         run: |
-          BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER - 114))
+          BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER))
           if [ "$BUILD_NUMBER" -lt 1073 ]; then BUILD_NUMBER=1073; fi
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
       - name: Build Admin APK
