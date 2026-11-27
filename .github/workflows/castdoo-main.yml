@@ -2,7 +2,7 @@ name: CastDoo Main APK
 on:
   workflow_dispatch:
   push:
-    branches: [feature/castdoo-auth-foundation]
+    branches: [feature/castdoo-auth-foundation, feature/castdoo-mongodb-push-admin-pairing]
     paths:
       - "android/**"
       - "build.gradle.kts"
@@ -11,7 +11,7 @@ on:
       - "gradle.properties"
       - ".github/workflows/castdoo-main.yml"
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: castdoo-main-${{ github.ref }}
   cancel-in-progress: false
@@ -84,6 +84,15 @@ jobs:
           name: CastDoo-Stable-APK
           path: android/build/outputs/apk/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
           if-no-files-found: error
+          archive: false
           retention-days: 14
 
 # Rebuild trigger: latest shared Kotlin compile fix is included.
+
+      - name: Publish direct Stable APK release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: castdoo-stable-build-${{ env.BUILD_NUMBER }}
+          name: CastDoo Stable build ${{ env.BUILD_NUMBER }}
+          prerelease: true
+          files: android/build/outputs/apk/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
