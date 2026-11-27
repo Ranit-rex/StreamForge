@@ -23,7 +23,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val CASTDOO_ADMIN_API = "https://castdoo-version-api.mranit66.workers.dev"
-private const val RELEASE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
 private const val RELEASE_PREFS = "castdoo_release_policy"
 
 private data class ReleaseInfo(
@@ -125,24 +124,16 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 
     LaunchedEffect(track) {
         val prefs = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
-        // Live and Test have independent daily checks. Switching channels must fetch
-        // that channel immediately instead of inheriting the other channel's cooldown.
-        val attemptKey = "last_attempt_$track"
-        val lastAttempt = prefs.getLong(attemptKey, 0L)
-        val now = System.currentTimeMillis()
-        if (lastAttempt == 0L || now - lastAttempt >= RELEASE_CHECK_INTERVAL_MS) {
-            val loaded = fetchRelease(track)
-            if (loaded != null) {
-                val checkedAt = System.currentTimeMillis()
-                // Start the 24-hour cooldown only after a successful policy fetch.
-                // A temporary network/API failure can therefore retry on the next launch.
-                prefs.edit()
-                    .putString("release_cache_$track", loaded.toJson().toString())
-                    .putLong("last_attempt_$track", checkedAt)
-                    .putLong("last_success_$track", checkedAt)
-                    .apply()
-                release = loaded
-            }
+        // No cooldown: fetch the selected CastDoo release channel on every app launch.
+        // Keep the last successful policy cached so offline launches remain protected.
+        val loaded = fetchRelease(track)
+        if (loaded != null) {
+            prefs.edit()
+                .putString("release_cache_$track", loaded.toJson().toString())
+                .remove("last_attempt_$track")
+                .remove("last_success_$track")
+                .apply()
+            release = loaded
         }
     }
 
