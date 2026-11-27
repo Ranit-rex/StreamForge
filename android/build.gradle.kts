@@ -14,19 +14,9 @@ android {
   targetSdk = 35
   versionCode = streamforgeBuildNumber
   versionName = "Alpha build $streamforgeBuildNumber"
+  buildConfigField("String", "APP_TRACK", "\"stable\"")
  }
- flavorDimensions += "track"
- productFlavors {
-  create("stable") {
-   dimension = "track"
-   buildConfigField("String", "APP_TRACK", "\"stable\"")
-  }
-  create("beta") {
-   dimension = "track"
-   versionNameSuffix = "-beta"
-   buildConfigField("String", "APP_TRACK", "\"beta\"")
-  }
- }
+
  signingConfigs {
   getByName("debug") {
    storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
