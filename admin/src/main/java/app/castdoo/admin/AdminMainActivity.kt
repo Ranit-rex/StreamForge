@@ -665,6 +665,7 @@ private fun InteractiveActivityGraph(values: List<Float>, selected: Int, onSelec
 private fun AdminDevices(token: String) {
     var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
     var status by remember { mutableStateOf("Loading registered devices…") }
+    var pushSetup by remember { mutableStateOf("Checking Firebase push configuration…") }
     LaunchedEffect(token) {
         while (true) {
             adminRequest(token, "GET", "/api/admin/devices", JSONObject()) { ok, data ->
@@ -674,12 +675,22 @@ private fun AdminDevices(token: String) {
                     status = "${rows.size} device record(s) · refreshed " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                 } else status = data.optString("error", "Device list unavailable")
             }
+            adminRequest(token, "GET", "/api/push/status", JSONObject()) { ok, data ->
+                if (ok) {
+                    pushSetup = if (data.optBoolean("firebaseAdminConfigured")) {
+                        "Firebase Admin ready · FCM devices: ${data.optInt("fcmDevices", 0)} · Web Push: ${data.optInt("unifiedPushDevices", 0)}"
+                    } else {
+                        "Firebase Admin NOT CONFIGURED on Render · FCM registration and delivery will fail until service-account JSON is added."
+                    }
+                } else pushSetup = data.optString("error", "Push configuration status unavailable")
+            }
             delay(20_000)
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Registered devices", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        Text(pushSetup, color = if (pushSetup.contains("NOT CONFIGURED")) Color(0xFFFFC56B) else Color(0xFF55D6A1), fontSize = 11.sp)
         rows.forEach { row ->
             AdminCard(
                 row.optString("platform", "Android").uppercase() + " · " + if (row.optBoolean("enabled")) "Enabled" else "Disabled",
