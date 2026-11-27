@@ -78,6 +78,7 @@ dependencies {
  implementation("com.google.firebase:firebase-auth")
  implementation("com.google.firebase:firebase-firestore")
  implementation("com.google.firebase:firebase-functions")
+ implementation("com.google.firebase:firebase-messaging")
  implementation("io.github.webrtc-sdk:android:144.7559.15")
  implementation("com.squareup.okhttp3:okhttp:4.11.0")
  implementation("org.unifiedpush.android:connector:3.3.5")
