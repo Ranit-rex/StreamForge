@@ -43,8 +43,8 @@ object CastDooPushRegistration {
                 } else {
                     Log.i("CastDooPush", "FCM device registered successfully")
                 }
-            } catch (_: Exception) {
-                // The next app launch or token refresh retries registration.
+            } catch (error: Exception) {
+                Log.e("CastDooPush", "FCM device registration failed", error)
             } finally { connection?.disconnect() }
         }.start()
     }
