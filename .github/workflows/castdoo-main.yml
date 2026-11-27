@@ -1,6 +1,15 @@
 name: CastDoo Main APK
 on:
   workflow_dispatch:
+    inputs:
+      release_track:
+        description: "Release channel to build"
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
   push:
     branches: [feature/castdoo-auth-foundation, 'feature/**']
     paths:
@@ -59,7 +68,7 @@ jobs:
         run: |
           BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER))
           if [ "$BUILD_NUMBER" -lt 1074 ]; then BUILD_NUMBER=1074; fi
-          TRACK="stable"
+          TRACK="${{ github.event.inputs.release_track || 'stable' }}"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "RELEASE_TRACK=$TRACK" >> "$GITHUB_ENV"
       - name: Build Main APK
@@ -91,7 +100,7 @@ jobs:
 
 # Rebuild trigger: latest shared Kotlin compile fix is included.
 
-      - name: Publish direct Stable APK release asset
+      - name: Publish direct channel APK release asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: castdoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}
