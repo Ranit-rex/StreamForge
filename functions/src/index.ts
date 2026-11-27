@@ -76,8 +76,14 @@ export const sendAdminNotification = onCall(
         if (chunk.length) {
           const result = await getMessaging().sendEachForMulticast({
             tokens: chunk,
-            notification: { title, body, ...(imageUrl ? { imageUrl } : {}) },
-            data: { campaignId: campaignRef.id, actionUrl, priority },
+            data: {
+              title,
+              body,
+              campaignId: campaignRef.id,
+              actionUrl,
+              priority,
+              ...(imageUrl ? { imageUrl } : {})
+            },
             android: { priority: priority === "important" ? "high" : "normal" }
           });
           pushCount += result.successCount;
@@ -100,5 +106,41 @@ export const sendAdminNotification = onCall(
 
     await campaignRef.update({ status: "sent", recipientCount: inboxCount, pushSuccessCount: pushCount, completedAt: FieldValue.serverTimestamp() });
     return { campaignId: campaignRef.id, recipientCount: inboxCount, pushSuccessCount: pushCount };
+  }
+);
+
+
+export const publishAppRelease = onCall(
+  { region: "asia-south1", maxInstances: 2 },
+  async (request) => {
+    if (!request.auth || request.auth.token.admin !== true) {
+      throw new HttpsError("permission-denied", "Admin access required.");
+    }
+    const data = request.data ?? {};
+    const track = data.track === "beta" || data.track === "stable" ? data.track : "";
+    const versionCode = Number(data.versionCode);
+    const minimumVersionCode = Number(data.minimumVersionCode);
+    const versionName = typeof data.versionName === "string" ? data.versionName.trim() : "";
+    const updateUrl = typeof data.updateUrl === "string" ? data.updateUrl.trim() : "";
+    const releaseNotes = typeof data.releaseNotes === "string" ? data.releaseNotes.trim() : "";
+    if (!track || !Number.isInteger(versionCode) || versionCode < 1 ||
+        !Number.isInteger(minimumVersionCode) || minimumVersionCode < 1 ||
+        minimumVersionCode > versionCode || !versionName || versionName.length > 60 ||
+        !updateUrl.startsWith("https://") || updateUrl.length > 2048 ||
+        releaseNotes.length > 4000) {
+      throw new HttpsError("invalid-argument", "Invalid release metadata.");
+    }
+    await db.collection("appReleases").doc(track).set({
+      track,
+      versionCode,
+      minimumVersionCode,
+      versionName,
+      updateUrl,
+      releaseNotes,
+      enabled: true,
+      publishedAt: FieldValue.serverTimestamp(),
+      publishedBy: request.auth.uid
+    });
+    return { track, versionCode, versionName };
   }
 );
