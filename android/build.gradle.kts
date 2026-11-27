@@ -16,7 +16,7 @@ android {
   minSdk = 26
   targetSdk = 35
   versionCode = streamforgeBuildNumber
-  versionName = "Alpha build $streamforgeBuildNumber"
+  versionName = "Alpha ${streamforgeAppTrack.replaceFirstChar { it.uppercase() }} build $streamforgeBuildNumber"
   buildConfigField("String", "APP_TRACK", "\"$streamforgeAppTrack\"")
  }
 
