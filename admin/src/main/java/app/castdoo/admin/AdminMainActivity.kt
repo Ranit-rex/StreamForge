@@ -57,57 +57,94 @@ class AdminMainActivity : ComponentActivity() {
 }
 
 
+private const val ADMIN_RELEASE_PREFS = "castdoo_admin_release_policy"
+private const val ADMIN_RELEASE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
+
 @Composable
 private fun AdminVersionGate(content: @Composable () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var retry by remember { mutableIntStateOf(0) }
-    var continueWithoutUpdate by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(true) }
-    var release by remember { mutableStateOf<JSONObject?>(null) }
-    LaunchedEffect(retry) {
-        loading = true
-        release = withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching {
-                val connection = (URL("$ADMIN_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 10000
-                    readTimeout = 12000
-                    requestMethod = "GET"
-                }
-                try {
-                    if (connection.responseCode !in 200..299) null
-                    else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                } finally { connection.disconnect() }
-            }.getOrNull()
-        }
-        loading = false
+    val releasePrefs = remember(context) {
+        context.getSharedPreferences(ADMIN_RELEASE_PREFS, ComponentActivity.MODE_PRIVATE)
     }
+    var release by remember(context) {
+        mutableStateOf(
+            releasePrefs.getString("policy_cache", null)?.let { raw ->
+                runCatching { JSONObject(raw) }.getOrNull()
+            }
+        )
+    }
+    var continueWithoutUpdate by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val lastAttempt = releasePrefs.getLong("last_attempt_at", 0L)
+        val now = System.currentTimeMillis()
+        // One request per day, including when the API is temporarily unavailable.
+        if (lastAttempt == 0L || now - lastAttempt >= ADMIN_RELEASE_CHECK_INTERVAL_MS) {
+            releasePrefs.edit().putLong("last_attempt_at", now).apply()
+            val loaded = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val connection = (URL("$ADMIN_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8000
+                        readTimeout = 10000
+                        requestMethod = "GET"
+                    }
+                    try {
+                        if (connection.responseCode !in 200..299) null
+                        else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    } finally {
+                        connection.disconnect()
+                    }
+                }.getOrNull()
+            }
+            if (loaded != null && loaded.optLong("versionCode", 0L) > 0L) {
+                releasePrefs.edit()
+                    .putString("policy_cache", loaded.toString())
+                    .putLong("last_success_at", System.currentTimeMillis())
+                    .apply()
+                release = loaded
+            }
+        }
+    }
+
     val current = release
     val installedCode = BuildConfig.VERSION_CODE.toLong()
-    val latestCode = current?.optLong("versionCode", 0) ?: 0
-    val minimumCode = current?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
+    val latestCode = current?.optLong("versionCode", 0L) ?: 0L
+    val minimumCode = current?.optLong("minimumVersionCode", 1L) ?: 1L
     val optionalUpdate = current != null && latestCode > installedCode
-    val updateType = current?.optString("updateType", if (current?.optBoolean("forceUpdate", false) == true) "major" else "mini") ?: "mini"
-    val mandatory = current != null && (minimumCode > installedCode || (optionalUpdate && (updateType == "major" || current.optBoolean("forceUpdate", false))))
-    val updateUrl = current?.optString("updateUrl").orEmpty()
-    val validUrl = updateUrl.startsWith("https://")
-    when {
-        loading -> Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {}
-        current == null -> AdminGateScreen(
-            "Could not verify the Admin app version. Connect to the internet and try again.",
-            actionLabel = "Retry",
-            onAction = { retry++ }
+    val updateType = current?.optString("updateType", if (current.optBoolean("forceUpdate", false)) "major" else "mini") ?: "mini"
+    val mandatory = current != null && (
+        minimumCode > installedCode ||
+            (optionalUpdate && (updateType == "major" || current.optBoolean("forceUpdate", false)))
         )
-        (mandatory || optionalUpdate) && !(optionalUpdate && !mandatory && continueWithoutUpdate) -> AdminGateScreen(
-            message = if (mandatory) "This Admin build is no longer supported. Install the latest version to continue." else "A newer Admin app version is available.",
-            versionName = current.optString("versionName", "Admin update"),
+    val updateUrl = current?.optString("updateUrl").orEmpty()
+    val validUrl = runCatching {
+        val uri = android.net.Uri.parse(updateUrl)
+        uri.scheme == "https" && !uri.host.isNullOrBlank()
+    }.getOrDefault(false)
+
+    when {
+        mandatory -> AdminGateScreen(
+            message = "This Admin build is no longer supported. Install the latest version to continue.",
+            versionName = current!!.optString("versionName", "Admin update"),
             versionCode = latestCode,
             releaseNotes = current.optString("releaseNotes", "Security, stability and performance improvements."),
-            mandatory = mandatory,
+            mandatory = true,
+            actionLabel = "Download Admin update",
+            actionEnabled = validUrl,
+            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) }
+        )
+        optionalUpdate && !continueWithoutUpdate -> AdminGateScreen(
+            message = "A newer Admin app version is available.",
+            versionName = current!!.optString("versionName", "Admin update"),
+            versionCode = latestCode,
+            releaseNotes = current.optString("releaseNotes", "Security, stability and performance improvements."),
+            mandatory = false,
             actionLabel = "Download Admin update",
             actionEnabled = validUrl,
             onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) },
-            onContinue = if (!mandatory) { { continueWithoutUpdate = true } } else null
+            onContinue = { continueWithoutUpdate = true }
         )
+        // Cached policy remains active offline. A first launch without cache stays usable.
         else -> content()
     }
 }
@@ -322,20 +359,43 @@ private fun PushComposer(token: String) {
 
 @Composable
 private fun ReleaseManager(token: String) {
-    var versionCode by remember { mutableStateOf("1088") }
+    var selectedTrack by remember { mutableStateOf("stable") }
+    var versionCode by remember { mutableStateOf("") }
     var minimumVersionCode by remember { mutableStateOf("1") }
-    var versionName by remember { mutableStateOf("Alpha build 1088") }
-    var updateUrl by remember { mutableStateOf("https://github.com/Ranit-rex/StreamForge/releases/download/castdoo-stable-build-1088/CastDoo-Stable-build-1088.apk") }
+    var versionName by remember { mutableStateOf("") }
+    var updateUrl by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var updateType by remember { mutableStateOf("mini") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
-    var currentRelease by remember { mutableStateOf("Loading current stable release…") }
+    var currentRelease by remember { mutableStateOf("Loading current Stable release…") }
     var adminMinimumVersion by remember { mutableStateOf("1") }
     var adminUpdateUrl by remember { mutableStateOf("") }
     var adminUpdateType by remember { mutableStateOf("mini") }
     var adminReleaseStatus by remember { mutableStateOf("Loading Admin app policy…") }
     var publishingAdminPolicy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(token, selectedTrack) {
+        currentRelease = "Loading current ${if (selectedTrack == "stable") "Stable · Live" else "Beta · Test"} release…"
+        resultText = ""
+        adminRequest(token, "GET", "/api/releases/$selectedTrack", JSONObject()) { ok, data ->
+            if (ok) {
+                val url = data.optString("updateUrl", "")
+                versionName = data.optString("versionName", "")
+                versionCode = if (url.isBlank()) "" else data.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
+                minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
+                updateUrl = url
+                notes = data.optString("releaseNotes", "")
+                updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
+                currentRelease = if (url.isBlank()) {
+                    "No published ${selectedTrack.uppercase()} release yet. Enter the APK build details below."
+                } else {
+                    "Published ${selectedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                }
+            } else currentRelease = data.optString("error", "Could not load current release")
+        }
+    }
+
     LaunchedEffect(token) {
         adminRequest(token, "GET", "/api/releases/admin", JSONObject()) { ok, data ->
             if (ok) {
@@ -345,48 +405,52 @@ private fun ReleaseManager(token: String) {
                 adminReleaseStatus = "Admin policy · minimum build ${data.optInt("minimumVersionCode", 1)}"
             } else adminReleaseStatus = data.optString("error", "Could not load Admin app policy")
         }
-        adminRequest(token, "GET", "/api/releases/stable", JSONObject()) { ok, data ->
-            if (ok) {
-                versionName = data.optString("versionName", "Alpha build 1088")
-                versionCode = data.optInt("versionCode", 1088).toString()
-                minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
-                updateUrl = data.optString("updateUrl", updateUrl).ifBlank { updateUrl }
-                notes = data.optString("releaseNotes", "")
-                updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
-                currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
-                resultText = ""
-            } else currentRelease = data.optString("error", "Could not load current release")
-        }
     }
+
+    val parsedVersionCode = versionCode.toIntOrNull()
+    val parsedMinimumCode = minimumVersionCode.toIntOrNull()
+    val validReleaseNumbers = parsedVersionCode != null && parsedMinimumCode != null &&
+        parsedVersionCode > 0 && parsedMinimumCode > 0 && parsedMinimumCode <= parsedVersionCode
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Release management", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Choose the Live or Test release feed. Both channels update the same CastDoo app package.", color = Color(0xFF9BAABD), fontSize = 12.sp, lineHeight = 18.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = selectedTrack == "stable", onClick = { selectedTrack = "stable" }, label = { Text("Stable · Live") })
+            FilterChip(selected = selectedTrack == "beta", onClick = { selectedTrack = "beta" }, label = { Text("Beta · Test") })
+        }
         Text(currentRelease, color = Color(0xFF55D6A1), fontSize = 12.sp)
         OutlinedTextField(versionName, { versionName = it }, label = { Text("Version name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code from APK build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(minimumVersionCode, { minimumVersionCode = it }, label = { Text("Minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(updateUrl, { updateUrl = it }, label = { Text("APK / Play Store update URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(updateUrl, { updateUrl = it }, label = { Text("APK HTTPS download URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Text("Update type", color = Color(0xFF9BAABD), fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = updateType == "major", onClick = { updateType = "major" }, label = { Text("Major update") })
-            FilterChip(selected = updateType == "mini", onClick = { updateType = "mini" }, label = { Text("Mini update") })
+            FilterChip(selected = updateType == "major", onClick = { updateType = "major" }, label = { Text("Major · Mandatory") })
+            FilterChip(selected = updateType == "mini", onClick = { updateType = "mini" }, label = { Text("Mini · Optional") })
         }
         OutlinedTextField(notes, { notes = it }, label = { Text("Release notes") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Button(
-            enabled = !publishing && versionCode.toIntOrNull() != null && minimumVersionCode.toIntOrNull() != null && updateUrl.startsWith("https://"),
+            enabled = !publishing && validReleaseNumbers && updateUrl.startsWith("https://") && versionName.isNotBlank(),
             onClick = {
                 publishing = true
-                val json = JSONObject().put("versionCode", versionCode.toIntOrNull() ?: 1)
-                    .put("minimumVersionCode", minimumVersionCode.toIntOrNull() ?: 1)
-                    .put("versionName", versionName.trim()).put("updateUrl", updateUrl.trim())
-                    .put("releaseNotes", notes.trim()).put("updateType", updateType).put("forceUpdate", updateType == "major")
-                adminRequest(token, "POST", "/api/releases/stable", json) { ok, data ->
+                val json = JSONObject()
+                    .put("versionCode", parsedVersionCode ?: 1)
+                    .put("minimumVersionCode", parsedMinimumCode ?: 1)
+                    .put("versionName", versionName.trim())
+                    .put("updateUrl", updateUrl.trim())
+                    .put("releaseNotes", notes.trim())
+                    .put("updateType", updateType)
+                    .put("forceUpdate", updateType == "major")
+                adminRequest(token, "POST", "/api/releases/$selectedTrack", json) { ok, data ->
                     resultText = if (ok) "Published successfully · build ${data.optInt("versionCode")}" else data.optString("error", "Publish failed")
-                    if (ok) currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                    if (ok) currentRelease = "Published ${selectedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     publishing = false
                 }
             }, modifier = Modifier.fillMaxWidth()
-        ) { Text(if (publishing) "Publishing…" else "Publish release") }
+        ) { Text(if (publishing) "Publishing…" else "Publish ${selectedTrack.uppercase()} release") }
         if (resultText.isNotBlank()) Text(resultText, color = if (resultText.startsWith("Published successfully")) Color(0xFF55D6A1) else Color(0xFFFF8585), fontSize = 13.sp)
+
         Spacer(Modifier.height(18.dp))
         Divider(color = Color(0xFF263445))
         Text("Admin app version lock", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -398,14 +462,16 @@ private fun ReleaseManager(token: String) {
             FilterChip(selected = adminUpdateType == "major", onClick = { adminUpdateType = "major" }, label = { Text("Major update") })
             FilterChip(selected = adminUpdateType == "mini", onClick = { adminUpdateType = "mini" }, label = { Text("Mini update") })
         }
+        val adminMinimum = adminMinimumVersion.toIntOrNull()
         Button(
-            enabled = !publishingAdminPolicy && adminMinimumVersion.toIntOrNull() != null && adminUpdateUrl.startsWith("https://"),
+            enabled = !publishingAdminPolicy && adminMinimum != null && adminMinimum > 0 &&
+                adminMinimum <= BuildConfig.VERSION_CODE && adminUpdateUrl.startsWith("https://"),
             onClick = {
                 publishingAdminPolicy = true
                 val currentAdminCode = BuildConfig.VERSION_CODE
                 val json = JSONObject()
                     .put("versionCode", currentAdminCode)
-                    .put("minimumVersionCode", adminMinimumVersion.toIntOrNull() ?: 1)
+                    .put("minimumVersionCode", adminMinimum ?: 1)
                     .put("versionName", "Admin build $currentAdminCode")
                     .put("updateUrl", adminUpdateUrl.trim())
                     .put("releaseNotes", "CastDoo Admin app update")
