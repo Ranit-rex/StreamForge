@@ -21,6 +21,7 @@ import app.streamforge.ui.StreamForgeApp
 import app.streamforge.ui.CastDooAuthGate
 import app.streamforge.ui.EditorAssetDownloads
 import app.streamforge.ui.CastDooReleaseGate
+import app.streamforge.ui.CastDooReleaseChannel
 import app.streamforge.notifications.CastDooUnifiedPushService
 
 class MainActivity : ComponentActivity() {
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CastDooReleaseChannel.initialize(this)
         EditorAssetDownloads.schedule(this)
         MobileAds.initialize(this)
         // Android 15 enforces edge-to-edge for targetSdk 35. Compose applies system-bar
