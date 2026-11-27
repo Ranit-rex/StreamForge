@@ -42,6 +42,7 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     var release by remember { mutableStateOf<ReleaseInfo?>(null) }
     var checked by remember { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
+    var continueWithoutUpdate by remember { mutableStateOf(false) }
 
     LaunchedEffect(BuildConfig.APP_TRACK, retry) {
         checked = false
@@ -78,7 +79,7 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 
     when {
         !checked -> ReleaseGateBackdrop()
-        current == null -> content() // Keep the consumer app available during a temporary release API outage.
+        current == null -> CastDooVerificationScreen(onRetry = { retry++ })
         mandatory -> CastDooUpdateScreen(
             release = current,
             installedCode = installedCode,
@@ -86,13 +87,13 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
             updateEnabled = validUpdateUrl,
             onUpdate = { current.updateUrl.let { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } }
         )
-        updateAvailable -> CastDooUpdateScreen(
+        updateAvailable && !continueWithoutUpdate -> CastDooUpdateScreen(
             release = current,
             installedCode = installedCode,
             mandatory = false,
             updateEnabled = validUpdateUrl,
             onUpdate = { current.updateUrl.let { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } },
-            onContinue = { /* Optional update: continue into the app. */ content() }
+            onContinue = { continueWithoutUpdate = true }
         )
         else -> content()
     }
@@ -102,6 +103,21 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 private fun ReleaseGateBackdrop() {
     // Check silently in the background; no "checking for updates" text or spinner is shown.
     Surface(Modifier.fillMaxSize(), color = CastDooNavy) {}
+}
+
+@Composable
+private fun CastDooVerificationScreen(onRetry: () -> Unit) {
+    Surface(Modifier.fillMaxSize(), color = CastDooNavy) {
+        Column(Modifier.fillMaxSize().padding(26.dp), verticalArrangement = Arrangement.Center) {
+            Text("CASTDOO", color = CastDooCyan, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
+            Spacer(Modifier.height(18.dp))
+            Text("Can't verify this app version", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            Text("Connect to the internet and try again. CastDoo needs to verify the supported version before opening.", color = CastDooMuted, fontSize = 14.sp, lineHeight = 21.sp)
+            Spacer(Modifier.height(22.dp))
+            Button(onClick = onRetry, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Try again") }
+        }
+    }
 }
 
 @Composable
