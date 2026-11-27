@@ -22,7 +22,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val VERSION_API = "https://castdoo-version-api.mranit66.workers.dev/api/releases/stable"
-private const val VERSION_CHECK_INTERVAL = 24L * 60L * 60L * 1000L
 private const val VERSION_PREFS = "streamforge_version_policy"
 
 private data class AppRelease(
@@ -82,24 +81,22 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 
     LaunchedEffect(Unit) {
         val prefs = context.getSharedPreferences(VERSION_PREFS, Context.MODE_PRIVATE)
-        val lastSuccess = prefs.getLong("last_success", 0L)
-        if (lastSuccess == 0L || System.currentTimeMillis() - lastSuccess >= VERSION_CHECK_INTERVAL) {
-            val fresh = fetchAppRelease()
-            if (fresh != null) {
-                val now = System.currentTimeMillis()
-                prefs.edit()
-                    .putString("stable_policy", JSONObject()
-                        .put("versionCode", fresh.latestCode)
-                        .put("minimumVersionCode", fresh.minimumCode)
-                        .put("versionName", fresh.name)
-                        .put("updateUrl", fresh.url)
-                        .put("releaseNotes", fresh.notes)
-                        .put("forceUpdate", fresh.mandatory)
-                        .toString())
-                    .putLong("last_success", now)
-                    .apply()
-                release = fresh
-            }
+        // No cooldown: check the stable release policy on every app launch.
+        // Keep the last successful policy cached so offline launches still enforce it.
+        val fresh = fetchAppRelease()
+        if (fresh != null) {
+            prefs.edit()
+                .putString("stable_policy", JSONObject()
+                    .put("versionCode", fresh.latestCode)
+                    .put("minimumVersionCode", fresh.minimumCode)
+                    .put("versionName", fresh.name)
+                    .put("updateUrl", fresh.url)
+                    .put("releaseNotes", fresh.notes)
+                    .put("forceUpdate", fresh.mandatory)
+                    .toString())
+                .remove("last_success")
+                .apply()
+            release = fresh
         }
     }
 
