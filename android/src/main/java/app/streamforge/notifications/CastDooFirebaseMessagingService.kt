@@ -23,14 +23,19 @@ private const val CHANNEL_ID = "castdoo_updates"
 
 object CastDooFcmRegistration {
     fun register(context: Context) {
-        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            Log.d("CastDooFCM", "Registration deferred: no signed-in Firebase user")
+            return
+        }
+        Log.d("CastDooFCM", "Requesting FCM token for signed-in user")
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                if (token.isNotBlank()) user.getIdToken(false)
+                if (token.isNotBlank()) user.getIdToken(true)
                     .addOnSuccessListener { result -> result.token?.let { sendToken(context.applicationContext, token, it) } }
                     .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not authenticate FCM registration", error) }
             }
-            .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not get FCM token", error) }
+            .addOnFailureListener { error -> Log.e("CastDooFCM", "Could not get FCM token; check google-services.json and Firebase Cloud Messaging", error) }
     }
 
     internal fun sendToken(context: Context, token: String, idToken: String) {
@@ -51,7 +56,7 @@ object CastDooFcmRegistration {
                 if (code !in 200..299) {
                     val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                     Log.e("CastDooFCM", "Token registration rejected ($code): $error")
-                } else Log.i("CastDooFCM", "FCM device registered")
+                } else Log.i("CastDooFCM", "FCM device registered for uid=${FirebaseAuth.getInstance().currentUser?.uid?.take(10)}")
             } catch (error: Exception) {
                 Log.e("CastDooFCM", "FCM registration failed", error)
             } finally { connection?.disconnect() }
