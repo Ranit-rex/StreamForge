@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import webpush from "web-push";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { getMessaging } from "firebase-admin/messaging";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
@@ -82,9 +83,9 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT)});
-  const publicRelease = url.pathname.match(/^\/api\/releases\/stable$/);
+  const publicRelease = url.pathname === "/api/releases/stable";
   if (req.method === "GET" && publicRelease) {
-    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:publicRelease[1]}); return send(res,200,release || {track:publicRelease[1],versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
+    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:"stable"}); return send(res,200,release || {track:"stable",versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
   }
 
@@ -116,6 +117,22 @@ async function handler(req,res) {
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
   }
 
+  if (req.method === "POST" && url.pathname === "/api/devices/fcm/register") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,401,{error:"Sign in required"});
+      const input = await body(req);
+      const token = String(input.token || "").trim();
+      if (token.length < 40 || token.length > 4096) return send(res,400,{error:"A valid Firebase messaging token is required"});
+      const d = await database();
+      await d.collection("push_devices").updateOne(
+        {uid:identity.uid,endpoint:`fcm:${token}`},
+        {$set:{uid:identity.uid,endpoint:`fcm:${token}`,fcmToken:token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
+        {upsert:true}
+      );
+      return send(res,200,{registered:true,transport:"FCM"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
+  }
   if (req.method === "POST" && url.pathname === "/api/devices/register") {
     try {
       const identity = await firebaseUser(req);
@@ -180,7 +197,7 @@ async function handler(req,res) {
       const title = String(input.title || "").trim().slice(0,100);
       const message = String(input.message || input.body || "").trim().slice(0,2000);
       if (!title || !message) return send(res,400,{error:"Title and message are required"});
-      if (!pushConfigured()) return send(res,503,{error:"Web Push is not configured. Set WEB_PUSH_PUBLIC_KEY and WEB_PUSH_PRIVATE_KEY on the Render API service."});
+      if (!SERVICE_ACCOUNT && !pushConfigured()) return send(res,503,{error:"Push delivery is not configured. Connect Firebase Admin credentials or configure Web Push keys."});
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
       const filter = {enabled:true,endpoint:{$type:"string"},... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
