@@ -80,24 +80,31 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
         }
         loading = false
     }
-    val minimum = release?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
-    val blocked = !loading && release != null && minimum > BuildConfig.VERSION_CODE.toLong()
-    val unavailable = !loading && release == null
+    val current = release
+    val installedCode = BuildConfig.VERSION_CODE.toLong()
+    val latestCode = current?.optLong("versionCode", 0) ?: 0
+    val minimumCode = current?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
+    val mandatory = current != null && (minimumCode > installedCode || current.optBoolean("forceUpdate", false))
+    val optionalUpdate = current != null && latestCode > installedCode
+    val updateUrl = current?.optString("updateUrl").orEmpty()
+    val validUrl = updateUrl.startsWith("https://")
     when {
-        loading -> AdminGateScreen("Checking Admin app version…", showProgress = true)
-        blocked -> {
-            val url = release?.optString("updateUrl").orEmpty()
-            AdminGateScreen(
-                "Admin app update required. This version is no longer supported. Install the latest Admin APK to continue.",
-                actionLabel = "Update Admin app",
-                actionEnabled = url.startsWith("https://"),
-                onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
-            )
-        }
-        unavailable -> AdminGateScreen(
+        loading -> Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {}
+        current == null -> AdminGateScreen(
             "Could not verify the Admin app version. Connect to the internet and try again.",
             actionLabel = "Retry",
             onAction = { retry++ }
+        )
+        mandatory || optionalUpdate -> AdminGateScreen(
+            message = if (mandatory) "This Admin build is no longer supported. Install the latest version to continue." else "A newer Admin app version is available.",
+            versionName = current.optString("versionName", "Admin update"),
+            versionCode = latestCode,
+            releaseNotes = current.optString("releaseNotes", "Security, stability and performance improvements."),
+            mandatory = mandatory,
+            actionLabel = "Download Admin update",
+            actionEnabled = validUrl,
+            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) },
+            onContinue = if (!mandatory) content else null
         )
         else -> content()
     }
@@ -106,28 +113,51 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
 @Composable
 private fun AdminGateScreen(
     message: String,
-    showProgress: Boolean = false,
+    versionName: String = "",
+    versionCode: Long = 0,
+    releaseNotes: String = "",
+    mandatory: Boolean = true,
     actionLabel: String? = null,
     actionEnabled: Boolean = true,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    onContinue: (() -> Unit)? = null
 ) {
     Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
         Column(
-            Modifier.fillMaxSize().padding(28.dp),
+            Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(14.dp))
-            Text(if (showProgress) "Please wait" else "Update required", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Spacer(Modifier.height(18.dp))
+            Text(if (mandatory) "Update required" else "Update available", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(10.dp))
-            Text(message, color = Color(0xFF9BAABD), fontSize = 14.sp)
-            if (showProgress) {
-                Spacer(Modifier.height(20.dp))
-                CircularProgressIndicator()
-            }
-            if (actionLabel != null && onAction != null) {
+            Text(message, color = Color(0xFF9BAABD), fontSize = 14.sp, lineHeight = 21.sp)
+            if (versionName.isNotBlank()) {
                 Spacer(Modifier.height(22.dp))
-                Button(onClick = onAction, enabled = actionEnabled, modifier = Modifier.fillMaxWidth()) { Text(actionLabel) }
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF151F2B)), shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("UPDATE DETAILS", color = Color(0xFF9BAABD), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(versionName, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("Version code  $versionCode", color = Color(0xFF55D6FF), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Divider(color = Color(0xFF263445))
+                        Text("WHAT'S NEW", color = Color(0xFF9BAABD), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(releaseNotes, color = Color(0xFFE1EAF4), fontSize = 14.sp, lineHeight = 21.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+            if (actionLabel != null && onAction != null) {
+                Button(onClick = onAction, enabled = actionEnabled, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(actionLabel) }
+            }
+            if (!actionEnabled && actionLabel != null) {
+                Spacer(Modifier.height(8.dp))
+                Text("Update link is not available yet.", color = Color(0xFFFFC56B), fontSize = 12.sp)
+            }
+            if (!mandatory && onContinue != null) {
+                TextButton(onClick = onContinue, modifier = Modifier.fillMaxWidth()) { Text("Continue without updating", color = Color(0xFF9BAABD)) }
+            } else if (mandatory) {
+                Spacer(Modifier.height(8.dp))
+                Text("This update is required. You cannot skip it.", color = Color(0xFF9BAABD), fontSize = 11.sp)
             }
         }
     }
