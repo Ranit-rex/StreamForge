@@ -5,6 +5,7 @@ import webpush from "web-push";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
@@ -31,7 +32,9 @@ const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || "").trim();
 const VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_PUBLIC_KEY || "").trim();
 const VAPID_PRIVATE_KEY = (process.env.WEB_PUSH_PRIVATE_KEY || "").trim();
 const VAPID_SUBJECT = (process.env.WEB_PUSH_SUBJECT || "mailto:support@castdoo.app").trim();
-const pushConfigured = () => Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+const unifiedPushConfigured = () => Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+const fcmConfigured = () => Boolean(SERVICE_ACCOUNT);
+const pushConfigured = () => unifiedPushConfigured() || fcmConfigured();
 if (pushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 let client;
 let db;
@@ -51,6 +54,7 @@ async function database() {
       db.collection("admin_events").createIndex({ createdAt: -1 }),
       db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
       db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
+      db.collection("push_devices").createIndex({ token: 1 }, { unique: true, partialFilterExpression: { token: { $type: "string" } } }),
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
       db.collection("notifications").createIndex({ uid: 1, createdAt: -1 }),
       db.collection("app_users").createIndex({ lastSeenAt: -1 }),
@@ -99,7 +103,7 @@ async function authorized(req) {
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
-  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,pushConfigured:pushConfigured(),pushTransport:"UnifiedPush Web Push"});
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,pushConfigured:pushConfigured(),pushTransport:"Firebase Cloud Messaging + UnifiedPush"});
   const publicReleaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta|admin)$/);
   if (req.method === "GET" && publicReleaseMatch) {
     const track = publicReleaseMatch[1];
@@ -160,6 +164,24 @@ async function handler(req,res) {
       });
       return send(res,200,{paired:true,token});
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/devices/register-fcm") {
+    try {
+      const input = await body(req);
+      const token = String(input.token || "").trim();
+      if (token.length < 50 || token.length > 4096) return send(res,400,{error:"A valid Firebase Messaging device token is required"});
+      if (!SERVICE_ACCOUNT) return send(res,503,{error:"Firebase Admin service-account credentials are not configured"});
+      const d = await database();
+      const now = new Date();
+      await d.collection("push_devices").updateOne(
+        {token},
+        {$set:{token,platform:String(input.platform || "android").slice(0,24),transport:"fcm",enabled:true,updatedAt:now,lastSeenAt:now},$setOnInsert:{createdAt:now}},
+        {upsert:true}
+      );
+      await d.collection("admin_events").insertOne({type:"push.fcm_device_registered",platform:"android",createdAt:now});
+      return send(res,200,{registered:true,transport:"FCM"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
   }
 
   if (req.method === "POST" && url.pathname === "/api/devices/register") {
@@ -246,9 +268,12 @@ async function handler(req,res) {
       return send(res,200,release);
     }
     if (req.method === "GET" && url.pathname === "/api/push/status") {
-      const filter = {enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"}};
+      const filter = {enabled:true,$or:[
+        {transport:"fcm",token:{$type:"string"}},
+        {transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"}}
+      ]};
       const registeredDevices = await d.collection("push_devices").countDocuments(filter);
-      const registeredUsers = await d.collection("push_devices").distinct("uid",filter);
+      const registeredUsers = await d.collection("push_devices").distinct("uid",{...filter,uid:{$type:"string"}});
       let totalUsers = null;
       let totalUsersSource = "unavailable";
       if (SERVICE_ACCOUNT) {
@@ -266,13 +291,15 @@ async function handler(req,res) {
       }
       return send(res,200,{
         configured:pushConfigured(),
+        fcmConfigured:fcmConfigured(),
+        fcmDevices:await d.collection("push_devices").countDocuments({enabled:true,transport:"fcm",token:{$type:"string"}}),
         firebaseAdminConfigured:Boolean(SERVICE_ACCOUNT),
         firebaseProject:SERVICE_ACCOUNT?.project_id || null,
         totalUsers,totalUsersSource,
         registeredUsers:registeredUsers.length,
         registeredDevices,
-        unifiedPushDevices:registeredDevices,
-        transport:"UnifiedPush Web Push"
+        unifiedPushDevices:await d.collection("push_devices").countDocuments({enabled:true,transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"}}),
+        transport:"FCM + UnifiedPush"
       });
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
@@ -284,7 +311,11 @@ async function handler(req,res) {
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
       const filter = {
-        enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"},
+        enabled:true,
+        $or:[
+          {transport:"fcm",token:{$type:"string"}},
+          {transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"}}
+        ],
         ...(input.audience === "selected" ? {uid:{$in:targetUids}} : {})
       };
       const rows = await d.collection("push_devices").find(filter).toArray();
@@ -302,33 +333,43 @@ async function handler(req,res) {
       for (const device of rows) {
         const notification = {title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl,priority:campaign.priority};
         try {
-          await webpush.sendNotification(
-            {endpoint:device.endpoint,keys:device.keys},
-            JSON.stringify(notification),
-            {TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"}
-          );
+          if (device.transport === "fcm" && device.token) {
+            await getMessaging().send({
+              token:device.token,
+              notification:{title,body:message.slice(0,700)},
+              data:{title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl,priority:campaign.priority},
+              android:{priority:campaign.priority === "high" ? "high" : "normal",notification:{channelId:"castdoo_updates"}}
+            });
+          } else {
+            await webpush.sendNotification(
+              {endpoint:device.endpoint,keys:device.keys},
+              JSON.stringify(notification),
+              {TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"}
+            );
+          }
           sent++;
-          await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
+          if (device.uid) await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
         } catch (error) {
           failed++;
           const status = Number(error.statusCode || 0);
-          if (status === 404 || status === 410) {
+          const invalidFcm = ["messaging/registration-token-not-registered","messaging/invalid-registration-token"].includes(error.code);
+          if (status === 404 || status === 410 || invalidFcm) {
             await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
           }
-          await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"failed",deliveryError:String(error.message || "Delivery failed").slice(0,300)});
+          if (device.uid) await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"failed",deliveryError:String(error.message || "Delivery failed").slice(0,300)});
         }
       }
       await d.collection("notification_campaigns").updateOne({campaignId},{$set:{status:"completed",sent,failed,completedAt:new Date()}});
       await d.collection("admin_audit_logs").insertOne({action:"push.sent",campaignId,sent,failed,createdAt:new Date()});
-      return send(res,200,{configured:true,transport:"UnifiedPush",sent,failed,devices:rows.length,campaignId});
+      return send(res,200,{configured:true,transport:"FCM + UnifiedPush",sent,failed,devices:rows.length,campaignId});
     }
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const [totalUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,hourlyRows] = await Promise.all([
         d.collection("app_users").countDocuments(),
         d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
-        d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}),
-        d.collection("push_devices").distinct("uid",{enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}),
+        d.collection("push_devices").countDocuments({enabled:true,$or:[{transport:"fcm",token:{$type:"string"}},{transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}]}),
+        d.collection("push_devices").distinct("uid",{enabled:true,uid:{$type:"string"},$or:[{transport:"fcm",token:{$type:"string"}},{transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}]}),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray(),
         d.collection("admin_events").aggregate([
@@ -352,7 +393,7 @@ async function handler(req,res) {
     if (req.method === "GET" && url.pathname === "/api/admin/devices") {
       const devices = await d.collection("push_devices").find({}).sort({updatedAt:-1}).limit(100).toArray();
       return send(res,200,{devices:devices.map(device=>({
-        uid:device.uid,platform:device.platform||"android",transport:"UnifiedPush",
+        uid:device.uid,platform:device.platform||"android",transport:device.transport==="fcm"?"FCM":"UnifiedPush",
         enabled:device.enabled===true,createdAt:device.createdAt||null,
         updatedAt:device.updatedAt||null,lastSeenAt:device.lastSeenAt||null
       }))});
