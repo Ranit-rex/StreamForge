@@ -55,7 +55,12 @@ async function database() {
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
       db.collection("notifications").createIndex({ uid: 1, createdAt: -1 }),
       db.collection("notification_campaigns").createIndex({ createdAt: -1 }),
-      db.collection("app_users").createIndex({ lastSeenAt: -1 })
+      db.collection("app_users").createIndex({ lastSeenAt: -1 }),
+      db.collection("castdoo_profiles").createIndex({ uid: 1 }, { unique: true }),
+      db.collection("castdoo_profiles").createIndex({ email: 1 }, { unique: true }),
+      db.collection("castdoo_friend_requests").createIndex({ requestId: 1 }, { unique: true }),
+      db.collection("castdoo_friend_requests").createIndex({ recipientEmail: 1, status: 1, createdAt: -1 }),
+      db.collection("castdoo_friend_requests").createIndex({ senderUid: 1, status: 1, createdAt: -1 })
     ]);
     return db;
   })().catch(error => { connecting = null; throw error; });
@@ -75,6 +80,132 @@ async function firebaseUser(req) {
   const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
   try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
+}
+async function googleProfile(req) {
+  const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+  if (!match) throw Object.assign(new Error("Sign in with Google to continue."), { status: 401 });
+  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: { authorization: "Bearer " + match[1] },
+    signal: AbortSignal.timeout(8000)
+  });
+  if (!response.ok) throw Object.assign(new Error("Google sign-in expired. Please reconnect your account."), { status: 401 });
+  const data = await response.json();
+  if (!data.sub || !data.email || data.email_verified !== true) {
+    throw Object.assign(new Error("Google did not provide a verified account identity."), { status: 401 });
+  }
+  return {
+    uid: String(data.sub),
+    email: String(data.email).trim().toLowerCase(),
+    name: String(data.name || data.given_name || "CastDoo user").trim().slice(0, 80),
+    photoUrl: String(data.picture || "").startsWith("https://") ? String(data.picture).slice(0, 1000) : ""
+  };
+}
+async function syncGoogleProfile(d, user) {
+  await d.collection("castdoo_profiles").updateOne(
+    { uid: user.uid },
+    { $set: { email: user.email, name: user.name, photoUrl: user.photoUrl, updatedAt: new Date() },
+      $setOnInsert: { uid: user.uid, friends: [], createdAt: new Date() } },
+    { upsert: true }
+  );
+  return d.collection("castdoo_profiles").findOne({ uid: user.uid });
+}
+async function friendRoutes(req, res, url) {
+  const user = await googleProfile(req);
+  const d = await database();
+  const profiles = d.collection("castdoo_profiles");
+  const requests = d.collection("castdoo_friend_requests");
+  const me = await syncGoogleProfile(d, user);
+
+  if (req.method === "GET" && url.pathname === "/api/friends") {
+    const ids = Array.isArray(me.friends) ? me.friends.slice(0, 6) : [];
+    const friends = ids.length ? await profiles.find({ uid: { $in: ids } }, { projection: { uid: 1, email: 1, name: 1, photoUrl: 1 } }).toArray() : [];
+    const [incoming, outgoing] = await Promise.all([
+      requests.find({ recipientEmail: user.email, status: "pending" }).sort({ createdAt: -1 }).limit(30).toArray(),
+      requests.find({ senderUid: user.uid, status: "pending" }).sort({ createdAt: -1 }).limit(30).toArray()
+    ]);
+    const senderIds = [...new Set(incoming.map(item => item.senderUid))];
+    const senders = senderIds.length ? await profiles.find({ uid: { $in: senderIds } }, { projection: { uid: 1, email: 1, name: 1, photoUrl: 1 } }).toArray() : [];
+    const senderMap = new Map(senders.map(item => [item.uid, item]));
+    return send(res, 200, {
+      profile: { uid: user.uid, email: user.email, name: user.name, photoUrl: user.photoUrl },
+      friends: friends.map(({ _id, ...item }) => item),
+      incomingRequests: incoming.map(item => ({ requestId: item.requestId, createdAt: item.createdAt, sender: senderMap.get(item.senderUid) || { uid: item.senderUid, name: "CastDoo user", email: "" } })),
+      outgoingRequests: outgoing.map(item => ({ requestId: item.requestId, recipientEmail: item.recipientEmail, createdAt: item.createdAt })),
+      friendLimit: 6
+    });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/friends/request") {
+    const input = await body(req);
+    const email = String(input.email || "").trim().toLowerCase();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254) return send(res, 400, { error: "Enter a valid Google account email." });
+    if (email === user.email) return send(res, 400, { error: "You cannot add your own account." });
+    if ((me.friends || []).length >= 6) return send(res, 409, { error: "Friend limit reached. CastDoo allows up to 6 friends." });
+    const target = await profiles.findOne({ email }, { projection: { uid: 1, friends: 1 } });
+    if (target && (target.friends || []).includes(user.uid)) return send(res, 409, { error: "You are already friends." });
+    const existing = await requests.findOne({ senderUid: user.uid, recipientEmail: email, status: "pending" });
+    if (existing) return send(res, 409, { error: "A friend request is already pending." });
+    const reverse = await requests.findOne({ senderUid: target?.uid || "", recipientEmail: user.email, status: "pending" });
+    if (reverse) return send(res, 409, { error: "This person has already sent you a request. Accept it from Incoming requests." });
+    const requestId = crypto.randomUUID();
+    await requests.insertOne({ requestId, senderUid: user.uid, senderEmail: user.email, recipientUid: target?.uid || null,
+      recipientEmail: email, status: "pending", createdAt: new Date() });
+    return send(res, 201, { ok: true, requestId, message: "Friend request sent." });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/friends/requests/accept") {
+    const input = await body(req);
+    const requestId = String(input.requestId || "");
+    if (!requestId || requestId.length > 80) return send(res, 400, { error: "Invalid friend request." });
+    const request = await requests.findOne({ requestId, recipientEmail: user.email, status: "pending" });
+    if (!request) return send(res, 404, { error: "Friend request not found or already handled." });
+    const sender = await profiles.findOne({ uid: request.senderUid });
+    if (!sender) return send(res, 404, { error: "The sender profile is no longer available." });
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const currentMe = await profiles.findOne({ uid: user.uid }, { session });
+        const currentSender = await profiles.findOne({ uid: request.senderUid }, { session });
+        if (!currentMe || !currentSender) throw Object.assign(new Error("Both users must have an active CastDoo profile."), { status: 409 });
+        if ((currentMe.friends || []).includes(request.senderUid)) {
+          await requests.updateOne({ requestId, status: "pending" }, { $set: { status: "accepted", handledAt: new Date() } }, { session });
+          return;
+        }
+        const max = { $expr: { $lt: [{ $size: { $ifNull: ["$friends", []] } }, 6] } };
+        const a = await profiles.updateOne({ uid: user.uid, ...max }, { $addToSet: { friends: request.senderUid }, $set: { updatedAt: new Date() } }, { session });
+        const b = await profiles.updateOne({ uid: request.senderUid, ...max }, { $addToSet: { friends: user.uid }, $set: { updatedAt: new Date() } }, { session });
+        if (a.modifiedCount !== 1 || b.modifiedCount !== 1) throw Object.assign(new Error("One of the accounts has reached the 6 friend limit."), { status: 409 });
+        await requests.updateOne({ requestId, status: "pending" }, { $set: { status: "accepted", handledAt: new Date() } }, { session });
+      });
+      return send(res, 200, { ok: true, message: "Friend added." });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/friends/requests/decline") {
+    const input = await body(req);
+    const requestId = String(input.requestId || "");
+    const result = await requests.updateOne({ requestId, recipientEmail: user.email, status: "pending" }, { $set: { status: "declined", handledAt: new Date() } });
+    return result.modifiedCount ? send(res, 200, { ok: true }) : send(res, 404, { error: "Friend request not found or already handled." });
+  }
+
+  const removeMatch = url.pathname.match(/^\\/api\\/friends\\/([^/]+)$/);
+  if (req.method === "DELETE" && removeMatch) {
+    const friendUid = decodeURIComponent(removeMatch[1]).slice(0, 200);
+    if (friendUid === user.uid) return send(res, 400, { error: "Invalid friend." });
+    const session = client.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await profiles.updateOne({ uid: user.uid }, { $pull: { friends: friendUid }, $set: { updatedAt: new Date() } }, { session });
+        await profiles.updateOne({ uid: friendUid }, { $pull: { friends: user.uid }, $set: { updatedAt: new Date() } }, { session });
+      });
+      return send(res, 200, { ok: true });
+    } finally {
+      await session.endSession();
+    }
+  }
+  return send(res, 404, { error: "Friend endpoint not found." });
 }
 async function authorized(req) {
   const apiKey = String(req.headers["x-admin-key"] || "");
@@ -101,6 +232,13 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
+  if (url.pathname === "/api/friends" || url.pathname.startsWith("/api/friends/")) {
+    try { return await friendRoutes(req, res, url); }
+    catch (error) {
+      console.error("castdoo_friends_request_failed", error.message);
+      return send(res, Number(error.status) || 500, { error: error.message || "Friends service is temporarily unavailable." });
+    }
+  }
   // Legacy Render release/version API retired. The Cloudflare version service is now authoritative.
   if (url.pathname.startsWith("/api/releases/")) {
     if (req.method === "GET" && /^\/api\/releases\/(stable|beta|admin)$/.test(url.pathname)) {
