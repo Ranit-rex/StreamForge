@@ -292,7 +292,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                 ) {
                     listOf(
                         "overview" to "Overview", "analytics" to "Analytics", "push" to "Push",
-                        "devices" to "Devices", "campaigns" to "Campaigns", "versions" to "Releases", "audit" to "Audit"
+                        "devices" to "Devices", "reports" to "Reports", "campaigns" to "Campaigns", "versions" to "Releases", "audit" to "Audit"
                     ).forEach { (key, label) ->
                         FilterChip(selected = section == key, onClick = { section = key }, label = { Text(label) })
                     }
@@ -302,6 +302,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                     "analytics" -> AdminAnalytics(token)
                     "push" -> PushComposer(token)
                     "devices" -> AdminDevices(token)
+                    "reports" -> AdminReports(token)
                     "campaigns" -> AdminCampaigns(token)
                     "versions" -> ReleaseManager(token)
                     "audit" -> AdminAudit(token)
@@ -675,6 +676,37 @@ private fun AdminDevices(token: String) {
             )
         }
         if (rows.isEmpty()) Text("No app installs have registered yet. Devices appear after opening the updated CastDoo app once with internet access.", color = Color(0xFFFFC56B), fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AdminReports(token: String) {
+    var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var status by remember { mutableStateOf("Loading reports…") }
+    LaunchedEffect(token) {
+        while (true) {
+            adminRequest(token, "GET", "/api/admin/reports", JSONObject()) { ok, data ->
+                if (ok) {
+                    val array = data.optJSONArray("reports")
+                    rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+                    status = "${rows.size} report(s) · refreshed " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                } else status = data.optString("error", "Report inbox unavailable")
+            }
+            delay(30_000)
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Support reports", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        if (rows.isEmpty()) {
+            AdminCard("No reports yet", "User submitted problem reports will appear here. No GitHub account or public issue tracker is exposed in the app.")
+        } else rows.forEach { row ->
+            val created = row.optString("createdAt", "")
+            AdminCard(
+                row.optString("category", "General").uppercase() + " · " + row.optString("status", "open").uppercase(),
+                row.optString("description", "No description") + "\n\nUser: " + row.optString("email", row.optString("uid", "—")) + "\nReceived: " + created
+            )
+        }
     }
 }
 
