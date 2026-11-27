@@ -156,8 +156,22 @@ private fun PushComposer(token: String) {
     var actionUrl by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
+    var registeredDevices by remember { mutableIntStateOf(-1) }
+    var pushConfigured by remember { mutableStateOf(false) }
+    var statusMessage by remember { mutableStateOf("Checking registered devices…") }
+    var resultColor by remember { mutableStateOf(Color(0xFF55D6A1)) }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/push/status", JSONObject()) { ok, data ->
+            if (ok) {
+                registeredDevices = data.optInt("registeredDevices", 0)
+                pushConfigured = data.optBoolean("configured", false)
+                statusMessage = if (pushConfigured) "Push ready · $registeredDevices registered device(s) · ${data.optInt("fcmDevices", 0)} Android FCM" else "Push delivery is not configured on the server."
+            } else statusMessage = data.optString("error", "Could not check push status")
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Send push notification", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(statusMessage, color = if (pushConfigured && registeredDevices > 0) Color(0xFF55D6A1) else Color(0xFFFFC56B), fontSize = 12.sp)
         OutlinedTextField(title, { title = it }, label = { Text("Notification title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(body, { body = it }, label = { Text("Message") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -180,12 +194,17 @@ private fun PushComposer(token: String) {
                     .put("audience", target).put("priority", priority).put("targetUids", org.json.JSONArray(ids))
                     .put("actionUrl", actionUrl.trim())
                 adminRequest(token, "POST", "/api/push/send", json) { ok, data ->
-                    resultText = if (ok) "Sent: ${data.optInt("sent")} · Failed: ${data.optInt("failed")}" else data.optString("error", "Send failed")
+                    resultText = if (ok) "Sent: ${data.optInt("sent")} · Failed: ${data.optInt("failed")} · Devices: ${data.optInt("devices")}" else data.optString("error", "Send failed")
+                    resultColor = if (ok && data.optInt("sent") > 0) Color(0xFF55D6A1) else Color(0xFFFFC56B)
+                    if (ok) {
+                        registeredDevices = data.optInt("devices")
+                        statusMessage = if (registeredDevices == 0) "No registered devices. Open CastDoo on a signed-in phone with notifications enabled." else "Push attempt completed for $registeredDevices device(s)."
+                    }
                     sending = false
                 }
             }, modifier = Modifier.fillMaxWidth()
         ) { Text(if (sending) "Sending…" else "Send notification") }
-        if (resultText.isNotBlank()) Text(resultText, color = Color(0xFF55D6A1), fontSize = 13.sp)
+        if (resultText.isNotBlank()) Text(resultText, color = resultColor, fontSize = 13.sp)
     }
 }
 
@@ -198,8 +217,22 @@ private fun ReleaseManager(token: String) {
     var notes by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
+    var currentRelease by remember { mutableStateOf("Loading current stable release…") }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/releases/stable", JSONObject()) { ok, data ->
+            if (ok) {
+                versionName = data.optString("versionName", "1.0.0")
+                versionCode = data.optInt("versionCode", 1).toString()
+                minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
+                updateUrl = data.optString("updateUrl", "")
+                notes = data.optString("releaseNotes", "")
+                currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+            } else currentRelease = data.optString("error", "Could not load current release")
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Release management", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(currentRelease, color = Color(0xFF55D6A1), fontSize = 12.sp)
         OutlinedTextField(versionName, { versionName = it }, label = { Text("Version name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(minimumVersionCode, { minimumVersionCode = it }, label = { Text("Minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -251,9 +284,10 @@ private fun adminRequest(token: String, method: String, path: String, payload: J
             connection = (URL(ADMIN_API + path).openConnection() as HttpURLConnection).apply {
                 requestMethod = method; connectTimeout = 15000; readTimeout = 20000
                 setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Content-Type", "application/json"); doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = method != "GET"
             }
-            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            if (method != "GET") connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
