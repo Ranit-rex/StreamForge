@@ -39,13 +39,13 @@ async function body(req) {
   for await (const chunk of req) { raw += chunk; if (raw.length > 20000) throw Object.assign(new Error("Request too large"), { status: 413 }); }
   return raw ? JSON.parse(raw) : {};
 }
-async function authorized(req) {
-  if (!SERVICE_ACCOUNT || !getApps().length) return false;
+async function firebaseUser(req) {
+  if (!SERVICE_ACCOUNT || !getApps().length) return null;
   const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
-  try { const decoded = await getAuth().verifyIdToken(match[1]); return decoded.admin === true; }
-  catch { return false; }
+  if (!match) return null;
+  try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
 }
+async function authorized(req) { const decoded = await firebaseUser(req); return decoded?.admin === true; }
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
@@ -58,10 +58,12 @@ async function handler(req,res) {
 
   if (req.method==="POST" && url.pathname==="/api/devices/register") {
     try {
+      const identity=await firebaseUser(req);
+      if(!identity?.uid)return send(res,401,{error:"Sign in required"});
       const input=await body(req),token=String(input.token||"").trim();
       if(!token||token.length>8192)return send(res,400,{error:"Valid FCM token required"});
       const d=await database();
-      await d.collection("push_devices").updateOne({token},{$set:{token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
+      await d.collection("push_devices").updateOne({token},{$set:{token,uid:identity.uid,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
       return send(res,200,{registered:true});
     } catch(error){return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"});}
   }
@@ -96,7 +98,10 @@ async function handler(req,res) {
     if(req.method==="POST"&&url.pathname==="/api/push/send"){
       const input=await body(req),title=String(input.title||"").trim(),message=String(input.message||"").trim();
       if(!title||!message)return send(res,400,{error:"Title and message are required"});
-      const rows=await d.collection("push_devices").find({enabled:true}).project({token:1}).toArray();
+      const targetUids=Array.isArray(input.targetUids)?input.targetUids.map(x=>String(x).trim()).filter(Boolean).slice(0,500):[];
+      if(input.audience==="selected"&&!targetUids.length)return send(res,400,{error:"Select at least one valid user UID"});
+      const filter={enabled:true,...(input.audience==="selected"?{uid:{$in:targetUids}}:{})};
+      const rows=await d.collection("push_devices").find(filter).project({token:1}).toArray();
       const result=await sendPush(rows.map(x=>x.token),title.slice(0,100),message.slice(0,2000),d);
       await d.collection("admin_audit_logs").insertOne({action:"push.sent",sent:result.sent,failed:result.failed,createdAt:new Date()});
       return send(res,200,{...result,devices:rows.length});
