@@ -106,6 +106,145 @@ async function handler(req,res) {
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
   }
 
+  const releaseBuildMatch = url.pathname.match(/^\/api\/releases\/builds\/(stable|beta)$/);
+  if (req.method === "GET" && releaseBuildMatch) {
+    const track = releaseBuildMatch[1];
+    try {
+      const response = await fetch("https://api.github.com/repos/Ranit-rex/StreamForge/releases?per_page=50", {
+        headers: { "Accept": "application/vnd.github+json", "User-Agent": "CastDoo-Admin" }
+      });
+      if (!response.ok) return send(res, 502, { error: "Could not load APK builds from GitHub" });
+      const releases = await response.json();
+      const prefix = `castdoo-${track}-build-`;
+      const candidates = releases
+        .filter(item => String(item.tag_name || "").startsWith(prefix) && !item.draft)
+        .map(item => {
+          const asset = (item.assets || []).find(file => String(file.name || "").match(new RegExp(`^CastDoo-${track}-build-(\\d+)\\.apkimport http from "node:http";
+import { MongoClient } from "mongodb";
+import crypto from "node:crypto";
+import webpush from "web-push";
+import { initializeApp, cert, getApps } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { getMessaging } from "firebase-admin/messaging";
+import { getFirestore } from "firebase-admin/firestore";
+
+const PORT = Number(process.env.PORT || 3000);
+const URI = (process.env.MONGODB_URI || "").trim();
+const DB_NAME = process.env.MONGODB_DATABASE || "streamforge";
+function readServiceAccount() {
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT_CASTDOO || process.env.FIREBASE_SERVICE_ACCOUNT_CASTDOO_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.project_id && parsed.project_id !== "castdoo") {
+      console.error("firebase_admin_project_mismatch", parsed.project_id);
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    console.error("firebase_admin_credentials_invalid_json", error.message);
+    return null;
+  }
+}
+const SERVICE_ACCOUNT = readServiceAccount();
+if (SERVICE_ACCOUNT && !getApps().length) initializeApp({ credential: cert(SERVICE_ACCOUNT), projectId: "castdoo" });
+const PAIRING_CODE = (process.env.CASTDOO_ADMIN_PAIRING_CODE || "").trim();
+const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || "").trim();
+const VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_PUBLIC_KEY || "").trim();
+const VAPID_PRIVATE_KEY = (process.env.WEB_PUSH_PRIVATE_KEY || "").trim();
+const VAPID_SUBJECT = (process.env.WEB_PUSH_SUBJECT || "mailto:support@castdoo.app").trim();
+const pushConfigured = () => Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (pushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+let client;
+let db;
+let connecting;
+const pairingFailures = new Map();
+
+async function database() {
+  if (!URI) throw Object.assign(new Error("MongoDB connection is not configured on the admin service."), { status: 503 });
+  if (db) return db;
+  if (!connecting) connecting = (async () => {
+    const c = new MongoClient(URI, { serverSelectionTimeoutMS: 8000, maxPoolSize: 5 });
+    await c.connect();
+    client = c;
+    db = c.db(DB_NAME);
+    await Promise.all([
+      db.collection("admin_announcements").createIndex({ createdAt: -1 }),
+      db.collection("admin_events").createIndex({ createdAt: -1 }),
+      db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
+      db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
+      db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
+      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 })
+    ]);
+    return db;
+  })().catch(error => { connecting = null; throw error; });
+  return connecting;
+}
+function send(res, status, data) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,authorization,x-admin-key", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS" });
+  res.end(JSON.stringify(data));
+}
+async function body(req) {
+  let raw = "";
+  for await (const chunk of req) { raw += chunk; if (raw.length > 20000) throw Object.assign(new Error("Request too large"), { status: 413 }); }
+  return raw ? JSON.parse(raw) : {};
+}
+async function firebaseUser(req) {
+  if (!SERVICE_ACCOUNT || !getApps().length) throw Object.assign(new Error("CastDoo Firebase Admin service-account credentials are missing on the server."), {status:503});
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
+}
+async function authorized(req) {
+  const apiKey = String(req.headers["x-admin-key"] || "");
+  if (ADMIN_API_KEY && apiKey && apiKey.length === ADMIN_API_KEY.length &&
+      crypto.timingSafeEqual(Buffer.from(apiKey), Buffer.from(ADMIN_API_KEY))) return true;
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+  const bearer = match[1];
+  if (bearer.length >= 40 && URI) {
+    try {
+      const d = await database();
+      const tokenHash = crypto.createHash("sha256").update(bearer).digest("hex");
+      const device = await d.collection("admin_devices").findOne({ tokenHash, revokedAt: null });
+      if (device) {
+        await d.collection("admin_devices").updateOne({ _id: device._id }, { $set: { lastSeenAt: new Date() } });
+        return true;
+      }
+    } catch { return false; }
+  }
+  const decoded = await firebaseUser(req);
+  return decoded?.admin === true;
+}
+async function handler(req,res) {
+  if (req.method === "OPTIONS") return send(res,204,{});
+  const url = new URL(req.url,"http://localhost");
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
+  const publicReleaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta|admin)$/);
+  if (req.method === "GET" && publicReleaseMatch) {
+    const track = publicReleaseMatch[1];
+    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:track}); return send(res,200,release || {track,versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
+    catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
+  }
+
+, "i")));
+          const match = asset?.name?.match(/build-(\\d+)\\.apk$/i);
+          return asset && match ? {
+            track, versionName: String(item.name || `CastDoo ${track} build ${match[1]}`),
+            versionCode: Number(match[1]), minimumVersionCode: 1, updateType: "mini",
+            forceUpdate: false, updateUrl: asset.browser_download_url,
+            releaseNotes: String(item.body || "").slice(0, 3000), publishedAt: item.published_at
+          } : null;
+        })
+        .filter(Boolean)
+        .sort((a,b) => Number(b.versionCode) - Number(a.versionCode));
+      if (!candidates.length) return send(res,404,{error:`No published ${track} APK build found`});
+      return send(res,200,candidates[0]);
+    } catch {
+      return send(res,502,{error:"Could not load APK build information"});
+    }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/pair") {
     try {
       if (!PAIRING_CODE) return send(res,503,{error:"Admin device pairing is not configured on the server"});
