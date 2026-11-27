@@ -1,17 +1,26 @@
 import http from "node:http";
 import { MongoClient } from "mongodb";
+import crypto from "node:crypto";
+import webpush from "web-push";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { pushConfigured, sendPush } from "./fcm.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
 const DB_NAME = process.env.MONGODB_DATABASE || "streamforge";
 const SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) : null;
 if (SERVICE_ACCOUNT && !getApps().length) initializeApp({ credential: cert(SERVICE_ACCOUNT) });
+const PAIRING_CODE = (process.env.CASTDOO_ADMIN_PAIRING_CODE || "").trim();
+const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || "").trim();
+const VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_PUBLIC_KEY || "").trim();
+const VAPID_PRIVATE_KEY = (process.env.WEB_PUSH_PRIVATE_KEY || "").trim();
+const VAPID_SUBJECT = (process.env.WEB_PUSH_SUBJECT || "mailto:support@castdoo.app").trim();
+const pushConfigured = () => Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (pushConfigured()) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 let client;
 let db;
 let connecting;
+const pairingFailures = new Map();
 
 async function database() {
   if (!URI) throw Object.assign(new Error("MongoDB connection is not configured on the admin service."), { status: 503 });
@@ -24,14 +33,17 @@ async function database() {
     await Promise.all([
       db.collection("admin_announcements").createIndex({ createdAt: -1 }),
       db.collection("admin_events").createIndex({ createdAt: -1 }),
-      db.collection("admin_audit_logs").createIndex({ createdAt: -1 })
+      db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
+      db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
+      db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
+      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 })
     ]);
     return db;
   })().catch(error => { connecting = null; throw error; });
   return connecting;
 }
 function send(res, status, data) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,x-admin-key", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS" });
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*", "access-control-allow-headers": "content-type,authorization,x-admin-key", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS" });
   res.end(JSON.stringify(data));
 }
 async function body(req) {
@@ -45,7 +57,27 @@ async function firebaseUser(req) {
   if (!match) return null;
   try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
 }
-async function authorized(req) { const decoded = await firebaseUser(req); return decoded?.admin === true; }
+async function authorized(req) {
+  const apiKey = String(req.headers["x-admin-key"] || "");
+  if (ADMIN_API_KEY && apiKey && apiKey.length === ADMIN_API_KEY.length &&
+      crypto.timingSafeEqual(Buffer.from(apiKey), Buffer.from(ADMIN_API_KEY))) return true;
+  const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+  if (!match) return false;
+  const bearer = match[1];
+  if (bearer.length >= 40 && URI) {
+    try {
+      const d = await database();
+      const tokenHash = crypto.createHash("sha256").update(bearer).digest("hex");
+      const device = await d.collection("admin_devices").findOne({ tokenHash, revokedAt: null });
+      if (device) {
+        await d.collection("admin_devices").updateOne({ _id: device._id }, { $set: { lastSeenAt: new Date() } });
+        return true;
+      }
+    } catch { return false; }
+  }
+  const decoded = await firebaseUser(req);
+  return decoded?.admin === true;
+}
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
@@ -56,16 +88,64 @@ async function handler(req,res) {
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
   }
 
-  if (req.method==="POST" && url.pathname==="/api/devices/register") {
+  if (req.method === "POST" && url.pathname === "/api/admin/pair") {
     try {
-      const identity=await firebaseUser(req);
-      if(!identity?.uid)return send(res,401,{error:"Sign in required"});
-      const input=await body(req),token=String(input.token||"").trim();
-      if(!token||token.length>8192)return send(res,400,{error:"Valid FCM token required"});
-      const d=await database();
-      await d.collection("push_devices").updateOne({token},{$set:{token,uid:identity.uid,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
+      if (!PAIRING_CODE) return send(res,503,{error:"Admin device pairing is not configured on the server"});
+      const input = await body(req);
+      const supplied = String(input.code || "").trim();
+      const ip = String(req.socket.remoteAddress || "unknown");
+      const attempt = pairingFailures.get(ip) || {count:0,startedAt:Date.now()};
+      if (Date.now() - attempt.startedAt > 10 * 60 * 1000) { attempt.count = 0; attempt.startedAt = Date.now(); }
+      if (attempt.count >= 8) return send(res,429,{error:"Too many pairing attempts. Try again in 10 minutes."});
+      if (!supplied || supplied.length !== PAIRING_CODE.length ||
+          !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(PAIRING_CODE))) {
+        attempt.count += 1;
+        pairingFailures.set(ip, attempt);
+        return send(res,401,{error:"Invalid pairing code"});
+      }
+      pairingFailures.delete(ip);
+      const d = await database();
+      const token = crypto.randomBytes(32).toString("base64url");
+      const now = new Date();
+      await d.collection("admin_devices").insertOne({
+        tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+        label: String(input.label || "CastDoo Admin Android").slice(0,80),
+        createdAt: now, lastSeenAt: now, revokedAt: null
+      });
+      return send(res,200,{paired:true,token});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/devices/register") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,401,{error:"Sign in required"});
+      const input = await body(req);
+      const endpoint = String(input.endpoint || "").trim();
+      const p256dh = String(input.p256dh || "").trim();
+      const auth = String(input.auth || "").trim();
+      if (!endpoint.startsWith("https://") || endpoint.length > 4096 ||
+          !p256dh || p256dh.length > 512 || !auth || auth.length > 256) {
+        return send(res,400,{error:"A valid UnifiedPush endpoint and Web Push keys are required"});
+      }
+      const d = await database();
+      await d.collection("push_devices").updateOne(
+        {uid: identity.uid, endpoint},
+        {$set:{uid:identity.uid,endpoint,keys:{p256dh,auth},instance:String(input.instance || "default"),platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
+        {upsert:true}
+      );
       return send(res,200,{registered:true});
-    } catch(error){return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"});}
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"}); }
+  }
+  if (req.method === "POST" && url.pathname === "/api/admin/unpair") {
+    try {
+      const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+      if (!match) return send(res,401,{error:"Admin device token required"});
+      const tokenHash = crypto.createHash("sha256").update(match[1]).digest("hex");
+      const d = await database();
+      const result = await d.collection("admin_devices").updateOne({tokenHash,revokedAt:null},{$set:{revokedAt:new Date()}});
+      return send(res,result.modifiedCount ? 200 : 404,{revoked:Boolean(result.modifiedCount)});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device unpair failed"}); }
   }
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
   if (!(await authorized(req))) return send(res,401,{error:"Admin account not authorized"});
@@ -91,20 +171,44 @@ async function handler(req,res) {
       await d.collection("admin_audit_logs").insertOne({action:"release.published",track,versionCode,createdAt:new Date()});
       return send(res,200,release);
     }
-    if(req.method==="GET"&&url.pathname==="/api/push/status"){
-      const registeredDevices=await d.collection("push_devices").countDocuments({enabled:true});
-      return send(res,200,{configured:pushConfigured(),registeredDevices});
+    if (req.method === "GET" && url.pathname === "/api/push/status") {
+      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"}});
+      return send(res,200,{configured:pushConfigured(),registeredDevices,transport:"UnifiedPush/Web Push"});
     }
-    if(req.method==="POST"&&url.pathname==="/api/push/send"){
-      const input=await body(req),title=String(input.title||"").trim(),message=String(input.message||"").trim();
-      if(!title||!message)return send(res,400,{error:"Title and message are required"});
-      const targetUids=Array.isArray(input.targetUids)?input.targetUids.map(x=>String(x).trim()).filter(Boolean).slice(0,500):[];
-      if(input.audience==="selected"&&!targetUids.length)return send(res,400,{error:"Select at least one valid user UID"});
-      const filter={enabled:true,...(input.audience==="selected"?{uid:{$in:targetUids}}:{})};
-      const rows=await d.collection("push_devices").find(filter).project({token:1}).toArray();
-      const result=await sendPush(rows.map(x=>x.token),title.slice(0,100),message.slice(0,2000),d);
-      await d.collection("admin_audit_logs").insertOne({action:"push.sent",sent:result.sent,failed:result.failed,createdAt:new Date()});
-      return send(res,200,{...result,devices:rows.length});
+    if (req.method === "POST" && url.pathname === "/api/push/send") {
+      const input = await body(req);
+      const title = String(input.title || "").trim().slice(0,100);
+      const message = String(input.message || input.body || "").trim().slice(0,2000);
+      if (!title || !message) return send(res,400,{error:"Title and message are required"});
+      if (!pushConfigured()) return send(res,503,{error:"Web Push is not configured. Set WEB_PUSH_PUBLIC_KEY and WEB_PUSH_PRIVATE_KEY on the Render API service."});
+      const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
+      if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
+      const filter = {enabled:true,endpoint:{$type:"string"},... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
+      const rows = await d.collection("push_devices").find(filter).toArray();
+      const campaignId = crypto.randomUUID();
+      const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
+      await d.collection("notification_campaigns").insertOne(campaign);
+      let sent = 0, failed = 0;
+      for (const device of rows) {
+        const notification = {title,body:message,campaignId,actionUrl:campaign.actionUrl,priority:campaign.priority};
+        try {
+          await webpush.sendNotification(
+            {endpoint:device.endpoint,keys:device.keys},
+            JSON.stringify(notification),
+            {TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"}
+          );
+          sent++;
+          await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
+        } catch (error) {
+          failed++;
+          const status = Number(error.statusCode || 0);
+          if (status === 404 || status === 410) await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
+          await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"failed",deliveryError:String(error.message || "Delivery failed").slice(0,300)});
+        }
+      }
+      await d.collection("notification_campaigns").updateOne({campaignId},{$set:{status:"sent",sent,failed,completedAt:new Date()}});
+      await d.collection("admin_audit_logs").insertOne({action:"push.sent",campaignId,sent,failed,createdAt:new Date()});
+      return send(res,200,{configured:true,sent,failed,devices:rows.length,campaignId});
     }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
