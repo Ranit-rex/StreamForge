@@ -116,10 +116,11 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 
     LaunchedEffect(track) {
         val prefs = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
-        val lastSuccessfulCheck = prefs.getLong("last_success_$track", 0L)
+        val lastAttempt = prefs.getLong("last_attempt_at", 0L)
         val now = System.currentTimeMillis()
-        // One successful server check per 24 hours, separately for each release channel.
-        if (lastSuccessfulCheck == 0L || now - lastSuccessfulCheck >= RELEASE_CHECK_INTERVAL_MS) {
+        // Limit the installation to one network attempt per day, even during an outage.
+        if (lastAttempt == 0L || now - lastAttempt >= RELEASE_CHECK_INTERVAL_MS) {
+            prefs.edit().putLong("last_attempt_at", now).apply()
             val loaded = fetchRelease(track)
             if (loaded != null) {
                 val checkedAt = System.currentTimeMillis()
