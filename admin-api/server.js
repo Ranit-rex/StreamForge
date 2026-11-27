@@ -200,7 +200,8 @@ async function handler(req,res) {
       const minimumVersionCode = Math.max(1, Number(input.minimumVersionCode) || 1);
       const updateUrl = String(input.updateUrl || "").trim();
       if (!/^https:\/\//i.test(updateUrl)) return send(res,400,{error:"A secure HTTPS update URL is required"});
-      const release = {track,versionName:String(input.versionName || "1.0.0").slice(0,40),versionCode,minimumVersionCode,forceUpdate:Boolean(input.forceUpdate),updateUrl,releaseNotes:String(input.releaseNotes || "").slice(0,3000),updatedAt:new Date()};
+      const updateType = String(input.updateType || (input.forceUpdate ? "major" : "mini")).toLowerCase() === "major" ? "major" : "mini";
+      const release = {track,versionName:String(input.versionName || "1.0.0").slice(0,40),versionCode,minimumVersionCode,updateType,forceUpdate:updateType === "major",updateUrl,releaseNotes:String(input.releaseNotes || "").slice(0,3000),updatedAt:new Date()};
       await d.collection("app_releases").updateOne({_id:track},{$set:release},{upsert:true});
       await d.collection("admin_audit_logs").insertOne({action:"release.published",track,versionCode,createdAt:new Date()});
       return send(res,200,release);
