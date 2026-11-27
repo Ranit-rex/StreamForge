@@ -5,11 +5,9 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONObject
-import org.unifiedpush.android.connector.UnifiedPush
 import java.net.HttpURLConnection
 import java.net.URL
 
-private const val CASTDOO_PUSH_MESSAGE = "CastDoo notifications"
 private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
 
 object CastDooPushRegistration {
@@ -17,12 +15,6 @@ object CastDooPushRegistration {
         if (FirebaseAuth.getInstance().currentUser == null) return
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
             registerToken(context.applicationContext, token)
-        }
-        // Keep UnifiedPush as a secondary transport for devices with a distributor.
-        runCatching {
-            UnifiedPush.tryUseCurrentOrDefaultDistributor(context) { available ->
-                if (available) runCatching { UnifiedPush.register(context, CASTDOO_PUSH_MESSAGE, null) }
-            }
         }
     }
 
