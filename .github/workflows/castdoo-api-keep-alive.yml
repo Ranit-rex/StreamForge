@@ -1,0 +1,34 @@
+name: CastDoo API Keep Alive
+
+on:
+  schedule:
+    # Send real inbound HTTP traffic every 10 minutes.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: castdoo-api-keep-alive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check CastDoo API health
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://streamforge-admin-api-y6ie.onrender.com/health"
+          echo "Pinging CastDoo API health endpoint..."
+          curl --fail --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 25 \
+            --retry 2 \
+            --retry-delay 5 \
+            "$URL"
+          echo
+          echo "Health check completed."
