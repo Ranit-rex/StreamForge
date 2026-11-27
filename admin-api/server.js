@@ -176,9 +176,9 @@ async function handler(req,res) {
   try {
     const d = await database();
 
-    const releaseMatch = url.pathname.match(/^\/api\/releases\/stable$/);
+    const releaseMatch = url.pathname === "/api/releases/stable";
     if (releaseMatch && req.method === "POST") {
-      const input = await body(req), track = releaseMatch[1];
+      const input = await body(req), track = "stable";
       const versionCode = Math.max(1, Number(input.versionCode) || 1);
       const minimumVersionCode = Math.max(1, Number(input.minimumVersionCode) || 1);
       const updateUrl = String(input.updateUrl || "").trim();
@@ -189,8 +189,9 @@ async function handler(req,res) {
       return send(res,200,release);
     }
     if (req.method === "GET" && url.pathname === "/api/push/status") {
-      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"}});
-      return send(res,200,{configured:pushConfigured(),registeredDevices,transport:"UnifiedPush/Web Push"});
+      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
+      const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
+      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
       const input = await body(req);
@@ -200,7 +201,7 @@ async function handler(req,res) {
       if (!SERVICE_ACCOUNT && !pushConfigured()) return send(res,503,{error:"Push delivery is not configured. Connect Firebase Admin credentials or configure Web Push keys."});
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
-      const filter = {enabled:true,endpoint:{$type:"string"},... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
+      const filter = {enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}],... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
       const rows = await d.collection("push_devices").find(filter).toArray();
       const campaignId = crypto.randomUUID();
       const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl).slice(0,400) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
@@ -209,17 +210,19 @@ async function handler(req,res) {
       for (const device of rows) {
         const notification = {title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl.slice(0,400),priority:campaign.priority};
         try {
-          await webpush.sendNotification(
-            {endpoint:device.endpoint,keys:device.keys},
-            JSON.stringify(notification),
-            {TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"}
-          );
+          if (device.fcmToken) {
+            if (!SERVICE_ACCOUNT) throw new Error("Firebase Cloud Messaging is not configured");
+            await getMessaging().send({token:device.fcmToken,notification:{title,body:notification.body},data:{campaignId,actionUrl:notification.actionUrl,priority:notification.priority}});
+          } else if (device.endpoint && device.keys && pushConfigured()) {
+            await webpush.sendNotification({endpoint:device.endpoint,keys:device.keys},JSON.stringify(notification),{TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"});
+          } else { throw new Error("Device has no supported push transport"); }
           sent++;
           await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
         } catch (error) {
           failed++;
+          const code = String(error.code || "");
           const status = Number(error.statusCode || 0);
-          if (status === 404 || status === 410) await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
+          if (status === 404 || status === 410 || code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
           await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"failed",deliveryError:String(error.message || "Delivery failed").slice(0,300)});
         }
       }
