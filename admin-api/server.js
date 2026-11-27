@@ -186,11 +186,11 @@ async function handler(req,res) {
       const filter = {enabled:true,endpoint:{$type:"string"},... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
       const rows = await d.collection("push_devices").find(filter).toArray();
       const campaignId = crypto.randomUUID();
-      const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
+      const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl).slice(0,400) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
       await d.collection("notification_campaigns").insertOne(campaign);
       let sent = 0, failed = 0;
       for (const device of rows) {
-        const notification = {title,body:message,campaignId,actionUrl:campaign.actionUrl,priority:campaign.priority};
+        const notification = {title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl.slice(0,400),priority:campaign.priority};
         try {
           await webpush.sendNotification(
             {endpoint:device.endpoint,keys:device.keys},
