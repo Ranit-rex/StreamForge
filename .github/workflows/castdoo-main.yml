@@ -1,8 +1,15 @@
 name: CastDoo Main APK
 on:
   workflow_dispatch:
+    inputs:
+      release_track:
+        description: "Release channel for this build"
+        required: true
+        type: choice
+        options: [stable, beta]
+        default: stable
   push:
-    branches: ['feature/**']
+    branches: [feature/castdoo-auth-foundation, 'feature/**']
     paths:
       - "android/**"
       - "build.gradle.kts"
@@ -11,7 +18,7 @@ on:
       - "gradle.properties"
       - ".github/workflows/castdoo-main.yml"
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: castdoo-main-${{ github.ref }}
   cancel-in-progress: false
@@ -31,17 +38,17 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.android/debug.keystore
-          key: castdoo-main-debug-signing-v1
-      - name: Ensure signing key exists
+          key: streamforge-debug-signing-v1
+      - name: Verify Firebase-registered signing key
         shell: bash
         run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -s "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -keypass android -alias androiddebugkey \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          set -euo pipefail
+          test -s "$HOME/.android/debug.keystore" || { echo "Stable signing key cache is missing; refusing to generate a different certificate."; exit 1; }
+          SHA1="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | awk -F': ' '/SHA1:/{print $2; exit}')"
+          echo "Stable APK SHA-1: $SHA1"
+          ACTUAL="$(printf '%s' "$SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          EXPECTED="660C3627E118939405591DF55A92CC9C3FA0B322"
+          test "$ACTUAL" = "$EXPECTED" || { echo "Signing SHA-1 does not match Firebase registration."; exit 1; }
       - name: Install Android SDK packages
         shell: bash
         run: |
@@ -57,11 +64,13 @@ jobs:
       - name: Calculate build number
         shell: bash
         run: |
-          BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER - 114))
-          if [ "$BUILD_NUMBER" -lt 1073 ]; then BUILD_NUMBER=1073; fi
+          BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER))
+          if [ "$BUILD_NUMBER" -lt 1074 ]; then BUILD_NUMBER=1074; fi
+          TRACK="${{ inputs.release_track || 'stable' }}"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "RELEASE_TRACK=$TRACK" >> "$GITHUB_ENV"
       - name: Build Main APK
-        run: gradle --no-daemon --stacktrace :android:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+        run: gradle --no-daemon --stacktrace :android:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER" -PstreamforgeAppTrack="$RELEASE_TRACK"
       - name: Name and verify APK
         shell: bash
         run: |
@@ -69,19 +78,30 @@ jobs:
           OUT="android/build/outputs/apk/debug"
           APK="$(find "$OUT" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
-          mv "$APK" "$OUT/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
+          mv "$APK" "$OUT/CastDoo-${RELEASE_TRACK}-build-${BUILD_NUMBER}.apk"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          "$AAPT" dump badging "$OUT/CastDoo-Stable-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
+          "$AAPT" dump badging "$OUT/CastDoo-${RELEASE_TRACK}-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
       - name: Save signing key
         if: steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.android/debug.keystore
-          key: castdoo-main-debug-signing-v1
+          key: streamforge-debug-signing-v1
       - name: Upload Main APK
         uses: actions/upload-artifact@v7
         with:
-          name: CastDoo-Stable-APK
-          path: android/build/outputs/apk/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
+          name: CastDoo-${{ env.RELEASE_TRACK }}-APK
+          path: android/build/outputs/apk/debug/CastDoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}.apk
           if-no-files-found: error
+          archive: false
           retention-days: 14
+
+# Rebuild trigger: latest shared Kotlin compile fix is included.
+
+      - name: Publish direct Stable APK release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: castdoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}
+          name: CastDoo ${{ env.RELEASE_TRACK }} build ${{ env.BUILD_NUMBER }}
+          prerelease: ${{ env.RELEASE_TRACK == 'beta' }}
+          files: android/build/outputs/apk/debug/CastDoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}.apk

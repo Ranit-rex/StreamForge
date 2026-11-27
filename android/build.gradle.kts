@@ -2,19 +2,40 @@ plugins {
  id("com.android.application")
  id("org.jetbrains.kotlin.android")
  id("org.jetbrains.kotlin.plugin.compose")
+ id("com.google.gms.google-services")
 }
 val streamforgeBuildNumber = providers.gradleProperty("streamforgeBuildNumber").orElse("1073").get().toInt()
+val streamforgeAppTrack = providers.gradleProperty("streamforgeAppTrack").orElse("stable").get().lowercase().also {
+ require(it == "stable" || it == "beta") { "streamforgeAppTrack must be stable or beta" }
+}
 android {
  namespace = "app.streamforge"
  compileSdk = 35
  defaultConfig {
-  applicationId = "app.streamforge.mobile"
+  applicationId = "com.castdoo.app"
   minSdk = 26
   targetSdk = 35
   versionCode = streamforgeBuildNumber
-  versionName = "Alpha build $streamforgeBuildNumber"
+  versionName = "Alpha ${streamforgeAppTrack.replaceFirstChar { it.uppercase() }} build $streamforgeBuildNumber"
+  buildConfigField("String", "APP_TRACK", "\"$streamforgeAppTrack\"")
  }
- buildTypes { release { isMinifyEnabled = true; isShrinkResources = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
+
+ signingConfigs {
+  getByName("debug") {
+   storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+   storePassword = "android"
+   keyAlias = "androiddebugkey"
+   keyPassword = "android"
+  }
+ }
+ buildTypes {
+  getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
+  getByName("release") {
+   isMinifyEnabled = true
+   isShrinkResources = true
+   proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+  }
+ }
  splits {
   abi {
    isEnable = true
@@ -25,7 +46,10 @@ android {
  }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
- buildFeatures { compose = true }
+ buildFeatures {
+  compose = true
+  buildConfig = true
+ }
 }
 dependencies {
  val composeBom = platform("androidx.compose:compose-bom:2025.03.00")
@@ -38,6 +62,7 @@ dependencies {
  implementation("androidx.camera:camera-view:1.4.2")
  implementation("androidx.media3:media3-exoplayer:1.5.1")
  implementation("androidx.media3:media3-ui:1.5.1")
+ implementation("androidx.media3:media3-transformer:1.5.1")
  implementation("com.google.guava:guava:33.3.1-android")
  implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
  implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
@@ -49,6 +74,22 @@ dependencies {
  implementation("com.github.pedroSG94.RootEncoder:library:2.8.1")
  implementation("com.google.android.gms:play-services-ads:25.5.0")
  implementation("com.google.android.gms:play-services-auth:21.6.0")
+ implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
+ implementation("com.google.firebase:firebase-auth")
+ implementation("com.google.firebase:firebase-firestore")
+ implementation("com.google.firebase:firebase-functions")
+ implementation("com.google.firebase:firebase-messaging")
  implementation("io.github.webrtc-sdk:android:144.7559.15")
  implementation("com.squareup.okhttp3:okhttp:4.11.0")
+ implementation("org.unifiedpush.android:connector:3.3.5")
+}
+
+configurations.configureEach {
+ val tink = "com.google.crypto.tink:tink-android:1.23.0"
+ resolutionStrategy {
+  force(tink)
+  dependencySubstitution {
+   substitute(module("com.google.crypto.tink:tink")).using(module(tink))
+  }
+ }
 }
