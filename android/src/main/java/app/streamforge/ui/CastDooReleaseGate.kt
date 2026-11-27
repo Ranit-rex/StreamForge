@@ -63,22 +63,31 @@ object CastDooReleaseChannel {
     }
 }
 
-private fun parseRelease(json: JSONObject): ReleaseInfo? {
-    val versionCode = json.optLong("versionCode", 0L)
+private fun parseRelease(response: JSONObject): ReleaseInfo? {
+    // Accept both the public legacy response and the newer policy envelope.
+    val json = response.optJSONObject("policy") ?: response
+    val versionCode = json.optLong("versionCode", json.optLong("latestVersionCode", 0L))
     if (versionCode <= 0L) return null
-    val force = json.optBoolean("forceUpdate", false)
-    val type = if (force || json.optString("updateType").equals("major", true)) "major" else "mini"
+    val force = json.optBoolean("forceUpdate", json.optBoolean("isMandatory", false))
+    val rawUrl = json.optString("updateUrl", "").trim()
+    val safeUrl = runCatching {
+        val uri = Uri.parse(rawUrl)
+        if (uri.scheme.equals("https", true) && !uri.host.isNullOrBlank()) rawUrl else ""
+    }.getOrDefault("")
+    // Never hide the update action just because a direct APK URL is missing.
+    // The Releases page is a safe fallback where the user can choose the published APK.
+    val downloadUrl = safeUrl.ifBlank { "https://github.com/Ranit-rex/StreamForge/releases" }
+    val type = if (force || json.optString("updateType", json.optString("releaseType")).equals("major", true)) "major" else "mini"
     return ReleaseInfo(
         latestVersionCode = versionCode,
-        minimumVersionCode = json.optLong("minimumVersionCode", 1L).coerceAtLeast(1L),
+        minimumVersionCode = json.optLong("minimumVersionCode", json.optLong("minimumSupportedVersionCode", 1L)).coerceAtLeast(1L),
         versionName = json.optString("versionName", "CastDoo update"),
-        updateUrl = json.optString("updateUrl", ""),
+        updateUrl = downloadUrl,
         releaseNotes = json.optString("releaseNotes", ""),
         forceUpdate = force,
         updateType = type
     )
 }
-
 private fun cachedRelease(context: Context, track: String): ReleaseInfo? {
     val raw = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
         .getString("release_cache_$track", null) ?: return null
