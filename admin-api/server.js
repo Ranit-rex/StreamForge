@@ -82,7 +82,7 @@ async function firebaseUser(req) {
   try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
 }
 async function googleProfile(req) {
-  const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
   if (!match) throw Object.assign(new Error("Sign in with Google to continue."), { status: 401 });
   const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { authorization: "Bearer " + match[1] },
@@ -190,9 +190,9 @@ async function friendRoutes(req, res, url) {
     return result.modifiedCount ? send(res, 200, { ok: true }) : send(res, 404, { error: "Friend request not found or already handled." });
   }
 
-  const removeMatch = url.pathname.match(/^\\/api\\/friends\\/([^/]+)$/);
+  const removeMatch = url.pathname.startsWith("/api/friends/") ? url.pathname.slice("/api/friends/".length) : "";
   if (req.method === "DELETE" && removeMatch) {
-    const friendUid = decodeURIComponent(removeMatch[1]).slice(0, 200);
+    const friendUid = decodeURIComponent(removeMatch).slice(0, 200);
     if (friendUid === user.uid) return send(res, 400, { error: "Invalid friend." });
     const session = client.startSession();
     try {
