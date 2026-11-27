@@ -180,7 +180,7 @@ private fun AdminRoot(
                     "versions" -> ReleaseManager(auth)
                     else -> {
                         AdminCard("Push notifications", "Send announcements to all users or selected accounts.")
-                        AdminCard("Beta / Stable", "Manage beta testing releases separately from stable releases.")
+                        AdminCard("Stable releases", "Manage the public stable Android release.")
                         AdminCard("Access control", "Every action is verified by the server-side admin claim.")
                     }
                 }
@@ -248,20 +248,15 @@ private fun PushComposer(auth: FirebaseAuth) {
 
 @Composable
 private fun ReleaseManager(auth: FirebaseAuth) {
-    var track by remember { mutableStateOf("beta") }
     var versionCode by remember { mutableStateOf("1") }
     var minimumVersionCode by remember { mutableStateOf("1") }
-    var versionName by remember { mutableStateOf("1.0.0-beta.1") }
+    var versionName by remember { mutableStateOf("1.0.0") }
     var updateUrl by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Release management", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(track == "beta", { track = "beta" }, label = { Text("Beta") })
-            FilterChip(track == "stable", { track = "stable" }, label = { Text("Stable") })
-        }
         OutlinedTextField(versionName, { versionName = it }, label = { Text("Version name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(minimumVersionCode, { minimumVersionCode = it }, label = { Text("Minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -272,7 +267,6 @@ private fun ReleaseManager(auth: FirebaseAuth) {
             onClick = {
                 publishing = true
                 val payload = mapOf(
-                    "track" to track,
                     "versionCode" to (versionCode.toIntOrNull() ?: 1),
                     "minimumVersionCode" to (minimumVersionCode.toIntOrNull() ?: 1),
                     "versionName" to versionName.trim(),
@@ -280,8 +274,8 @@ private fun ReleaseManager(auth: FirebaseAuth) {
                     "releaseNotes" to notes.trim()
                 )
                 val json = JSONObject().put("versionCode", payload["versionCode"]).put("minimumVersionCode", payload["minimumVersionCode"]).put("versionName", payload["versionName"]).put("updateUrl", payload["updateUrl"]).put("releaseNotes", payload["releaseNotes"]).put("forceUpdate", false)
-                adminRequest(auth, "POST", "/api/releases/$track", json) { ok, data ->
-                    resultText = if (ok) "${track.replaceFirstChar { it.uppercase() }} release published to MongoDB" else data.optString("error", "Publish failed")
+                adminRequest(auth, "POST", "/api/releases/stable", json) { ok, data ->
+                    resultText = if (ok) "Stable release published to MongoDB" else data.optString("error", "Publish failed")
                     publishing = false
                 }
             },
