@@ -11,7 +11,7 @@ on:
       - "gradle.properties"
       - ".github/workflows/castdoo-admin.yml"
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: castdoo-admin-${{ github.ref }}
   cancel-in-progress: true
@@ -90,9 +90,3 @@ jobs:
           if-no-files-found: error
           archive: false
           retention-days: 14
-      - name: Publish direct Admin APK release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: castdoo-admin-build-${{ env.BUILD_NUMBER }}
-          name: CastDoo Admin build ${{ env.BUILD_NUMBER }}
-          files: admin/build/outputs/apk/debug/CastDoo-Admin-build-${{ env.BUILD_NUMBER }}.apk
