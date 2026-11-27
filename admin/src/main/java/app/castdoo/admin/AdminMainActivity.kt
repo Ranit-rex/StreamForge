@@ -368,6 +368,7 @@ private fun ReleaseManager(token: String) {
     var updateType by remember { mutableStateOf("mini") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
+    var loadingRelease by remember { mutableStateOf(true) }
     var currentRelease by remember { mutableStateOf("Loading current Stable release…") }
     var adminMinimumVersion by remember { mutableStateOf("1") }
     var adminUpdateUrl by remember { mutableStateOf("") }
@@ -377,6 +378,13 @@ private fun ReleaseManager(token: String) {
 
     LaunchedEffect(token, selectedTrack) {
         val requestedTrack = selectedTrack
+        loadingRelease = true
+        versionName = ""
+        versionCode = ""
+        minimumVersionCode = "1"
+        updateUrl = ""
+        notes = ""
+        updateType = "mini"
         currentRelease = "Loading current ${if (requestedTrack == "stable") "Stable · Live" else "Beta · Test"} release…"
         resultText = ""
         adminRequest(token, "GET", "/api/releases/$requestedTrack", JSONObject()) { ok, data ->
@@ -395,6 +403,7 @@ private fun ReleaseManager(token: String) {
                         "Published ${requestedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     }
                 } else currentRelease = data.optString("error", "Could not load current release")
+                loadingRelease = false
             }
         }
     }
@@ -434,7 +443,7 @@ private fun ReleaseManager(token: String) {
         }
         OutlinedTextField(notes, { notes = it }, label = { Text("Release notes") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Button(
-            enabled = !publishing && validReleaseNumbers && updateUrl.startsWith("https://") && versionName.isNotBlank(),
+            enabled = !loadingRelease && !publishing && validReleaseNumbers && updateUrl.startsWith("https://") && versionName.isNotBlank(),
             onClick = {
                 publishing = true
                 val json = JSONObject()
