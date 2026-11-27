@@ -213,7 +213,7 @@ private fun ReleaseManager(token: String) {
     var versionCode by remember { mutableStateOf("1") }
     var minimumVersionCode by remember { mutableStateOf("1") }
     var versionName by remember { mutableStateOf("1.0.0") }
-    var updateUrl by remember { mutableStateOf("") }
+    var updateUrl by remember { mutableStateOf("https://github.com/Ranit-rex/StreamForge/releases/tag/castdoo-stable-build-1087") }
     var notes by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
@@ -224,9 +224,10 @@ private fun ReleaseManager(token: String) {
                 versionName = data.optString("versionName", "1.0.0")
                 versionCode = data.optInt("versionCode", 1).toString()
                 minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
-                updateUrl = data.optString("updateUrl", "")
+                updateUrl = data.optString("updateUrl", updateUrl).ifBlank { updateUrl }
                 notes = data.optString("releaseNotes", "")
                 currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                resultText = ""
             } else currentRelease = data.optString("error", "Could not load current release")
         }
     }
@@ -247,12 +248,13 @@ private fun ReleaseManager(token: String) {
                     .put("versionName", versionName.trim()).put("updateUrl", updateUrl.trim())
                     .put("releaseNotes", notes.trim()).put("forceUpdate", false)
                 adminRequest(token, "POST", "/api/releases/stable", json) { ok, data ->
-                    resultText = if (ok) "Stable release published to MongoDB" else data.optString("error", "Publish failed")
+                    resultText = if (ok) "Published successfully · build ${data.optInt("versionCode")}" else data.optString("error", "Publish failed")
+                    if (ok) currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     publishing = false
                 }
             }, modifier = Modifier.fillMaxWidth()
         ) { Text(if (publishing) "Publishing…" else "Publish release") }
-        if (resultText.isNotBlank()) Text(resultText, color = Color(0xFF55D6A1), fontSize = 13.sp)
+        if (resultText.isNotBlank()) Text(resultText, color = if (resultText.startsWith("Published successfully")) Color(0xFF55D6A1) else Color(0xFFFF8585), fontSize = 13.sp)
     }
 }
 
