@@ -37,6 +37,10 @@ class MainActivity : ComponentActivity() {
     private var pendingCaptureMode = "GAME"
     private var waitingForOverlayPermission = false
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -94,6 +98,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CastDooFcmRegistration.register(this)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            val notificationPrefs = getSharedPreferences("castdoo_notifications", MODE_PRIVATE)
+            if (!notificationPrefs.getBoolean("permission_prompted", false)) {
+                notificationPrefs.edit().putBoolean("permission_prompted", true).apply()
+                window.decorView.post { runCatching { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) } }
+            }
+        }
         CastDooReleaseChannel.initialize(this)
         EditorAssetDownloads.schedule(this)
         MobileAds.initialize(this)
