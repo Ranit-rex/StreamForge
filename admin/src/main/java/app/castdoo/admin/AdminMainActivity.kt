@@ -275,7 +275,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                     "versions" -> ReleaseManager(token)
                     else -> {
                         AdminCard("Push notifications", "Send phone notifications to all registered devices or selected users.")
-                        AdminCard("Stable releases", "Manage the public stable Android release.")
+                        AdminCard("Stable + Beta releases", "Publish Live and Test Android updates from this private Admin app.")
                         AdminCard("Device security", "This private installation uses a protected device session.")
                     }
                 }
