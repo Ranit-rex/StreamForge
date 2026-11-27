@@ -389,21 +389,34 @@ private fun ReleaseManager(token: String) {
         resultText = ""
         adminRequest(token, "GET", "/api/releases/$requestedTrack", JSONObject()) { ok, data ->
             if (selectedTrack == requestedTrack) {
-                if (ok) {
-                    val url = data.optString("updateUrl", "")
+                if (ok && data.optString("updateUrl").startsWith("https://")) {
+                    val url = data.optString("updateUrl")
                     versionName = data.optString("versionName", "")
-                    versionCode = if (url.isBlank()) "" else data.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
+                    versionCode = data.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
                     minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
                     updateUrl = url
                     notes = data.optString("releaseNotes", "")
                     updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
-                    currentRelease = if (url.isBlank()) {
-                        "No published ${requestedTrack.uppercase()} release yet. Enter the APK build details below."
-                    } else {
-                        "Published ${requestedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                    currentRelease = "Published ${requestedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                    loadingRelease = false
+                } else {
+                    adminRequest(token, "GET", "/api/releases/builds/$requestedTrack", JSONObject()) { buildOk, build ->
+                        if (selectedTrack == requestedTrack) {
+                            if (buildOk) {
+                                versionName = build.optString("versionName")
+                                versionCode = build.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
+                                updateUrl = build.optString("updateUrl")
+                                notes = build.optString("releaseNotes", "")
+                                minimumVersionCode = "1"
+                                updateType = "mini"
+                                currentRelease = "Latest APK found: build ${build.optInt("versionCode")} · review details and publish"
+                            } else {
+                                currentRelease = "No published ${requestedTrack.uppercase()} APK build found. Build that channel APK first."
+                            }
+                            loadingRelease = false
+                        }
                     }
-                } else currentRelease = data.optString("error", "Could not load current release")
-                loadingRelease = false
+                }
             }
         }
     }
