@@ -137,11 +137,11 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             message = "A newer Admin app version is available.",
             versionName = current!!.optString("versionName", "Admin update"),
             versionCode = latestCode,
-            releaseNotes = current.optString("releaseNotes", "Security, stability and performance improvements."),
+            releaseNotes = current!!.optString("releaseNotes", "Security, stability and performance improvements."),
             mandatory = false,
             actionLabel = "Download Admin update",
             actionEnabled = validUrl,
-            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) },
+            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(current!!.optString("updateUrl")))) },
             onContinue = { continueWithoutUpdate = true }
         )
         // Cached policy remains active offline. A first launch without cache stays usable.
