@@ -61,7 +61,11 @@ jobs:
           if [ "$BUILD_NUMBER" -lt 1073 ]; then BUILD_NUMBER=1073; fi
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
       - name: Build Admin APK
-        run: gradle --no-daemon --stacktrace :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+        env:
+          CASTDOO_PRIVATE_ADMIN_PAIRING_CODE: ${{ secrets.CASTDOO_ADMIN_PAIRING_CODE }}
+        run: |
+          test -n "$CASTDOO_PRIVATE_ADMIN_PAIRING_CODE" || { echo "::error::Add CASTDOO_ADMIN_PAIRING_CODE in GitHub Actions secrets."; exit 1; }
+          gradle --no-daemon --stacktrace :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER" -PcastdooPrivateAdminPairingCode="$CASTDOO_PRIVATE_ADMIN_PAIRING_CODE"
       - name: Name and verify APK
         shell: bash
         run: |
