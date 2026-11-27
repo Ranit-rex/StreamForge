@@ -541,15 +541,16 @@ private fun pairAdminDevice(code: String, done: (Boolean, JSONObject) -> Unit) {
         var connection: HttpURLConnection? = null
         try {
             connection = (URL("$ADMIN_API/api/admin/pair").openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"; connectTimeout = 15000; readTimeout = 20000
-                setRequestProperty("Content-Type", "application/json"); doOutput = true
+                requestMethod = "POST"; connectTimeout = 20000; readTimeout = 60000
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json"); doOutput = true
             }
             val payload = JSONObject().put("code", code).put("label", "CastDoo Admin Android")
             connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
-            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Pairing server returned HTTP $status (${connection.contentType ?: "unknown content type"}). Please retry.") }
             Handler(Looper.getMainLooper()).post { done(status in 200..299, data) }
         } catch (error: Exception) {
             Handler(Looper.getMainLooper()).post { done(false, JSONObject().put("error", error.message ?: "Network request failed")) }
