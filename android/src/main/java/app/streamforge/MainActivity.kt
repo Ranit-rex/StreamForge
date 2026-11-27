@@ -18,6 +18,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.ads.MobileAds
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
+import app.streamforge.ui.CastDooReleaseGate
 
 class MainActivity : ComponentActivity() {
     private var pendingEndpoint = ""
@@ -102,6 +103,7 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
+            CastDooReleaseGate {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
                     pendingRecordingOnly = false
@@ -171,6 +173,7 @@ class MainActivity : ComponentActivity() {
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) },
                 compactMode = false
             )
+            }
         }
     }
 
