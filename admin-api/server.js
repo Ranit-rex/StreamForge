@@ -106,6 +106,33 @@ async function handler(req,res) {
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
   }
 
+  const releaseBuildMatch = url.pathname.match(/^\/api\/releases\/builds\/(stable|beta)$/);
+  if (req.method === "GET" && releaseBuildMatch) {
+    const track = releaseBuildMatch[1];
+    try {
+      const response = await fetch("https://api.github.com/repos/Ranit-rex/StreamForge/releases?per_page=50", {
+        headers: { "Accept": "application/vnd.github+json", "User-Agent": "CastDoo-Admin" }
+      });
+      if (!response.ok) return send(res, 502, { error: "Could not load APK builds from GitHub" });
+      const releases = await response.json();
+      const prefix = "CastDoo-" + track + "-build-";
+      const candidates = releases.filter(item => String(item.tag_name || "").startsWith("castdoo-" + track + "-build-") && !item.draft)
+        .map(item => {
+          const asset = (item.assets || []).find(file => {
+            const name = String(file.name || "");
+            return name.startsWith(prefix) && name.toLowerCase().endsWith(".apk");
+          });
+          const match = asset ? String(asset.name).match(/build-(\d+)\.apk$/i) : null;
+          if (!asset || !match) return null;
+          return { track: track, versionName: String(item.name || ("CastDoo " + track + " build " + match[1])),
+            versionCode: Number(match[1]), minimumVersionCode: 1, updateType: "mini", forceUpdate: false,
+            updateUrl: asset.browser_download_url, releaseNotes: String(item.body || "").slice(0, 3000),
+            publishedAt: item.published_at };
+        }).filter(Boolean).sort((a, b) => b.versionCode - a.versionCode);
+      if (!candidates.length) return send(res, 404, { error: "No published " + track + " APK build found" });
+      return send(res, 200, candidates[0]);
+    } catch { return send(res, 502, { error: "Could not load APK build information" }); }
+  }
   if (req.method === "POST" && url.pathname === "/api/admin/pair") {
     try {
       if (!PAIRING_CODE) return send(res,503,{error:"Admin device pairing is not configured on the server"});
