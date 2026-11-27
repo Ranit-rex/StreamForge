@@ -346,13 +346,14 @@ private fun PushComposer(token: String) {
             if (ok) {
                 registeredDevices = data.optInt("registeredDevices", 0)
                 pushConfigured = data.optBoolean("configured", false)
-                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · UnifiedPush: ${data.optInt("unifiedPushDevices", registeredDevices)} · ${if (pushConfigured) "delivery ready" else "VAPID setup required"}"
+                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} (${data.optString("totalUsersSource", "observed sessions")}) · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · UnifiedPush: ${data.optInt("unifiedPushDevices", registeredDevices)} · Auth: ${if (data.optBoolean("firebaseAdminConfigured")) "ready" else "missing"} · ${if (pushConfigured) "delivery ready" else "VAPID setup required"}"
             } else statusMessage = data.optString("error", "Could not check push status")
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Send push notification", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(statusMessage, color = if (pushConfigured && registeredDevices > 0) Color(0xFF55D6A1) else Color(0xFFFFC56B), fontSize = 12.sp)
+        Text("UnifiedPush transport · no Firebase Cloud Messaging. Devices need a UnifiedPush distributor installed.", color = Color(0xFF9BAABD), fontSize = 11.sp)
         OutlinedTextField(title, { title = it }, label = { Text("Notification title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(body, { body = it }, label = { Text("Message") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
