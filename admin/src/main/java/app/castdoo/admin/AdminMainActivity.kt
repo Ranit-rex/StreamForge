@@ -85,7 +85,8 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
     val installedCode = BuildConfig.VERSION_CODE.toLong()
     val latestCode = current?.optLong("versionCode", 0) ?: 0
     val minimumCode = current?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
-    val mandatory = current != null && minimumCode > installedCode
+    val updateType = current?.optString("updateType", if (current?.optBoolean("forceUpdate", false) == true) "major" else "mini") ?: "mini"
+    val mandatory = current != null && (minimumCode > installedCode || (optionalUpdate && (updateType == "major" || current.optBoolean("forceUpdate", false))))
     val optionalUpdate = current != null && latestCode > installedCode
     val updateUrl = current?.optString("updateUrl").orEmpty()
     val validUrl = updateUrl.startsWith("https://")
@@ -326,11 +327,13 @@ private fun ReleaseManager(token: String) {
     var versionName by remember { mutableStateOf("Alpha build 1088") }
     var updateUrl by remember { mutableStateOf("https://github.com/Ranit-rex/StreamForge/releases/download/castdoo-stable-build-1088/CastDoo-Stable-build-1088.apk") }
     var notes by remember { mutableStateOf("") }
+    var updateType by remember { mutableStateOf("mini") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
     var currentRelease by remember { mutableStateOf("Loading current stable release…") }
     var adminMinimumVersion by remember { mutableStateOf("1") }
     var adminUpdateUrl by remember { mutableStateOf("") }
+    var adminUpdateType by remember { mutableStateOf("mini") }
     var adminReleaseStatus by remember { mutableStateOf("Loading Admin app policy…") }
     var publishingAdminPolicy by remember { mutableStateOf(false) }
     LaunchedEffect(token) {
@@ -338,6 +341,7 @@ private fun ReleaseManager(token: String) {
             if (ok) {
                 adminMinimumVersion = data.optInt("minimumVersionCode", 1).toString()
                 adminUpdateUrl = data.optString("updateUrl", "")
+                adminUpdateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
                 adminReleaseStatus = "Admin policy · minimum build ${data.optInt("minimumVersionCode", 1)}"
             } else adminReleaseStatus = data.optString("error", "Could not load Admin app policy")
         }
@@ -348,6 +352,7 @@ private fun ReleaseManager(token: String) {
                 minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
                 updateUrl = data.optString("updateUrl", updateUrl).ifBlank { updateUrl }
                 notes = data.optString("releaseNotes", "")
+                updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
                 currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                 resultText = ""
             } else currentRelease = data.optString("error", "Could not load current release")
@@ -360,6 +365,11 @@ private fun ReleaseManager(token: String) {
         OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(minimumVersionCode, { minimumVersionCode = it }, label = { Text("Minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(updateUrl, { updateUrl = it }, label = { Text("APK / Play Store update URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Text("Update type", color = Color(0xFF9BAABD), fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = updateType == "major", onClick = { updateType = "major" }, label = { Text("Major update") })
+            FilterChip(selected = updateType == "mini", onClick = { updateType = "mini" }, label = { Text("Mini update") })
+        }
         OutlinedTextField(notes, { notes = it }, label = { Text("Release notes") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Button(
             enabled = !publishing && versionCode.toIntOrNull() != null && minimumVersionCode.toIntOrNull() != null && updateUrl.startsWith("https://"),
@@ -368,7 +378,7 @@ private fun ReleaseManager(token: String) {
                 val json = JSONObject().put("versionCode", versionCode.toIntOrNull() ?: 1)
                     .put("minimumVersionCode", minimumVersionCode.toIntOrNull() ?: 1)
                     .put("versionName", versionName.trim()).put("updateUrl", updateUrl.trim())
-                    .put("releaseNotes", notes.trim()).put("forceUpdate", false)
+                    .put("releaseNotes", notes.trim()).put("updateType", updateType).put("forceUpdate", updateType == "major")
                 adminRequest(token, "POST", "/api/releases/stable", json) { ok, data ->
                     resultText = if (ok) "Published successfully · build ${data.optInt("versionCode")}" else data.optString("error", "Publish failed")
                     if (ok) currentRelease = "Published stable: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
@@ -383,6 +393,11 @@ private fun ReleaseManager(token: String) {
         Text(adminReleaseStatus, color = Color(0xFF55D6A1), fontSize = 12.sp)
         OutlinedTextField(adminMinimumVersion, { adminMinimumVersion = it }, label = { Text("Admin minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(adminUpdateUrl, { adminUpdateUrl = it }, label = { Text("Latest Admin APK HTTPS URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Text("Admin update type", color = Color(0xFF9BAABD), fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = adminUpdateType == "major", onClick = { adminUpdateType = "major" }, label = { Text("Major update") })
+            FilterChip(selected = adminUpdateType == "mini", onClick = { adminUpdateType = "mini" }, label = { Text("Mini update") })
+        }
         Button(
             enabled = !publishingAdminPolicy && adminMinimumVersion.toIntOrNull() != null && adminUpdateUrl.startsWith("https://"),
             onClick = {
@@ -394,6 +409,8 @@ private fun ReleaseManager(token: String) {
                     .put("versionName", "Admin build $currentAdminCode")
                     .put("updateUrl", adminUpdateUrl.trim())
                     .put("releaseNotes", "CastDoo Admin app update")
+                    .put("updateType", adminUpdateType)
+                    .put("forceUpdate", adminUpdateType == "major")
                 adminRequest(token, "POST", "/api/releases/admin", json) { ok, data ->
                     adminReleaseStatus = if (ok) "Admin policy published · minimum build ${data.optInt("minimumVersionCode")}" else data.optString("error", "Admin policy publish failed")
                     publishingAdminPolicy = false
