@@ -26,6 +26,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
 private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+private const val VERSION_API = "https://castdoo-version-api.mranit66.workers.dev"
 private const val PREFS_NAME = "castdoo_admin_secure"
 private val PRIVATE_ADMIN_PAIRING_CODE: String get() = BuildConfig.PRIVATE_ADMIN_PAIRING_CODE
 
@@ -83,7 +84,7 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             releasePrefs.edit().putLong("last_attempt_at", now).apply()
             val loaded = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
-                    val connection = (URL("$ADMIN_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
+                    val connection = (URL("$VERSION_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
                         connectTimeout = 15000
                         readTimeout = 30000
                         requestMethod = "GET"
@@ -387,7 +388,7 @@ private fun ReleaseManager(token: String) {
         updateType = "mini"
         currentRelease = "Loading current ${if (requestedTrack == "stable") "Stable · Live" else "Beta · Test"} release…"
         resultText = ""
-        adminRequest(token, "GET", "/api/releases/$requestedTrack", JSONObject()) { ok, data ->
+        versionRequest(token, "GET", "/api/releases/$requestedTrack", JSONObject()) { ok, data ->
             if (selectedTrack == requestedTrack) {
                 if (ok && data.optString("updateUrl").startsWith("https://")) {
                     val url = data.optString("updateUrl")
@@ -400,7 +401,7 @@ private fun ReleaseManager(token: String) {
                     currentRelease = "Published ${requestedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     loadingRelease = false
                 } else {
-                    adminRequest(token, "GET", "/api/releases/builds/$requestedTrack", JSONObject()) { buildOk, build ->
+                    versionRequest(token, "GET", "/api/releases/builds/$requestedTrack", JSONObject()) { buildOk, build ->
                         if (selectedTrack == requestedTrack) {
                             if (buildOk) {
                                 versionName = build.optString("versionName")
@@ -422,7 +423,7 @@ private fun ReleaseManager(token: String) {
     }
 
     LaunchedEffect(token) {
-        adminRequest(token, "GET", "/api/releases/admin", JSONObject()) { ok, data ->
+        versionRequest(token, "GET", "/api/releases/admin", JSONObject()) { ok, data ->
             if (ok) {
                 adminMinimumVersion = data.optInt("minimumVersionCode", 1).toString()
                 adminUpdateUrl = data.optString("updateUrl", "")
@@ -468,7 +469,7 @@ private fun ReleaseManager(token: String) {
                     .put("updateType", updateType)
                     .put("forceUpdate", updateType == "major")
                 val publishingTrack = selectedTrack
-                adminRequest(token, "POST", "/api/releases/$publishingTrack", json) { ok, data ->
+                versionRequest(token, "POST", "/api/releases/$publishingTrack", json) { ok, data ->
                     resultText = if (ok) "Published successfully · build ${data.optInt("versionCode")}" else data.optString("error", "Publish failed")
                     if (ok) currentRelease = "Published ${publishingTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     publishing = false
@@ -503,13 +504,36 @@ private fun ReleaseManager(token: String) {
                     .put("releaseNotes", "CastDoo Admin app update")
                     .put("updateType", adminUpdateType)
                     .put("forceUpdate", adminUpdateType == "major")
-                adminRequest(token, "POST", "/api/releases/admin", json) { ok, data ->
+                versionRequest(token, "POST", "/api/releases/admin", json) { ok, data ->
                     adminReleaseStatus = if (ok) "Admin policy published · minimum build ${data.optInt("minimumVersionCode")}" else data.optString("error", "Admin policy publish failed")
                     publishingAdminPolicy = false
                 }
             }, modifier = Modifier.fillMaxWidth()
         ) { Text(if (publishingAdminPolicy) "Publishing…" else "Publish Admin version policy") }
     }
+}
+
+
+private fun versionRequest(token: String, method: String, path: String, payload: JSONObject, done: (Boolean, JSONObject) -> Unit) {
+    Thread {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL(VERSION_API + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method; connectTimeout = 15000; readTimeout = 20000
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = method != "GET"
+            }
+            if (method != "GET") connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            Handler(Looper.getMainLooper()).post { done(code in 200..299, data) }
+        } catch (error: Exception) {
+            Handler(Looper.getMainLooper()).post { done(false, JSONObject().put("error", error.message ?: "Network request failed")) }
+        } finally { connection?.disconnect() }
+    }.start()
 }
 
 private fun pairAdminDevice(code: String, done: (Boolean, JSONObject) -> Unit) {
