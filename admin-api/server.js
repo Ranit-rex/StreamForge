@@ -1,12 +1,14 @@
 import http from "node:http";
 import { MongoClient } from "mongodb";
-import { timingSafeEqual } from "node:crypto";
+import { initializeApp, cert, getApps } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { pushConfigured, sendPush } from "./fcm.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
 const DB_NAME = process.env.MONGODB_DATABASE || "streamforge";
-const ADMIN_KEY = (process.env.ADMIN_API_KEY || "").trim();
+const SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) : null;
+if (SERVICE_ACCOUNT && !getApps().length) initializeApp({ credential: cert(SERVICE_ACCOUNT) });
 let client;
 let db;
 let connecting;
@@ -37,28 +39,36 @@ async function body(req) {
   for await (const chunk of req) { raw += chunk; if (raw.length > 20000) throw Object.assign(new Error("Request too large"), { status: 413 }); }
   return raw ? JSON.parse(raw) : {};
 }
-function authorized(req) {
-  if (!ADMIN_KEY) return false;
-  const got = Buffer.from(String(req.headers["x-admin-key"] || ""));
-  const expected = Buffer.from(ADMIN_KEY);
-  return got.length === expected.length && timingSafeEqual(got, expected);
+async function firebaseUser(req) {
+  if (!SERVICE_ACCOUNT || !getApps().length) return null;
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
 }
+async function authorized(req) { const decoded = await firebaseUser(req); return decoded?.admin === true; }
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
-  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),adminKeyConfigured:Boolean(ADMIN_KEY)});
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT)});
+  const publicRelease = url.pathname.match(/^\/api\/releases\/(beta|stable)$/);
+  if (req.method === "GET" && publicRelease) {
+    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:publicRelease[1]}); return send(res,200,release || {track:publicRelease[1],versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
+    catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
+  }
 
   if (req.method==="POST" && url.pathname==="/api/devices/register") {
     try {
+      const identity=await firebaseUser(req);
+      if(!identity?.uid)return send(res,401,{error:"Sign in required"});
       const input=await body(req),token=String(input.token||"").trim();
       if(!token||token.length>8192)return send(res,400,{error:"Valid FCM token required"});
       const d=await database();
-      await d.collection("push_devices").updateOne({token},{$set:{token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
+      await d.collection("push_devices").updateOne({token},{$set:{token,uid:identity.uid,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},{upsert:true});
       return send(res,200,{registered:true});
     } catch(error){return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"});}
   }
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
-  if (!authorized(req)) return send(res,401,{error:"Admin key invalid or not configured"});
+  if (!(await authorized(req))) return send(res,401,{error:"Admin account not authorized"});
   if (!URI) {
     const defaults={versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}};
     if (req.method==="GET" && url.pathname==="/api/overview") return send(res,200,{announcements:0,events24h:0,config:defaults,storageConfigured:false});
@@ -69,6 +79,18 @@ async function handler(req,res) {
   try {
     const d = await database();
 
+    const releaseMatch = url.pathname.match(/^\/api\/releases\/(beta|stable)$/);
+    if (releaseMatch && req.method === "POST") {
+      const input = await body(req), track = releaseMatch[1];
+      const versionCode = Math.max(1, Number(input.versionCode) || 1);
+      const minimumVersionCode = Math.max(1, Number(input.minimumVersionCode) || 1);
+      const updateUrl = String(input.updateUrl || "").trim();
+      if (!/^https:\/\//i.test(updateUrl)) return send(res,400,{error:"A secure HTTPS update URL is required"});
+      const release = {track,versionName:String(input.versionName || "1.0.0").slice(0,40),versionCode,minimumVersionCode,forceUpdate:Boolean(input.forceUpdate),updateUrl,releaseNotes:String(input.releaseNotes || "").slice(0,3000),updatedAt:new Date()};
+      await d.collection("app_releases").updateOne({_id:track},{$set:release},{upsert:true});
+      await d.collection("admin_audit_logs").insertOne({action:"release.published",track,versionCode,createdAt:new Date()});
+      return send(res,200,release);
+    }
     if(req.method==="GET"&&url.pathname==="/api/push/status"){
       const registeredDevices=await d.collection("push_devices").countDocuments({enabled:true});
       return send(res,200,{configured:pushConfigured(),registeredDevices});
@@ -76,7 +98,10 @@ async function handler(req,res) {
     if(req.method==="POST"&&url.pathname==="/api/push/send"){
       const input=await body(req),title=String(input.title||"").trim(),message=String(input.message||"").trim();
       if(!title||!message)return send(res,400,{error:"Title and message are required"});
-      const rows=await d.collection("push_devices").find({enabled:true}).project({token:1}).toArray();
+      const targetUids=Array.isArray(input.targetUids)?input.targetUids.map(x=>String(x).trim()).filter(Boolean).slice(0,500):[];
+      if(input.audience==="selected"&&!targetUids.length)return send(res,400,{error:"Select at least one valid user UID"});
+      const filter={enabled:true,...(input.audience==="selected"?{uid:{$in:targetUids}}:{})};
+      const rows=await d.collection("push_devices").find(filter).project({token:1}).toArray();
       const result=await sendPush(rows.map(x=>x.token),title.slice(0,100),message.slice(0,2000),d);
       await d.collection("admin_audit_logs").insertOne({action:"push.sent",sent:result.sent,failed:result.failed,createdAt:new Date()});
       return send(res,200,{...result,devices:rows.length});
