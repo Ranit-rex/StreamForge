@@ -116,11 +116,13 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
 
     LaunchedEffect(track) {
         val prefs = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
-        val lastAttempt = prefs.getLong("last_attempt_at", 0L)
+        // Live and Test have independent daily checks. Switching channels must fetch
+        // that channel immediately instead of inheriting the other channel's cooldown.
+        val attemptKey = "last_attempt_$track"
+        val lastAttempt = prefs.getLong(attemptKey, 0L)
         val now = System.currentTimeMillis()
-        // Limit the installation to one network attempt per day, even during an outage.
         if (lastAttempt == 0L || now - lastAttempt >= RELEASE_CHECK_INTERVAL_MS) {
-            prefs.edit().putLong("last_attempt_at", now).apply()
+            prefs.edit().putLong(attemptKey, now).apply()
             val loaded = fetchRelease(track)
             if (loaded != null) {
                 val checkedAt = System.currentTimeMillis()
