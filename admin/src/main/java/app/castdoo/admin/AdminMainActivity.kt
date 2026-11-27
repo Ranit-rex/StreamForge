@@ -376,23 +376,26 @@ private fun ReleaseManager(token: String) {
     var publishingAdminPolicy by remember { mutableStateOf(false) }
 
     LaunchedEffect(token, selectedTrack) {
-        currentRelease = "Loading current ${if (selectedTrack == "stable") "Stable · Live" else "Beta · Test"} release…"
+        val requestedTrack = selectedTrack
+        currentRelease = "Loading current ${if (requestedTrack == "stable") "Stable · Live" else "Beta · Test"} release…"
         resultText = ""
-        adminRequest(token, "GET", "/api/releases/$selectedTrack", JSONObject()) { ok, data ->
-            if (ok) {
-                val url = data.optString("updateUrl", "")
-                versionName = data.optString("versionName", "")
-                versionCode = if (url.isBlank()) "" else data.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
-                minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
-                updateUrl = url
-                notes = data.optString("releaseNotes", "")
-                updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
-                currentRelease = if (url.isBlank()) {
-                    "No published ${selectedTrack.uppercase()} release yet. Enter the APK build details below."
-                } else {
-                    "Published ${selectedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
-                }
-            } else currentRelease = data.optString("error", "Could not load current release")
+        adminRequest(token, "GET", "/api/releases/$requestedTrack", JSONObject()) { ok, data ->
+            if (selectedTrack == requestedTrack) {
+                if (ok) {
+                    val url = data.optString("updateUrl", "")
+                    versionName = data.optString("versionName", "")
+                    versionCode = if (url.isBlank()) "" else data.optInt("versionCode", 0).takeIf { it > 0 }?.toString().orEmpty()
+                    minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
+                    updateUrl = url
+                    notes = data.optString("releaseNotes", "")
+                    updateType = data.optString("updateType", if (data.optBoolean("forceUpdate", false)) "major" else "mini")
+                    currentRelease = if (url.isBlank()) {
+                        "No published ${requestedTrack.uppercase()} release yet. Enter the APK build details below."
+                    } else {
+                        "Published ${requestedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                    }
+                } else currentRelease = data.optString("error", "Could not load current release")
+            }
         }
     }
 
@@ -442,9 +445,10 @@ private fun ReleaseManager(token: String) {
                     .put("releaseNotes", notes.trim())
                     .put("updateType", updateType)
                     .put("forceUpdate", updateType == "major")
-                adminRequest(token, "POST", "/api/releases/$selectedTrack", json) { ok, data ->
+                val publishingTrack = selectedTrack
+                adminRequest(token, "POST", "/api/releases/$publishingTrack", json) { ok, data ->
                     resultText = if (ok) "Published successfully · build ${data.optInt("versionCode")}" else data.optString("error", "Publish failed")
-                    if (ok) currentRelease = "Published ${selectedTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
+                    if (ok) currentRelease = "Published ${publishingTrack.uppercase()}: ${data.optString("versionName")} · build ${data.optInt("versionCode")} · minimum ${data.optInt("minimumVersionCode")}"
                     publishing = false
                 }
             }, modifier = Modifier.fillMaxWidth()
