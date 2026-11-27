@@ -33,7 +33,7 @@ async function database() {
       db.collection("admin_announcements").createIndex({ createdAt: -1 }),
       db.collection("admin_events").createIndex({ createdAt: -1 }),
       db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
-      db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true }),
+      db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
       db.collection("notifications").createIndex({ uid: 1, createdAt: -1 })
     ]);
@@ -154,7 +154,7 @@ async function handler(req,res) {
       return send(res,200,release);
     }
     if (req.method === "GET" && url.pathname === "/api/push/status") {
-      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true});
+      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"}});
       return send(res,200,{configured:pushConfigured(),registeredDevices,transport:"UnifiedPush/Web Push"});
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
@@ -165,7 +165,7 @@ async function handler(req,res) {
       if (!pushConfigured()) return send(res,503,{error:"Web Push is not configured. Set WEB_PUSH_PUBLIC_KEY and WEB_PUSH_PRIVATE_KEY on the Render API service."});
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
-      const filter = {enabled:true,...(input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
+      const filter = {enabled:true,endpoint:{$type:"string"},... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
       const rows = await d.collection("push_devices").find(filter).toArray();
       const campaignId = crypto.randomUUID();
       const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
