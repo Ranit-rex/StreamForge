@@ -26,7 +26,7 @@ import androidx.security.crypto.MasterKey
 
 private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
 private const val PREFS_NAME = "castdoo_admin_secure"
-private const val PRIVATE_ADMIN_PAIRING_CODE = "CDOO-7K4P-9X2M"
+private val PRIVATE_ADMIN_PAIRING_CODE: String get() = BuildConfig.PRIVATE_ADMIN_PAIRING_CODE
 
 class AdminMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
