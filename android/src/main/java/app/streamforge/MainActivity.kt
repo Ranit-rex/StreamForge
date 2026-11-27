@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.ads.MobileAds
+import com.google.firebase.auth.FirebaseAuth
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
 import app.streamforge.ui.CastDooAuthGate
@@ -40,6 +41,9 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+    private val pushAuthListener = FirebaseAuth.AuthStateListener { auth ->
+        if (auth.currentUser != null) CastDooFcmRegistration.register(this)
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -97,6 +101,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FirebaseAuth.getInstance().addAuthStateListener(pushAuthListener)
         CastDooFcmRegistration.register(this)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             val notificationPrefs = getSharedPreferences("castdoo_notifications", MODE_PRIVATE)
@@ -215,10 +220,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        CastDooFcmRegistration.register(this)
         val keepAwake = getSharedPreferences("streamforge_studio", MODE_PRIVATE)
             .getBoolean("keep_screen_awake", true)
         if (keepAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onDestroy() {
+        FirebaseAuth.getInstance().removeAuthStateListener(pushAuthListener)
+        super.onDestroy()
     }
 
     private fun beginBroadcastPermissions() {
