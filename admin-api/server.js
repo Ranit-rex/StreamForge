@@ -99,9 +99,10 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
-  const publicRelease = url.pathname === "/api/releases/stable";
-  if (req.method === "GET" && publicRelease) {
-    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:"stable"}); return send(res,200,release || {track:"stable",versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
+  const publicReleaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta)$/);
+  if (req.method === "GET" && publicReleaseMatch) {
+    const track = publicReleaseMatch[1];
+    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:track}); return send(res,200,release || {track,versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
     catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
   }
 
@@ -192,9 +193,9 @@ async function handler(req,res) {
   try {
     const d = await database();
 
-    const releaseMatch = url.pathname === "/api/releases/stable";
+    const releaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta)$/);
     if (releaseMatch && req.method === "POST") {
-      const input = await body(req), track = "stable";
+      const input = await body(req), track = releaseMatch[1];
       const versionCode = Math.max(1, Number(input.versionCode) || 1);
       const minimumVersionCode = Math.max(1, Number(input.minimumVersionCode) || 1);
       const updateUrl = String(input.updateUrl || "").trim();
