@@ -1,5 +1,6 @@
 package app.streamforge.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -21,6 +22,10 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+private const val RELEASE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
+private const val RELEASE_PREFS = "castdoo_release_policy"
+
 private data class ReleaseInfo(
     val latestVersionCode: Long,
     val minimumVersionCode: Long,
@@ -29,9 +34,74 @@ private data class ReleaseInfo(
     val releaseNotes: String,
     val forceUpdate: Boolean,
     val updateType: String
-)
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("versionCode", latestVersionCode)
+        .put("minimumVersionCode", minimumVersionCode)
+        .put("versionName", versionName)
+        .put("updateUrl", updateUrl)
+        .put("releaseNotes", releaseNotes)
+        .put("forceUpdate", forceUpdate)
+        .put("updateType", updateType)
+}
 
-private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+/** One installed CastDoo package can switch between the Live and Test release feeds. */
+object CastDooReleaseChannel {
+    val current = mutableStateOf("stable")
+
+    fun initialize(context: Context) {
+        val saved = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
+            .getString("selected_track", "stable")
+        current.value = if (saved.equals("beta", ignoreCase = true)) "beta" else "stable"
+    }
+
+    fun setChannel(context: Context, track: String) {
+        val normalized = if (track.equals("beta", ignoreCase = true)) "beta" else "stable"
+        context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
+            .edit().putString("selected_track", normalized).apply()
+        current.value = normalized
+    }
+}
+
+private fun parseRelease(json: JSONObject): ReleaseInfo? {
+    val versionCode = json.optLong("versionCode", 0L)
+    if (versionCode <= 0L) return null
+    val force = json.optBoolean("forceUpdate", false)
+    val type = if (force || json.optString("updateType").equals("major", true)) "major" else "mini"
+    return ReleaseInfo(
+        latestVersionCode = versionCode,
+        minimumVersionCode = json.optLong("minimumVersionCode", 1L).coerceAtLeast(1L),
+        versionName = json.optString("versionName", "CastDoo update"),
+        updateUrl = json.optString("updateUrl", ""),
+        releaseNotes = json.optString("releaseNotes", ""),
+        forceUpdate = force,
+        updateType = type
+    )
+}
+
+private fun cachedRelease(context: Context, track: String): ReleaseInfo? {
+    val raw = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
+        .getString("release_cache_$track", null) ?: return null
+    return runCatching { parseRelease(JSONObject(raw)) }.getOrNull()
+}
+
+private suspend fun fetchRelease(track: String): ReleaseInfo? = withContext(Dispatchers.IO) {
+    runCatching {
+        val connection = URL("$CASTDOO_ADMIN_API/api/releases/$track").openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 8000
+            connection.readTimeout = 10000
+            connection.requestMethod = "GET"
+            connection.instanceFollowRedirects = true
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            parseRelease(json)
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+}
+
 private val CastDooNavy = Color(0xFF0A101B)
 private val CastDooPanel = Color(0xFF121E2D)
 private val CastDooCyan = Color(0xFF53D7FF)
@@ -40,63 +110,59 @@ private val CastDooMuted = Color(0xFFA8B6C8)
 @Composable
 fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    var release by remember { mutableStateOf<ReleaseInfo?>(null) }
-    var checked by remember { mutableStateOf(false) }
-    var retry by remember { mutableIntStateOf(0) }
-    var continueWithoutUpdate by remember { mutableStateOf(false) }
+    val track by CastDooReleaseChannel.current
+    var release by remember(track) { mutableStateOf(cachedRelease(context, track)) }
+    var continueWithoutUpdate by remember(track) { mutableStateOf(false) }
 
-    LaunchedEffect(BuildConfig.APP_TRACK, retry) {
-        checked = false
-        val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                val connection = URL("$CASTDOO_ADMIN_API/api/releases/${BuildConfig.APP_TRACK}").openConnection() as HttpURLConnection
-                try {
-                    connection.connectTimeout = 10000
-                    connection.readTimeout = 12000
-                    connection.requestMethod = "GET"
-                    if (connection.responseCode !in 200..299) return@runCatching null
-                    val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                    ReleaseInfo(
-                        latestVersionCode = json.optLong("versionCode", 0),
-                        minimumVersionCode = json.optLong("minimumVersionCode", 1),
-                        versionName = json.optString("versionName", "CastDoo update"),
-                        updateUrl = json.optString("updateUrl"),
-                        releaseNotes = json.optString("releaseNotes"),
-                        forceUpdate = json.optBoolean("forceUpdate", false),
-                        updateType = json.optString("updateType", if (json.optBoolean("forceUpdate", false)) "major" else "mini")
-                    )
-                } finally { connection.disconnect() }
-            }.getOrNull()
+    LaunchedEffect(track) {
+        val prefs = context.getSharedPreferences(RELEASE_PREFS, Context.MODE_PRIVATE)
+        val lastSuccessfulCheck = prefs.getLong("last_success_$track", 0L)
+        val now = System.currentTimeMillis()
+        // One successful server check per 24 hours, separately for each release channel.
+        if (lastSuccessfulCheck == 0L || now - lastSuccessfulCheck >= RELEASE_CHECK_INTERVAL_MS) {
+            val loaded = fetchRelease(track)
+            if (loaded != null) {
+                val checkedAt = System.currentTimeMillis()
+                prefs.edit()
+                    .putString("release_cache_$track", loaded.toJson().toString())
+                    .putLong("last_success_$track", checkedAt)
+                    .apply()
+                release = loaded
+            }
         }
-        release = loaded
-        checked = true
     }
 
     val current = release
     val installedCode = BuildConfig.VERSION_CODE.toLong()
-    // versionCode is the sole version comparison. versionName is display-only.
+    // Compare numeric versionCode only; versionName is display-only.
     val updateAvailable = current != null && current.latestVersionCode > installedCode
-    val mandatory = current != null && (current.minimumVersionCode > installedCode || (updateAvailable && (current.updateType == "major" || current.forceUpdate)))
-    val validUpdateUrl = current?.updateUrl?.startsWith("https://") == true
+    val mandatory = current != null && (
+        current.minimumVersionCode > installedCode ||
+            (updateAvailable && (current.updateType == "major" || current.forceUpdate))
+        )
+    val validUpdateUrl = current?.let {
+        runCatching {
+            val uri = Uri.parse(it.updateUrl)
+            uri.scheme == "https" && !uri.host.isNullOrBlank()
+        }.getOrDefault(false)
+    } ?: false
 
     when {
-        // Keep the app usable while the silent release check runs.
-        // Update screens take over immediately when the response arrives.
-        !checked -> content()
-        current == null -> CastDooVerificationScreen(onRetry = { retry++ })
+        // Cached policy is enforced offline. If this is a first launch with no cache,
+        // keep the app usable rather than locking the user out without a network check.
         mandatory -> CastDooUpdateScreen(
-            release = current,
+            release = current!!,
             installedCode = installedCode,
             mandatory = true,
             updateEnabled = validUpdateUrl,
-            onUpdate = { current.updateUrl.let { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } }
+            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current.updateUrl))) }
         )
         updateAvailable && !continueWithoutUpdate -> CastDooUpdateScreen(
-            release = current,
+            release = current!!,
             installedCode = installedCode,
             mandatory = false,
             updateEnabled = validUpdateUrl,
-            onUpdate = { current.updateUrl.let { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } },
+            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current.updateUrl))) },
             onContinue = { continueWithoutUpdate = true }
         )
         else -> content()
