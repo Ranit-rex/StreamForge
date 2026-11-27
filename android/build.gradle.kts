@@ -5,6 +5,9 @@ plugins {
  id("com.google.gms.google-services")
 }
 val streamforgeBuildNumber = providers.gradleProperty("streamforgeBuildNumber").orElse("1073").get().toInt()
+val streamforgeAppTrack = providers.gradleProperty("streamforgeAppTrack").orElse("stable").get().lowercase().also {
+ require(it == "stable" || it == "beta") { "streamforgeAppTrack must be stable or beta" }
+}
 android {
  namespace = "app.streamforge"
  compileSdk = 35
@@ -14,7 +17,7 @@ android {
   targetSdk = 35
   versionCode = streamforgeBuildNumber
   versionName = "Alpha build $streamforgeBuildNumber"
-  buildConfigField("String", "APP_TRACK", "\"stable\"")
+  buildConfigField("String", "APP_TRACK", "\"$streamforgeAppTrack\"")
  }
 
  signingConfigs {
