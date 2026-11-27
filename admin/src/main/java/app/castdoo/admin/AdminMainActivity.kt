@@ -165,7 +165,7 @@ private fun PushComposer(token: String) {
             if (ok) {
                 registeredDevices = data.optInt("registeredDevices", 0)
                 pushConfigured = data.optBoolean("configured", false)
-                statusMessage = if (pushConfigured) "Push ready · $registeredDevices registered device(s) · ${data.optInt("fcmDevices", 0)} Android FCM" else "Push delivery is not configured on the server."
+                statusMessage = if (pushConfigured) "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "unknown" else it.toString() }} · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · FCM: ${data.optInt("fcmDevices", 0)}" else "Firebase Admin credentials are missing on the server; device registration cannot be verified."
             } else statusMessage = data.optString("error", "Could not check push status")
         }
     }
