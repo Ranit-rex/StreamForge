@@ -170,6 +170,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Public release metadata is read-only to clients; Admin SDK publishes it.
+    match /appReleases/{track} {
+      allow get: if track in ['beta', 'stable'];
+      allow list, create, update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
