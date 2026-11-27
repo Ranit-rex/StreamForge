@@ -106,7 +106,10 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val installedCode = remember(context) {
         runCatching {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+            if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else {
+                @Suppress("DEPRECATION")
+                info.versionCode.toLong()
+            }
         }.getOrDefault(0L)
     }
     val current = release
