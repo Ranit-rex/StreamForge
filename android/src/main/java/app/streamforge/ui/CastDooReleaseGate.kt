@@ -27,7 +27,8 @@ private data class ReleaseInfo(
     val versionName: String,
     val updateUrl: String,
     val releaseNotes: String,
-    val forceUpdate: Boolean
+    val forceUpdate: Boolean,
+    val updateType: String
 )
 
 private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
@@ -61,7 +62,8 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
                         versionName = json.optString("versionName", "CastDoo update"),
                         updateUrl = json.optString("updateUrl"),
                         releaseNotes = json.optString("releaseNotes"),
-                        forceUpdate = json.optBoolean("forceUpdate", false)
+                        forceUpdate = json.optBoolean("forceUpdate", false),
+                        updateType = json.optString("updateType", if (json.optBoolean("forceUpdate", false)) "major" else "mini")
                     )
                 } finally { connection.disconnect() }
             }.getOrNull()
@@ -74,7 +76,7 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val installedCode = BuildConfig.VERSION_CODE.toLong()
     // versionCode is the sole version comparison. versionName is display-only.
     val updateAvailable = current != null && current.latestVersionCode > installedCode
-    val mandatory = current != null && current.minimumVersionCode > installedCode
+    val mandatory = current != null && (current.minimumVersionCode > installedCode || (updateAvailable && (current.updateType == "major" || current.forceUpdate)))
     val validUpdateUrl = current?.updateUrl?.startsWith("https://") == true
 
     when {
