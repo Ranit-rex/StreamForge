@@ -18,7 +18,8 @@ android {
   minSdk = 26
   targetSdk = 35
   versionCode = streamforgeBuildNumber
-  versionName = "Alpha build $streamforgeBuildNumber"
+  versionName = "Alpha build $streamforgeBuildNumber-beta"
+  buildConfigField("String", "APP_TRACK", "\"beta\"")
  }
 
  signingConfigs {
