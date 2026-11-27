@@ -298,7 +298,18 @@ private fun ReleaseManager(token: String) {
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
     var currentRelease by remember { mutableStateOf("Loading current stable release…") }
+    var adminMinimumVersion by remember { mutableStateOf("1") }
+    var adminUpdateUrl by remember { mutableStateOf("") }
+    var adminReleaseStatus by remember { mutableStateOf("Loading Admin app policy…") }
+    var publishingAdminPolicy by remember { mutableStateOf(false) }
     LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/releases/admin", JSONObject()) { ok, data ->
+            if (ok) {
+                adminMinimumVersion = data.optInt("minimumVersionCode", 1).toString()
+                adminUpdateUrl = data.optString("updateUrl", "")
+                adminReleaseStatus = "Admin policy · minimum build ${data.optInt("minimumVersionCode", 1)}"
+            } else adminReleaseStatus = data.optString("error", "Could not load Admin app policy")
+        }
         adminRequest(token, "GET", "/api/releases/stable", JSONObject()) { ok, data ->
             if (ok) {
                 versionName = data.optString("versionName", "Alpha build 1088")
@@ -335,6 +346,29 @@ private fun ReleaseManager(token: String) {
             }, modifier = Modifier.fillMaxWidth()
         ) { Text(if (publishing) "Publishing…" else "Publish release") }
         if (resultText.isNotBlank()) Text(resultText, color = if (resultText.startsWith("Published successfully")) Color(0xFF55D6A1) else Color(0xFFFF8585), fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        Divider(color = Color(0xFF263445))
+        Text("Admin app version lock", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(adminReleaseStatus, color = Color(0xFF55D6A1), fontSize = 12.sp)
+        OutlinedTextField(adminMinimumVersion, { adminMinimumVersion = it }, label = { Text("Admin minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(adminUpdateUrl, { adminUpdateUrl = it }, label = { Text("Latest Admin APK HTTPS URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Button(
+            enabled = !publishingAdminPolicy && adminMinimumVersion.toIntOrNull() != null && adminUpdateUrl.startsWith("https://"),
+            onClick = {
+                publishingAdminPolicy = true
+                val currentAdminCode = BuildConfig.VERSION_CODE
+                val json = JSONObject()
+                    .put("versionCode", currentAdminCode)
+                    .put("minimumVersionCode", adminMinimumVersion.toIntOrNull() ?: 1)
+                    .put("versionName", "Admin build $currentAdminCode")
+                    .put("updateUrl", adminUpdateUrl.trim())
+                    .put("releaseNotes", "CastDoo Admin app update")
+                adminRequest(token, "POST", "/api/releases/admin", json) { ok, data ->
+                    adminReleaseStatus = if (ok) "Admin policy published · minimum build ${data.optInt("minimumVersionCode")}" else data.optString("error", "Admin policy publish failed")
+                    publishingAdminPolicy = false
+                }
+            }, modifier = Modifier.fillMaxWidth()
+        ) { Text(if (publishingAdminPolicy) "Publishing…" else "Publish Admin version policy") }
     }
 }
 
