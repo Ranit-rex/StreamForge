@@ -8,8 +8,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
-import com.google.firebase.firestore.FirebaseFirestore
 import app.streamforge.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 private data class ReleaseInfo(
     val latestVersionCode: Long,
@@ -19,6 +23,8 @@ private data class ReleaseInfo(
     val releaseNotes: String
 )
 
+private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+
 @Composable
 fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
@@ -27,22 +33,27 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     var dismissed by remember { mutableStateOf(false) }
 
     LaunchedEffect(BuildConfig.APP_TRACK) {
-        FirebaseFirestore.getInstance().collection("appReleases")
-            .document(BuildConfig.APP_TRACK)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                if (snapshot.exists() && snapshot.getBoolean("enabled") != false) {
-                    release = ReleaseInfo(
-                        latestVersionCode = snapshot.getLong("versionCode") ?: 0L,
-                        minimumVersionCode = snapshot.getLong("minimumVersionCode") ?: 0L,
-                        versionName = snapshot.getString("versionName").orEmpty(),
-                        updateUrl = snapshot.getString("updateUrl").orEmpty(),
-                        releaseNotes = snapshot.getString("releaseNotes").orEmpty()
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = URL("$CASTDOO_ADMIN_API/api/releases/${BuildConfig.APP_TRACK}").openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 10000
+                    connection.readTimeout = 12000
+                    connection.requestMethod = "GET"
+                    if (connection.responseCode !in 200..299) return@runCatching null
+                    val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    ReleaseInfo(
+                        latestVersionCode = json.optLong("versionCode", 0),
+                        minimumVersionCode = json.optLong("minimumVersionCode", 0),
+                        versionName = json.optString("versionName"),
+                        updateUrl = json.optString("updateUrl"),
+                        releaseNotes = json.optString("releaseNotes")
                     )
-                }
-                checked = true
-            }
-            .addOnFailureListener { checked = true }
+                } finally { connection.disconnect() }
+            }.getOrNull()
+        }
+        release = loaded
+        checked = true
     }
 
     val current = release
