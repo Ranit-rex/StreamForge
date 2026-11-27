@@ -52,7 +52,7 @@ fun CastDooFriendsSection() {
                 val profile = hashMapOf<String, Any>(
                     "uid" to uid,
                     "publicId" to publicId,
-                    "displayName" to (doc.getString("displayName") ?: user.displayName ?: "CastDoo User"),
+                    "displayName" to (doc.getString("displayName") ?: user?.displayName ?: "CastDoo User"),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
                 (doc.getString("photoUrl") ?: user.photoUrl?.toString())?.let { profile["photoUrl"] = it }
