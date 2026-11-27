@@ -99,40 +99,15 @@ async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
   if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
-  const publicReleaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta|admin)$/);
-  if (req.method === "GET" && publicReleaseMatch) {
-    const track = publicReleaseMatch[1];
-    try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:track}); return send(res,200,release || {track,versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
-    catch(error) { return send(res,error.status||503,{error:"Release information unavailable"}); }
+  // Legacy Render release/version API retired. The Cloudflare version service is now authoritative.
+  if (url.pathname.startsWith("/api/releases/")) {
+    if (req.method === "GET" && /^\/api\/releases\/(stable|beta|admin)$/.test(url.pathname)) {
+      const track = url.pathname.split("/").pop();
+      return send(res, 200, { track, versionName: "", versionCode: 1, minimumVersionCode: 1, forceUpdate: false, updateType: "mini", updateUrl: "", releaseNotes: "", disabled: true });
+    }
+    return send(res, 410, { error: "Legacy Render release/version management has been retired." });
   }
 
-  const releaseBuildMatch = url.pathname.match(/^\/api\/releases\/builds\/(stable|beta)$/);
-  if (req.method === "GET" && releaseBuildMatch) {
-    const track = releaseBuildMatch[1];
-    try {
-      const response = await fetch("https://api.github.com/repos/Ranit-rex/StreamForge/releases?per_page=50", {
-        headers: { "Accept": "application/vnd.github+json", "User-Agent": "CastDoo-Admin" }
-      });
-      if (!response.ok) return send(res, 502, { error: "Could not load APK builds from GitHub" });
-      const releases = await response.json();
-      const prefix = "CastDoo-" + track + "-build-";
-      const candidates = releases.filter(item => String(item.tag_name || "").startsWith("castdoo-" + track + "-build-") && !item.draft)
-        .map(item => {
-          const asset = (item.assets || []).find(file => {
-            const name = String(file.name || "");
-            return name.startsWith(prefix) && name.toLowerCase().endsWith(".apk");
-          });
-          const match = asset ? String(asset.name).match(/build-(\d+)\.apk$/i) : null;
-          if (!asset || !match) return null;
-          return { track: track, versionName: String(item.name || ("CastDoo " + track + " build " + match[1])),
-            versionCode: Number(match[1]), minimumVersionCode: 1, updateType: "mini", forceUpdate: false,
-            updateUrl: asset.browser_download_url, releaseNotes: String(item.body || "").slice(0, 3000),
-            publishedAt: item.published_at };
-        }).filter(Boolean).sort((a, b) => b.versionCode - a.versionCode);
-      if (!candidates.length) return send(res, 404, { error: "No published " + track + " APK build found" });
-      return send(res, 200, candidates[0]);
-    } catch { return send(res, 502, { error: "Could not load APK build information" }); }
-  }
   if (req.method === "POST" && url.pathname === "/api/admin/pair") {
     try {
       if (!PAIRING_CODE) return send(res,503,{error:"Admin device pairing is not configured on the server"});
@@ -211,7 +186,7 @@ async function handler(req,res) {
   if (!url.pathname.startsWith("/api/")) return send(res,404,{error:"Not found"});
   if (!(await authorized(req))) return send(res,401,{error:"Admin account not authorized"});
   if (!URI) {
-    const defaults={versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}};
+    const defaults={maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}};
     if (req.method==="GET" && url.pathname==="/api/overview") return send(res,200,{announcements:0,events24h:0,config:defaults,storageConfigured:false});
     if (req.method==="GET" && url.pathname==="/api/announcements") return send(res,200,[]);
     if (req.method==="GET" && url.pathname==="/api/config") return send(res,200,defaults);
@@ -220,19 +195,6 @@ async function handler(req,res) {
   try {
     const d = await database();
 
-    const releaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta|admin)$/);
-    if (releaseMatch && req.method === "POST") {
-      const input = await body(req), track = releaseMatch[1];
-      const versionCode = Math.max(1, Number(input.versionCode) || 1);
-      const minimumVersionCode = Math.max(1, Number(input.minimumVersionCode) || 1);
-      const updateUrl = String(input.updateUrl || "").trim();
-      if (!/^https:\/\//i.test(updateUrl)) return send(res,400,{error:"A secure HTTPS update URL is required"});
-      const updateType = String(input.updateType || (input.forceUpdate ? "major" : "mini")).toLowerCase() === "major" ? "major" : "mini";
-      const release = {track,versionName:String(input.versionName || "1.0.0").slice(0,40),versionCode,minimumVersionCode,updateType,forceUpdate:updateType === "major",updateUrl,releaseNotes:String(input.releaseNotes || "").slice(0,3000),updatedAt:new Date()};
-      await d.collection("app_releases").updateOne({_id:track},{$set:release},{upsert:true});
-      await d.collection("admin_audit_logs").insertOne({action:"release.published",track,versionCode,createdAt:new Date()});
-      return send(res,200,release);
-    }
     if (req.method === "GET" && url.pathname === "/api/push/status") {
       const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
       const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
@@ -291,7 +253,7 @@ async function handler(req,res) {
         d.collection("admin_events").countDocuments({ createdAt: { $gte: new Date(Date.now()-86400000) } }),
         d.collection("app_config").findOne({ _id:"global" })
       ]);
-      return send(res,200,{announcements,events24h:events,config:config || {versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}}});
+      return send(res,200,{announcements,events24h:events,config:config || {maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}}});
     }
     if (req.method === "GET" && url.pathname === "/api/announcements") {
       const rows = await d.collection("admin_announcements").find({}).sort({createdAt:-1}).limit(100).toArray();
@@ -312,11 +274,11 @@ async function handler(req,res) {
       return send(res,result.deletedCount?200:404,{deleted:Boolean(result.deletedCount)});
     }
     if (req.method==="GET" && url.pathname==="/api/config") {
-      return send(res,200,await d.collection("app_config").findOne({_id:"global"}) || {versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}});
+      return send(res,200,await d.collection("app_config").findOne({_id:"global"}) || {maintenanceMode:false,maintenanceMessage:"",features:{announcements:true}});
     }
     if (req.method==="PATCH" && url.pathname==="/api/config") {
       const input=await body(req);
-      const allowed={versionName:String(input.versionName||"1.0.0").slice(0,30),versionCode:Math.max(1,Number(input.versionCode)||1),minimumVersionCode:Math.max(1,Number(input.minimumVersionCode)||1),forceUpdate:Boolean(input.forceUpdate),maintenanceMode:Boolean(input.maintenanceMode),maintenanceMessage:String(input.maintenanceMessage||"").slice(0,300),features:{announcements:input.features?.announcements!==false}};
+      const allowed={maintenanceMode:Boolean(input.maintenanceMode),maintenanceMessage:String(input.maintenanceMessage||"").slice(0,300),features:{announcements:input.features?.announcements!==false}};
       await d.collection("app_config").updateOne({_id:"global"},{$set:{...allowed,updatedAt:new Date()}},{upsert:true});
       await d.collection("admin_audit_logs").insertOne({action:"config.updated",createdAt:new Date()});
       return send(res,200,{_id:"global",...allowed});
