@@ -43,11 +43,90 @@ class AdminMainActivity : ComponentActivity() {
                 background = Color(0xFF0B1018),
                 surface = Color(0xFF151F2B)
             )) {
+                AdminVersionGate {
                 AdminRoot(
                     savedToken = prefs.getString("admin_device_token", "").orEmpty(),
                     saveToken = { prefs.edit().putString("admin_device_token", it).apply() },
                     clearToken = { prefs.edit().remove("admin_device_token").apply() }
                 )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun AdminVersionGate(content: @Composable () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var retry by remember { mutableIntStateOf(0) }
+    var loading by remember { mutableStateOf(true) }
+    var release by remember { mutableStateOf<JSONObject?>(null) }
+    LaunchedEffect(retry) {
+        loading = true
+        release = withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val connection = (URL("$ADMIN_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 12000
+                    requestMethod = "GET"
+                }
+                try {
+                    if (connection.responseCode !in 200..299) null
+                    else JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                } finally { connection.disconnect() }
+            }.getOrNull()
+        }
+        loading = false
+    }
+    val minimum = release?.optLong("minimumVersionCode", 1) ?: Long.MAX_VALUE
+    val blocked = !loading && release != null && minimum > BuildConfig.VERSION_CODE.toLong()
+    val unavailable = !loading && release == null
+    when {
+        loading -> AdminGateScreen("Checking Admin app version…", showProgress = true)
+        blocked -> {
+            val url = release?.optString("updateUrl").orEmpty()
+            AdminGateScreen(
+                "Admin app update required. This version is no longer supported. Install the latest Admin APK to continue.",
+                actionLabel = "Update Admin app",
+                actionEnabled = url.startsWith("https://"),
+                onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+            )
+        }
+        unavailable -> AdminGateScreen(
+            "Could not verify the Admin app version. Connect to the internet and try again.",
+            actionLabel = "Retry",
+            onAction = { retry++ }
+        )
+        else -> content()
+    }
+}
+
+@Composable
+private fun AdminGateScreen(
+    message: String,
+    showProgress: Boolean = false,
+    actionLabel: String? = null,
+    actionEnabled: Boolean = true,
+    onAction: (() -> Unit)? = null
+) {
+    Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 13.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(14.dp))
+            Text(if (showProgress) "Please wait" else "Update required", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            Text(message, color = Color(0xFF9BAABD), fontSize = 14.sp)
+            if (showProgress) {
+                Spacer(Modifier.height(20.dp))
+                CircularProgressIndicator()
+            }
+            if (actionLabel != null && onAction != null) {
+                Spacer(Modifier.height(22.dp))
+                Button(onClick = onAction, enabled = actionEnabled, modifier = Modifier.fillMaxWidth()) { Text(actionLabel) }
             }
         }
     }
