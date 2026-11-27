@@ -89,8 +89,8 @@ private suspend fun fetchRelease(track: String): ReleaseInfo? = withContext(Disp
     runCatching {
         val connection = URL("$CASTDOO_ADMIN_API/api/releases/$track").openConnection() as HttpURLConnection
         try {
-            connection.connectTimeout = 8000
-            connection.readTimeout = 10000
+            connection.connectTimeout = 15000
+            connection.readTimeout = 30000
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = true
             if (connection.responseCode !in 200..299) return@runCatching null
