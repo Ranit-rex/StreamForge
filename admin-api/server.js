@@ -276,6 +276,27 @@ async function handler(req,res) {
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
   }
 
+  if (req.method === "POST" && url.pathname === "/api/usage/session") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "CastDoo Firebase Admin credentials are not configured on the server."});
+      const input = await body(req);
+      const d = await database();
+      const now = new Date();
+      const previous = await d.collection("app_users").findOne({uid:identity.uid},{projection:{lastSeenAt:1}});
+      await d.collection("app_users").updateOne(
+        {uid:identity.uid},
+        {$set:{uid:identity.uid,platform:String(input.platform || "android").slice(0,24),device:String(input.device || "").slice(0,100),lastSeenAt:now},$setOnInsert:{firstSeenAt:now}},
+        {upsert:true}
+      );
+      const lastSeen = previous?.lastSeenAt ? new Date(previous.lastSeenAt).getTime() : 0;
+      if (!lastSeen || now.getTime() - lastSeen >= 10 * 60 * 1000) {
+        await d.collection("admin_events").insertOne({type:"app.session",uid:identity.uid,platform:String(input.platform || "android").slice(0,24),createdAt:now});
+      }
+      return send(res,200,{tracked:true,source:"authenticated_app_session"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"App session tracking failed"}); }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/devices/fcm/register") {
     try {
       const identity = await firebaseUser(req);
@@ -284,12 +305,19 @@ async function handler(req,res) {
       const token = String(input.token || "").trim();
       if (token.length < 40 || token.length > 4096) return send(res,400,{error:"A valid Firebase messaging token is required"});
       const d = await database();
+      const now = new Date();
       await d.collection("push_devices").updateOne(
         {uid:identity.uid,endpoint:`fcm:${token}`},
-        {$set:{uid:identity.uid,endpoint:`fcm:${token}`,fcmToken:token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
+        {$set:{uid:identity.uid,endpoint:`fcm:${token}`,fcmToken:token,token,platform:"android",transport:"fcm",enabled:true,updatedAt:now,lastSeenAt:now},$setOnInsert:{createdAt:now}},
         {upsert:true}
       );
-      return send(res,200,{registered:true,transport:"FCM"});
+      await d.collection("app_users").updateOne(
+        {uid:identity.uid},
+        {$set:{uid:identity.uid,platform:"android",lastSeenAt:now},$setOnInsert:{firstSeenAt:now}},
+        {upsert:true}
+      );
+      await d.collection("admin_events").insertOne({type:"push.fcm_device_registered",uid:identity.uid,platform:"android",createdAt:now});
+      return send(res,200,{registered:true,transport:"FCM",tracked:true});
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
   }
   if (req.method === "POST" && url.pathname === "/api/devices/register") {
