@@ -64,12 +64,12 @@ private fun applyAppPalette(mode: String, accentHex: String) {
 private fun saveProgramPreviewScreenshot(context: android.content.Context): Boolean {
     val bitmap = runCatching { StreamService.previewView?.bitmap }.getOrNull() ?: return false
     return runCatching {
-        val name = "StreamForge_Screenshot_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())}.jpg"
+        val name = "CastDoo_Screenshot_${java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())}.jpg"
         val values = android.content.ContentValues().apply {
             put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
             put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
             if (android.os.Build.VERSION.SDK_INT >= 29) {
-                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/StreamForge")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CastDoo")
                 put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -202,7 +202,7 @@ fun StreamForgeApp(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(if (isStreaming) "● STREAMFORGE LIVE" else if (isRecording) "● RECORDING" else "STREAMFORGE", color = if (isStreaming) LiveRed else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        Text(if (isStreaming) "● CASTDOO LIVE" else if (isRecording) "● RECORDING" else "CASTDOO", color = if (isStreaming) LiveRed else Accent, fontSize = 11.sp, fontWeight = FontWeight.Black)
                         Text(if (isStreaming) "${formatDuration(elapsedSeconds)}  ·  ${bitrate} kbps" else status, color = AppText, fontSize = 10.sp, maxLines = 1)
                     }
                     TextButton(onClick = {
@@ -507,7 +507,7 @@ fun StreamForgeApp(
                                     visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
                                     trailingIcon = { TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "HIDE" else "SHOW") } }
                                 )
-                                Text("Stream key stays on this device and is never sent to StreamForge servers.", color = Muted, fontSize = 10.sp)
+                                Text("Stream key stays on this device and is never sent to CastDoo servers.", color = Muted, fontSize = 10.sp)
                             }
                             StudioAccordion("02", "Video quality", selectedQuality.label, qualityExpanded, { qualityExpanded = !qualityExpanded }) {
                                 QualityPicker(selectedQuality) {
@@ -571,7 +571,7 @@ fun StreamForgeApp(
                         Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
-                                    Text("STREAMFORGE MINI", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                    Text("CASTDOO MINI", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Black)
                                     Text("AI Assistant", color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 }
                                 TextButton(onClick = { showMiniAssistant = false }) { Text("CLOSE") }
@@ -618,7 +618,7 @@ fun StreamForgeApp(
                                 OutlinedButton(
                                     onClick = {
                                         val saved = saveProgramPreviewScreenshot(context)
-                                        android.widget.Toast.makeText(context, if (saved) "Screenshot saved to Pictures/StreamForge" else "Preview screenshot unavailable", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, if (saved) "Screenshot saved to Pictures/CastDoo" else "Preview screenshot unavailable", android.widget.Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) { Text("TAKE SS", fontSize = 9.sp) }
@@ -645,7 +645,7 @@ fun StreamForgeApp(
                     onDismissRequest = { showRecordingConfirm = false },
                     title = { Text("Start screen recording?") },
                     text = {
-                        Text("StreamForge will capture your selected screen/app and save an MP4 locally at ${selectedQuality.label} with a ${targetBitrateMbps.toInt()} Mbps target. Android will show its screen-capture permission prompt next.")
+                        Text("CastDoo will capture your selected screen/app and save an MP4 locally at ${selectedQuality.label} with a ${targetBitrateMbps.toInt()} Mbps target. Android will show its screen-capture permission prompt next.")
                     },
                     confirmButton = {
                         TextButton(onClick = {
@@ -748,9 +748,9 @@ private fun RecordingDashboard(elapsed: Long, resolution: String, onStop: () -> 
 @Composable
 private fun StudioHeader(isStreaming: Boolean, isRecording: Boolean, onSettings: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "StreamForge logo", modifier = Modifier.size(25.dp).padding(end = 5.dp))
+        Image(painter = painterResource(id = app.streamforge.R.drawable.ic_streamforge), contentDescription = "CastDoo logo", modifier = Modifier.size(25.dp).padding(end = 5.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("STREAMFORGE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+            Text("CASTDOO", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
             Text("MOBILE BROADCAST STUDIO", color = Muted, fontSize = 6.sp, fontWeight = FontWeight.SemiBold, letterSpacing = .8.sp)
         }
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -917,11 +917,11 @@ private fun SettingsPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Keep screen awake", color = AppText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Text("Prevent screen sleep while using StreamForge.", color = Muted, fontSize = 10.sp)
+                    Text("Prevent screen sleep while using CastDoo.", color = Muted, fontSize = 10.sp)
                 }
                 Switch(checked = keepScreenAwake, onCheckedChange = onKeepScreenAwake)
             }
-            Text("Recording saves MP4 files to StreamForge's Movies folder. A persistent notification includes a Stop recording action while capture is active.", color = Muted, fontSize = 10.sp)
+            Text("Recording saves MP4 files to CastDoo's Movies folder. A persistent notification includes a Stop recording action while capture is active.", color = Muted, fontSize = 10.sp)
             Text("Stream key stays in the current app session and is not included in diagnostic reports.", color = Muted, fontSize = 10.sp)
         }
     }
@@ -1097,7 +1097,7 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("STREAMFORGE", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
+                Text("CASTDOO", color = AppText, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
                 Text("Direct-to-platform streaming · Android-native capture · Local MP4 recordings", color = Muted, fontSize = 10.sp)
                 Text("Your stream key stays on this device. Platform chat and AI integrations require their own connection.", color = Muted, fontSize = 10.sp)
             }
@@ -1172,7 +1172,7 @@ private fun DestinationsPanel() {
 
     fun requestYouTubeAccess(action: (String) -> Unit) {
         if (activity == null) {
-            message = "Open StreamForge on an Android activity to connect YouTube."
+            message = "Open CastDoo on an Android activity to connect YouTube."
             return
         }
         busy = true
@@ -1235,7 +1235,7 @@ private fun DestinationsPanel() {
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeading("CREATOR WORKSPACE", "Destinations")
-        Text("Connect your YouTube channel directly from this phone. StreamForge does not receive or store your Google password or refresh token.", color = Muted, fontSize = 11.sp)
+        Text("Connect your YouTube channel directly from this phone. CastDoo does not receive or store your Google password or refresh token.", color = Muted, fontSize = 11.sp)
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1282,7 +1282,7 @@ private fun DestinationsPanel() {
                                 }
                                 .addOnFailureListener { error ->
                                     busy = false
-                                    message = error.message ?: "Google could not revoke access. Remove StreamForge from your Google Account permissions too."
+                                    message = error.message ?: "Google could not revoke access. Remove CastDoo from your Google Account permissions too."
                                 }
                         },
                         enabled = !busy,
@@ -1294,8 +1294,8 @@ private fun DestinationsPanel() {
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("DEVICE-ONLY PRIVACY", color = AppText, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                Text("Google Play services manages the device authorization grant and short-lived access-token cache. StreamForge stores only your channel name and channel ID locally; it does not save OAuth access or refresh tokens, and no StreamForge database is used for this connection.", color = Muted, fontSize = 10.sp)
-                Text("Disconnect revokes the app's granted Google access. You can also remove StreamForge anytime from your Google Account's third-party connections.", color = Muted, fontSize = 10.sp)
+                Text("Google Play services manages the device authorization grant and short-lived access-token cache. CastDoo stores only your channel name and channel ID locally; it does not save OAuth access or refresh tokens, and no CastDoo database is used for this connection.", color = Muted, fontSize = 10.sp)
+                Text("Disconnect revokes the app's granted Google access. You can also remove CastDoo anytime from your Google Account's third-party connections.", color = Muted, fontSize = 10.sp)
             }
         }
         Surface(color = PanelRaised, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
