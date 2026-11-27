@@ -207,7 +207,7 @@ fun CastDooProfileScreen() {
             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge"))) }
         }
         ProfileActionCard("Terms & conditions", "Review the CastDoo service terms", "↗") {
-            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge"))) }
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-admin-beta-platform/CASTDOO_TERMS.md"))) }
         }
         ProfileSectionTitle("SESSION")
         Surface(color = ProfileCard, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
