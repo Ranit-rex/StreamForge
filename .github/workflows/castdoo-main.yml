@@ -104,4 +104,4 @@ jobs:
           tag_name: castdoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}
           name: CastDoo ${{ env.RELEASE_TRACK }} build ${{ env.BUILD_NUMBER }}
           prerelease: ${{ env.RELEASE_TRACK == 'beta' }}
-          files: android/build/outputs/apk/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
+          files: android/build/outputs/apk/debug/CastDoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}.apk
