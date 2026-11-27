@@ -20,7 +20,7 @@ on:
       - "gradle.properties"
       - ".github/workflows/castdoo-main.yml"
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: castdoo-main-${{ github.ref }}
   cancel-in-progress: false
@@ -100,10 +100,3 @@ jobs:
 
 # Rebuild trigger: latest shared Kotlin compile fix is included.
 
-      - name: Publish direct channel APK release asset
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: castdoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}
-          name: CastDoo ${{ env.RELEASE_TRACK }} build ${{ env.BUILD_NUMBER }}
-          prerelease: ${{ env.RELEASE_TRACK == 'beta' }}
-          files: android/build/outputs/apk/debug/CastDoo-${{ env.RELEASE_TRACK }}-build-${{ env.BUILD_NUMBER }}.apk
