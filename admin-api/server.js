@@ -277,7 +277,7 @@ async function handler(req,res) {
     }
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [totalUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent,pushFailed] = await Promise.all([
+      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent,pushFailed] = await Promise.all([
         d.collection("app_users").countDocuments(),
         d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
         d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]}),
@@ -285,7 +285,22 @@ async function handler(req,res) {
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray()
       ]);
-      return send(res,200,{totalUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,pushSent24h:pushSent[0]?.total||0,pushFailed24h:pushFailed[0]?.total||0,hourlyEvents:[]});
+      let totalUsers = observedUsers;
+      let totalUsersSource = "observed_signed_in_sessions";
+      if (SERVICE_ACCOUNT) {
+        try {
+          const count = await getFirestore().collection("users").count().get();
+          totalUsers = count.data().count;
+          totalUsersSource = "firebase_firestore_users";
+        } catch (error) {
+          console.error("analytics_firestore_user_count_failed", error.message);
+        }
+      }
+      if (!totalUsers) {
+        totalUsers = Math.max(observedUsers, registeredUsers.length);
+        if (totalUsersSource === "firebase_firestore_users" && totalUsers > 0) totalUsersSource = "observed_sessions_or_registered_devices";
+      }
+      return send(res,200,{totalUsers,totalUsersSource,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,pushSent24h:pushSent[0]?.total||0,pushFailed24h:pushFailed[0]?.total||0,hourlyEvents:[]});
     }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
