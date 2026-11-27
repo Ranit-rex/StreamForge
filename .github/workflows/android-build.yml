@@ -97,6 +97,15 @@ jobs:
         with:
           path: ~/.android/debug.keystore
           key: streamforge-debug-signing-v1
+      - name: Check Cloud Functions TypeScript
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build Cloud Functions
+        working-directory: functions
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
       - name: Upload Stable APK
         uses: actions/upload-artifact@v7
         with:
