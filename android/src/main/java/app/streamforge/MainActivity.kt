@@ -21,7 +21,7 @@ import app.streamforge.ui.StreamForgeApp
 import app.streamforge.ui.CastDooAuthGate
 import app.streamforge.ui.EditorAssetDownloads
 import app.streamforge.ui.CastDooReleaseGate
-import app.streamforge.notifications.CastDooPushMessagingService
+import app.streamforge.notifications.CastDooUnifiedPushService
 
 class MainActivity : ComponentActivity() {
     private var pendingEndpoint = ""
@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleNotificationAction(source: Intent?) {
-        val actionUrl = source?.getStringExtra(CastDooPushMessagingService.EXTRA_ACTION_URL).orEmpty()
+        val actionUrl = source?.getStringExtra(CastDooUnifiedPushService.EXTRA_ACTION_URL).orEmpty()
         source?.removeExtra(CastDooPushMessagingService.EXTRA_ACTION_URL)
         if (actionUrl.startsWith("https://")) {
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))) }
