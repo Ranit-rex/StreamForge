@@ -306,7 +306,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                     "audit" -> AdminAudit(token)
                     else -> {
                         AdminCard("Live analytics", "Interactive 24-hour usage graph, active users, registered devices and delivery trends.")
-                        AdminCard("Push operations", "UnifiedPush delivery, audience targeting, campaign history and delivery results.")
+                        AdminCard("Push operations", "FCM broadcast to all registered app installs, legacy UnifiedPush delivery, audience targeting and campaign history.")
                         AdminCard("Release control", "Publish Stable and Beta releases and manage the Admin version lock.")
                         AdminCard("Security & audit", "Private device session, recent administrative actions and delivery diagnostics.")
                     }
@@ -346,14 +346,14 @@ private fun PushComposer(token: String) {
             if (ok) {
                 registeredDevices = data.optInt("registeredDevices", 0)
                 pushConfigured = data.optBoolean("configured", false)
-                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} (${data.optString("totalUsersSource", "observed sessions")}) · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · UnifiedPush: ${data.optInt("unifiedPushDevices", registeredDevices)} · Auth: ${if (data.optBoolean("firebaseAdminConfigured")) "ready" else "missing"} · ${if (pushConfigured) "delivery ready" else "VAPID setup required"}"
+                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} (${data.optString("totalUsersSource", "observed sessions")}) · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · FCM: ${data.optInt("fcmDevices", 0)} · UnifiedPush: ${data.optInt("unifiedPushDevices", 0)} · Firebase: ${if (data.optBoolean("firebaseAdminConfigured")) "ready" else "missing"} · ${if (pushConfigured) "delivery ready" else "Firebase Admin setup required"}"
             } else statusMessage = data.optString("error", "Could not check push status")
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Send push notification", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Text(statusMessage, color = if (pushConfigured && registeredDevices > 0) Color(0xFF55D6A1) else Color(0xFFFFC56B), fontSize = 12.sp)
-        Text("UnifiedPush transport · no Firebase Cloud Messaging. Devices need a UnifiedPush distributor installed.", color = Color(0xFF9BAABD), fontSize = 11.sp)
+        Text("Broadcast mode: all registered CastDoo installs via Firebase Cloud Messaging, plus legacy UnifiedPush devices. New app builds register automatically.", color = Color(0xFF9BAABD), fontSize = 11.sp)
         OutlinedTextField(title, { title = it }, label = { Text("Notification title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         OutlinedTextField(body, { body = it }, label = { Text("Message") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -668,7 +668,7 @@ private fun AdminDevices(token: String) {
                 "User ${row.optString("uid", "—").take(12)} · ${row.optString("transport", "UnifiedPush")} · Updated ${row.optString("updatedAt", "—")}"
             )
         }
-        if (rows.isEmpty()) Text("No UnifiedPush devices are registered yet. Users must sign in and choose a UnifiedPush distributor.", color = Color(0xFFFFC56B), fontSize = 12.sp)
+        if (rows.isEmpty()) Text("No app installs have registered yet. Devices appear after opening the updated CastDoo app once with internet access.", color = Color(0xFFFFC56B), fontSize = 12.sp)
     }
 }
 
