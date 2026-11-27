@@ -522,13 +522,18 @@ private fun versionRequest(token: String, method: String, path: String, payload:
                 requestMethod = method; connectTimeout = 15000; readTimeout = 20000
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
                 doOutput = method != "GET"
             }
             if (method != "GET") connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
+            val contentType = connection.contentType ?: "unknown content type"
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
-            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val data = runCatching { JSONObject(responseText) }.getOrElse {
+                val preview = responseText.replace(Regex("\\s+"), " ").take(240)
+                JSONObject().put("error", "Version API HTTP $code ($contentType)" + if (preview.isNotBlank()) ": $preview" else "")
+            }
             Handler(Looper.getMainLooper()).post { done(code in 200..299, data) }
         } catch (error: Exception) {
             Handler(Looper.getMainLooper()).post { done(false, JSONObject().put("error", error.message ?: "Network request failed")) }
