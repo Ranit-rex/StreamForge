@@ -15,6 +15,18 @@ android {
   versionCode = streamforgeBuildNumber
   versionName = "Alpha build $streamforgeBuildNumber"
  }
+ flavorDimensions += "track"
+ productFlavors {
+  create("stable") {
+   dimension = "track"
+   buildConfigField("String", "APP_TRACK", "\"stable\"")
+  }
+  create("beta") {
+   dimension = "track"
+   versionNameSuffix = "-beta"
+   buildConfigField("String", "APP_TRACK", "\"beta\"")
+  }
+ }
  signingConfigs {
   getByName("debug") {
    storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
@@ -41,7 +53,10 @@ android {
  }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
- buildFeatures { compose = true }
+ buildFeatures {
+  compose = true
+  buildConfig = true
+ }
 }
 dependencies {
  val composeBom = platform("androidx.compose:compose-bom:2025.03.00")
@@ -69,6 +84,8 @@ dependencies {
  implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
  implementation("com.google.firebase:firebase-auth")
  implementation("com.google.firebase:firebase-firestore")
+ implementation("com.google.firebase:firebase-messaging")
+ implementation("com.google.firebase:firebase-functions")
  implementation("io.github.webrtc-sdk:android:144.7559.15")
  implementation("com.squareup.okhttp3:okhttp:4.11.0")
 }
