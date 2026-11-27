@@ -2,6 +2,12 @@ package app.castdoo.admin
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import com.google.android.gms.tasks.Tasks
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -25,17 +31,16 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.functions.FirebaseFunctions
 
 private const val WEB_CLIENT_ID = "464964505379-adhjuamik8b98s9fhmg0ggpmbm6q12d9.apps.googleusercontent.com"
 private const val PROJECT_ID = "castdoo"
 private const val APP_ID = "1:464964505379:android:9673e87c44c1588e088696"
 private const val API_KEY = "AIzaSyBuNI9MYuqU341vJRiZ0liOihad_N3XkEY"
 private const val SENDER_ID = "464964505379"
+private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
 
 class AdminMainActivity : ComponentActivity() {
     private lateinit var adminAuth: FirebaseAuth
-    private lateinit var adminFunctions: FirebaseFunctions
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +54,6 @@ class AdminMainActivity : ComponentActivity() {
             ?: FirebaseApp.initializeApp(this, options, "CastDooAdmin")
             ?: error("Could not initialize CastDoo services")
         adminAuth = FirebaseAuth.getInstance(app)
-        adminFunctions = FirebaseFunctions.getInstance(app, "asia-south1")
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFF55D6FF),
@@ -58,7 +62,6 @@ class AdminMainActivity : ComponentActivity() {
             )) {
                 AdminRoot(
                     auth = adminAuth,
-                    functions = adminFunctions,
                     onGoogleSignIn = { launchGoogleSignIn() }
                 )
             }
@@ -115,7 +118,6 @@ private object AdminUiState {
 @Composable
 private fun AdminRoot(
     auth: FirebaseAuth,
-    functions: FirebaseFunctions,
     onGoogleSignIn: () -> Unit
 ) {
     val authorized by AdminUiState.authorized
@@ -174,8 +176,8 @@ private fun AdminRoot(
                 }
                 Spacer(Modifier.height(18.dp))
                 when (section) {
-                    "push" -> PushComposer(functions)
-                    "versions" -> ReleaseManager(functions)
+                    "push" -> PushComposer(auth)
+                    "versions" -> ReleaseManager(auth)
                     else -> {
                         AdminCard("Push notifications", "Send announcements to all users or selected accounts.")
                         AdminCard("Beta / Stable", "Manage beta testing releases separately from stable releases.")
@@ -199,7 +201,7 @@ private fun AdminCard(title: String, body: String) {
 }
 
 @Composable
-private fun PushComposer(functions: FirebaseFunctions) {
+private fun PushComposer(auth: FirebaseAuth) {
     var title by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     var target by remember { mutableStateOf("all") }
@@ -233,13 +235,10 @@ private fun PushComposer(functions: FirebaseFunctions) {
                 )
                 if (target == "selected") payload["targetUids"] = ids
                 if (actionUrl.isNotBlank()) payload["actionUrl"] = actionUrl.trim()
-                functions.getHttpsCallable("sendAdminNotification").call(payload)
-                    .addOnSuccessListener { task ->
-                        val data = task.data as? Map<*, *>
-                        resultText = "Sent to ${data?.get("recipientCount") ?: 0} users · Push delivered: ${data?.get("pushSuccessCount") ?: 0}"
-                        sending = false
-                    }
-                    .addOnFailureListener { e -> resultText = e.localizedMessage ?: "Send failed"; sending = false }
+                adminRequest(auth, "POST", "/api/push/send", JSONObject().put("title", title.trim()).put("message", body.trim()).put("audience", target).put("priority", priority).put("targetUids", ids)) { ok, data ->
+                    resultText = if (ok) "Push sent: ${data.optInt("sent")} · Failed: ${data.optInt("failed")}" else data.optString("error", "Send failed")
+                    sending = false
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text(if (sending) "Sending…" else "Send notification") }
@@ -248,7 +247,7 @@ private fun PushComposer(functions: FirebaseFunctions) {
 }
 
 @Composable
-private fun ReleaseManager(functions: FirebaseFunctions) {
+private fun ReleaseManager(auth: FirebaseAuth) {
     var track by remember { mutableStateOf("beta") }
     var versionCode by remember { mutableStateOf("1") }
     var minimumVersionCode by remember { mutableStateOf("1") }
@@ -280,12 +279,44 @@ private fun ReleaseManager(functions: FirebaseFunctions) {
                     "updateUrl" to updateUrl.trim(),
                     "releaseNotes" to notes.trim()
                 )
-                functions.getHttpsCallable("publishAppRelease").call(payload)
-                    .addOnSuccessListener { resultText = "${track.replaceFirstChar { it.uppercase() }} release published"; publishing = false }
-                    .addOnFailureListener { e -> resultText = e.localizedMessage ?: "Publish failed"; publishing = false }
+                val json = JSONObject().put("versionCode", payload["versionCode"]).put("minimumVersionCode", payload["minimumVersionCode"]).put("versionName", payload["versionName"]).put("updateUrl", payload["updateUrl"]).put("releaseNotes", payload["releaseNotes"]).put("forceUpdate", false)
+                adminRequest(auth, "POST", "/api/releases/$track", json) { ok, data ->
+                    resultText = if (ok) "${track.replaceFirstChar { it.uppercase() }} release published to MongoDB" else data.optString("error", "Publish failed")
+                    publishing = false
+                }
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text(if (publishing) "Publishing…" else "Publish release") }
         if (resultText.isNotBlank()) Text(resultText, color = Color(0xFF55D6A1), fontSize = 13.sp)
     }
+}
+
+
+private fun adminRequest(auth: FirebaseAuth, method: String, path: String, payload: JSONObject, done: (Boolean, JSONObject) -> Unit) {
+    Thread {
+        var connection: HttpURLConnection? = null
+        try {
+            val user = auth.currentUser ?: throw IllegalStateException("Please sign in again")
+            val idToken = Tasks.await(user.getIdToken(true)).token ?: throw IllegalStateException("Could not obtain sign-in token")
+            connection = (URL(ADMIN_API + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 15000
+                readTimeout = 20000
+                setRequestProperty("Authorization", "Bearer $idToken")
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+            }
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val result = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            Handler(Looper.getMainLooper()).post { done(code in 200..299, result) }
+        } catch (error: Exception) {
+            val result = JSONObject().put("error", error.message ?: "Network request failed")
+            Handler(Looper.getMainLooper()).post { done(false, result) }
+        } finally {
+            connection?.disconnect()
+        }
+    }.start()
 }
