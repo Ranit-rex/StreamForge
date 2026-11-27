@@ -26,6 +26,7 @@ import androidx.security.crypto.MasterKey
 
 private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
 private const val PREFS_NAME = "castdoo_admin_secure"
+private const val PRIVATE_ADMIN_PAIRING_CODE = "CDOO-7K4P-9X2M"
 
 class AdminMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,9 +57,30 @@ class AdminMainActivity : ComponentActivity() {
 private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToken: () -> Unit) {
     var token by remember { mutableStateOf(savedToken) }
     var section by remember { mutableStateOf("overview") }
-    var pairCode by remember { mutableStateOf("") }
-    var pairing by remember { mutableStateOf(false) }
     var pairError by remember { mutableStateOf("") }
+    var pairing by remember { mutableStateOf(false) }
+    var pairAttempt by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(pairAttempt) {
+        if (token.isBlank()) {
+            pairing = true
+            pairError = ""
+            pairAdminDevice(PRIVATE_ADMIN_PAIRING_CODE) { ok, data ->
+                pairing = false
+                if (ok) {
+                    val newToken = data.optString("token")
+                    if (newToken.isNotBlank()) {
+                        saveToken(newToken)
+                        token = newToken
+                    } else {
+                        pairError = "The server did not return a device session."
+                    }
+                } else {
+                    pairError = data.optString("error", "Private admin connection failed")
+                }
+            }
+        }
+    }
 
     Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
         if (token.isBlank()) {
@@ -68,40 +90,20 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
             ) {
                 Text("CASTDOO", color = Color(0xFF55D6FF), fontSize = 14.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.height(10.dp))
-                Text("Connect this device", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+                Text("Private Admin", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "One-time private device pairing. No Google login and no repeated sign-in. Once paired, this device opens directly to the admin dashboard.",
+                    if (pairing) "Connecting this private device securely…" else "The admin service could not be reached.",
                     color = Color(0xFF9BAABD), fontSize = 14.sp, lineHeight = 21.sp
                 )
-                Spacer(Modifier.height(22.dp))
-                OutlinedTextField(
-                    value = pairCode, onValueChange = { pairCode = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("One-time pairing code") },
-                    singleLine = true, visualTransformation = PasswordVisualTransformation()
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    enabled = !pairing && pairCode.isNotBlank(),
-                    onClick = {
-                        pairing = true
-                        pairError = ""
-                        pairAdminDevice(pairCode.trim()) { ok, data ->
-                            pairing = false
-                            if (ok) {
-                                val newToken = data.optString("token")
-                                if (newToken.isNotBlank()) {
-                                    saveToken(newToken)
-                                    token = newToken
-                                    pairCode = ""
-                                } else pairError = "The server did not return a device token."
-                            } else pairError = data.optString("error", "Pairing failed")
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text(if (pairing) "Pairing…" else "Pair admin device") }
-                if (pairError.isNotBlank()) Text(pairError, color = Color(0xFFFF8585), modifier = Modifier.padding(top = 12.dp))
+                if (pairError.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(pairError, color = Color(0xFFFF8585), fontSize = 13.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { pairAttempt++ }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Retry connection")
+                    }
+                }
             }
         } else {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
@@ -110,12 +112,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                         Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 12.sp, fontWeight = FontWeight.Black)
                         Text("Control Center", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = {
-                        adminRequest(token, "POST", "/api/admin/unpair", JSONObject()) { _, _ ->
-                            clearToken()
-                            token = ""
-                        }
-                    }) { Text("Unpair device") }
+                    Text("PRIVATE DEVICE", color = Color(0xFF55D6A1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(18.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -130,7 +127,7 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                     else -> {
                         AdminCard("Push notifications", "Send phone notifications to all registered devices or selected users.")
                         AdminCard("Stable releases", "Manage the public stable Android release.")
-                        AdminCard("Device security", "This device is paired once and can be revoked server-side.")
+                        AdminCard("Device security", "This private installation uses a protected device session.")
                     }
                 }
             }
