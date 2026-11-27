@@ -114,6 +114,7 @@ fun StreamForgeApp(
  ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("streamforge_studio", android.content.Context.MODE_PRIVATE) }
+    val releaseTrack by CastDooReleaseChannel.current
     var platform by remember { mutableStateOf("YouTube") }
     var server by remember { mutableStateOf("rtmps://a.rtmp.youtube.com/live2") }
     var streamKey by remember { mutableStateOf("") }
@@ -317,7 +318,9 @@ fun StreamForgeApp(
                                     else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                                 }
                             },
-                            brightness = colorBrightness, contrast = colorContrast,
+                            releaseTrack = releaseTrack,
+                             onReleaseTrack = { CastDooReleaseChannel.setChannel(context, it) },
+                             brightness = colorBrightness, contrast = colorContrast,
                             saturation = colorSaturation, sharpness = colorSharpness,
                             onColor = { b, c, s, sh ->
                                 colorBrightness = b; colorContrast = c; colorSaturation = s; colorSharpness = sh
@@ -830,9 +833,34 @@ private fun SettingsPanel(
     audioBitrateKbps: Float, onAudioBitrate: (Float) -> Unit,
     audioEnhancements: Boolean, onAudioEnhancements: (Boolean) -> Unit,
     keepScreenAwake: Boolean, onKeepScreenAwake: (Boolean) -> Unit,
+    releaseTrack: String, onReleaseTrack: (String) -> Unit,
     brightness: Float, contrast: Float, saturation: Float, sharpness: Float,
     onColor: (Float, Float, Float, Float) -> Unit
 ) {
+    SectionHeading("RELEASE CHANNEL", "Choose which CastDoo updates you receive")
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Update feed", color = AppText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = releaseTrack == "stable",
+                    onClick = { onReleaseTrack("stable") },
+                    label = { Text("Stable · Live") }
+                )
+                FilterChip(
+                    selected = releaseTrack == "beta",
+                    onClick = { onReleaseTrack("beta") },
+                    label = { Text("Beta · Test") }
+                )
+            }
+            Text(
+                "This changes only the update feed. CastDoo stays one app with the same installed package.",
+                color = Muted,
+                fontSize = 10.sp,
+                lineHeight = 15.sp
+            )
+        }
+    }
     SectionHeading("APPEARANCE", "Theme & colour bank")
     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
