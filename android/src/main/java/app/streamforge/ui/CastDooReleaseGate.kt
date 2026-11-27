@@ -131,12 +131,14 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
         val lastAttempt = prefs.getLong(attemptKey, 0L)
         val now = System.currentTimeMillis()
         if (lastAttempt == 0L || now - lastAttempt >= RELEASE_CHECK_INTERVAL_MS) {
-            prefs.edit().putLong(attemptKey, now).apply()
             val loaded = fetchRelease(track)
             if (loaded != null) {
                 val checkedAt = System.currentTimeMillis()
+                // Start the 24-hour cooldown only after a successful policy fetch.
+                // A temporary network/API failure can therefore retry on the next launch.
                 prefs.edit()
                     .putString("release_cache_$track", loaded.toJson().toString())
+                    .putLong("last_attempt_$track", checkedAt)
                     .putLong("last_success_$track", checkedAt)
                     .apply()
                 release = loaded
