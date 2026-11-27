@@ -262,13 +262,13 @@ fun StreamForgeApp(
                         9 -> PartyVoicePanel()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { target ->
-                            accountSection = when (target) {
-                                12 -> "friends"
-                                13 -> "premium"
-                                14 -> "legal"
-                                else -> "profile"
+                            when (target) {
+                                11 -> { accountSection = "profile"; selectedTab = 11 }
+                                12 -> { accountSection = "friends"; selectedTab = 11 }
+                                13 -> { accountSection = "premium"; selectedTab = 11 }
+                                14 -> { accountSection = "legal"; selectedTab = 11 }
+                                else -> selectedTab = target
                             }
-                            selectedTab = 11
                         })
                         11 -> CastDooAccountPanel(section = accountSection, onSectionChange = { accountSection = it })
                         4 -> {
