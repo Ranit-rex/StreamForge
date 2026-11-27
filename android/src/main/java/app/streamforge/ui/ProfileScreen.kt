@@ -6,19 +6,15 @@ import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,47 +34,46 @@ private val ProfileMuted = Color(0xFF9BAABD)
 @Composable
 fun CastDooProfileScreen() {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val auth = remember { FirebaseAuth.getInstance() }
-    val db = remember { FirebaseFirestore.getInstance() }
     val user = auth.currentUser
-    var displayName by remember { mutableStateOf(user?.displayName.orEmpty()) }
-    var publicId by remember { mutableStateOf("Loading…") }
-    var accountStatus by remember { mutableStateOf("Active") }
-    var createdAt by remember { mutableStateOf("—") }
-    var loading by remember { mutableStateOf(true) }
+    var displayName by remember(user?.uid) { mutableStateOf(user?.displayName ?: "CastDoo User") }
+    var publicId by remember(user?.uid) { mutableStateOf(user?.uid?.take(10)?.uppercase() ?: "Unavailable") }
+    var accountStatus by remember(user?.uid) { mutableStateOf("Active") }
+    var createdAt by remember(user?.uid) {
+        mutableStateOf(user?.metadata?.creationTimestamp?.let {
+            java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(it))
+        } ?: "—")
+    }
+    var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var showEdit by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
     var showSignOut by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
 
-    fun loadProfile() {
-        val current = auth.currentUser
-        if (current == null) {
-            loading = false
-            message = "No signed-in account found."
-            return
-        }
+    LaunchedEffect(user?.uid) {
+        val uid = user?.uid ?: return@LaunchedEffect
         loading = true
-        db.collection("users").document(current.uid).get()
-            .addOnSuccessListener { doc ->
-                displayName = doc.getString("displayName") ?: current.displayName ?: "CastDoo User"
-                publicId = doc.getString("publicId") ?: "Not assigned"
-                accountStatus = doc.getString("accountStatus")?.replaceFirstChar { it.uppercase() } ?: "Active"
-                createdAt = doc.getTimestamp("createdAt")?.toDate()?.let {
-                    java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(it)
-                } ?: "—"
-                loading = false
-                message = ""
+        runCatching { FirebaseFirestore.getInstance().collection("users").document(uid).get() }
+            .onSuccess { task ->
+                task.addOnSuccessListener { doc ->
+                    displayName = doc.getString("displayName")?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName ?: "CastDoo User"
+                    publicId = doc.getString("publicId")?.takeIf { it.isNotBlank() } ?: uid.take(10).uppercase()
+                    accountStatus = doc.getString("accountStatus")?.replaceFirstChar { it.uppercase() } ?: "Active"
+                    createdAt = doc.getTimestamp("createdAt")?.toDate()?.let {
+                        java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(it)
+                    } ?: createdAt
+                    loading = false
+                }.addOnFailureListener { error ->
+                    loading = false
+                    message = error.localizedMessage ?: "Showing basic account details."
+                }
             }
-            .addOnFailureListener { error ->
+            .onFailure { error ->
                 loading = false
-                message = error.localizedMessage ?: "Could not load profile."
+                message = error.localizedMessage ?: "Showing basic account details."
             }
     }
-
-    LaunchedEffect(user?.uid) { loadProfile() }
 
     if (showEdit) AlertDialog(
         onDismissRequest = { if (!saving) showEdit = false },
@@ -99,19 +94,26 @@ fun CastDooProfileScreen() {
                 } else {
                     saving = true
                     val clean = editName.trim().take(60)
-                    db.collection("users").document(current.uid)
-                        .update(mapOf("displayName" to clean, "updatedAt" to FieldValue.serverTimestamp()))
-                        .addOnSuccessListener {
-                            current.updateProfile(com.google.firebase.auth.UserProfileChangeRequest.Builder().setDisplayName(clean).build())
+                    runCatching {
+                        FirebaseFirestore.getInstance().collection("users").document(current.uid)
+                            .update(mapOf("displayName" to clean, "updatedAt" to FieldValue.serverTimestamp()))
+                    }.onSuccess { task ->
+                        task.addOnSuccessListener {
+                            runCatching {
+                                current.updateProfile(com.google.firebase.auth.UserProfileChangeRequest.Builder().setDisplayName(clean).build())
+                            }
                             displayName = clean
                             saving = false
                             showEdit = false
                             message = "Profile updated successfully."
-                        }
-                        .addOnFailureListener { error ->
+                        }.addOnFailureListener { error ->
                             saving = false
                             message = error.localizedMessage ?: "Profile update failed."
                         }
+                    }.onFailure { error ->
+                        saving = false
+                        message = error.localizedMessage ?: "Profile update failed."
+                    }
                 }
             }) { Text(if (saving) "Saving…" else "Save") }
         },
@@ -126,8 +128,9 @@ fun CastDooProfileScreen() {
         dismissButton = { TextButton(onClick = { showSignOut = false }) { Text("Cancel") } }
     )
 
+    // The parent app already owns the page scroll. Avoid a second nested verticalScroll here.
     Column(
-        Modifier.fillMaxSize().background(ProfileBg).verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxWidth().background(ProfileBg).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -135,7 +138,20 @@ fun CastDooProfileScreen() {
                 Text("MY PROFILE", color = ProfileBlue, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.6.sp)
                 Text("Your CastDoo account", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = { loadProfile() }, enabled = !loading) { Text("↻ Refresh", color = ProfileBlue) }
+            TextButton(onClick = {
+                val uid = auth.currentUser?.uid
+                if (uid != null) {
+                    loading = true
+                    runCatching { FirebaseFirestore.getInstance().collection("users").document(uid).get() }
+                        .onSuccess { it.addOnSuccessListener { doc ->
+                            displayName = doc.getString("displayName")?.takeIf { name -> name.isNotBlank() } ?: auth.currentUser?.displayName ?: "CastDoo User"
+                            publicId = doc.getString("publicId")?.takeIf { id -> id.isNotBlank() } ?: uid.take(10).uppercase()
+                            accountStatus = doc.getString("accountStatus")?.replaceFirstChar { ch -> ch.uppercase() } ?: "Active"
+                            loading = false
+                        }.addOnFailureListener { loading = false; message = it.localizedMessage ?: "Refresh failed." } }
+                        .onFailure { loading = false; message = it.localizedMessage ?: "Refresh failed." }
+                }
+            }, enabled = !loading) { Text("↻ Refresh", color = ProfileBlue) }
         }
 
         Surface(color = ProfileCard, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
@@ -146,7 +162,7 @@ fun CastDooProfileScreen() {
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(displayName.ifBlank { "CastDoo User" }, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                        Text(user?.email ?: "Google account", color = ProfileMuted, fontSize = 12.sp)
+                        Text(user?.email ?: "Signed-in account", color = ProfileMuted, fontSize = 12.sp)
                         Surface(color = Color(0xFF17372B), shape = RoundedCornerShape(30.dp)) {
                             Text("● $accountStatus", Modifier.padding(horizontal = 9.dp, vertical = 4.dp), color = ProfileGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
@@ -159,15 +175,13 @@ fun CastDooProfileScreen() {
                         Text(publicId, color = ProfileBlue, fontSize = 20.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
                     }
                     OutlinedButton(onClick = {
-                        if (publicId != "Loading…" && publicId != "Not assigned") {
-                            clipboard.setText(AnnotatedString(publicId))
-                            message = "User ID copied."
-                        }
-                    }, enabled = publicId != "Loading…" && publicId != "Not assigned") { Text("Copy ID") }
+                        val manager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                        manager?.setPrimaryClip(android.content.ClipData.newPlainText("CastDoo ID", publicId))
+                        message = "User ID copied."
+                    }) { Text("Copy ID") }
                 }
-                Button(
-                    onClick = { editName = displayName; showEdit = true },
-                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
+                Button(onClick = { editName = displayName; showEdit = true }, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = ProfileBlue, contentColor = Color(0xFF07131B))
                 ) { Text("Edit profile", fontWeight = FontWeight.Bold) }
             }
@@ -177,27 +191,24 @@ fun CastDooProfileScreen() {
             ProfileInfoTile("ACCOUNT CREATED", createdAt, Modifier.weight(1f))
             ProfileInfoTile("SIGN-IN", "Google", Modifier.weight(1f))
         }
-
         ProfileSectionTitle("ACCOUNT & SECURITY")
         ProfileActionCard("Account details", "Name, email and your unique CastDoo ID", "›") { editName = displayName; showEdit = true }
         ProfileActionCard("App permissions", "Manage notifications and Android permissions", "›") {
-            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+            runCatching { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }
         }
         ProfileActionCard("Notification settings", "Choose whether CastDoo can notify you", "›") {
-            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+            runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }
         }
-
         ProfileSectionTitle("PREFERENCES")
         ProfileActionCard("Studio settings", "Video quality, audio, appearance and release channel", "›") {
             message = "Open Studio Settings from the Settings tab in bottom navigation."
         }
         ProfileActionCard("Privacy policy", "How CastDoo handles your account and data", "↗") {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-auth-foundation/CASTDOO_PRIVACY.md")))
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge"))) }
         }
         ProfileActionCard("Terms & conditions", "Review the CastDoo service terms", "↗") {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge/blob/feature/castdoo-auth-foundation/CASTDOO_TERMS.md")))
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Ranit-rex/StreamForge"))) }
         }
-
         ProfileSectionTitle("SESSION")
         Surface(color = ProfileCard, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -208,9 +219,8 @@ fun CastDooProfileScreen() {
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF8B8B))) { Text("Sign out") }
             }
         }
-
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = ProfileBlue)
-        if (message.isNotBlank()) Text(message, color = if (message.contains("success") || message.contains("copied")) ProfileGreen else ProfileMuted, fontSize = 11.sp)
+        if (message.isNotBlank()) Text(message, color = if (message.contains("success", true) || message.contains("copied", true)) ProfileGreen else ProfileMuted, fontSize = 11.sp)
         Text("CastDoo · Account Center", color = ProfileMuted, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         Spacer(Modifier.height(8.dp))
     }
