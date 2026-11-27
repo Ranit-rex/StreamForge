@@ -1,6 +1,9 @@
 package app.streamforge.ui
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.os.Build
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +31,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlin.random.Random
+import app.streamforge.notifications.CastDooPushRegistration
 
 private const val CASTDOO_WEB_CLIENT_ID =
     "464964505379-adhjuamik8b98s9fhmg0ggpmbm6q12d9.apps.googleusercontent.com"
@@ -41,6 +45,9 @@ private const val CASTDOO_PRIVACY_URL =
 fun CastDooAuthGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var checking by remember { mutableStateOf(true) }
@@ -48,6 +55,17 @@ fun CastDooAuthGate(content: @Composable () -> Unit) {
     var acceptedTerms by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf("") }
+
+    LaunchedEffect(authenticated) {
+        if (authenticated) {
+            CastDooPushRegistration.register(context)
+            if (Build.VERSION.SDK_INT >= 33 &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
