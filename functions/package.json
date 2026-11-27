@@ -3,7 +3,7 @@
   "private": true,
   "engines": { "node": "20" },
   "main": "lib/index.js",
-  "scripts": { "build": "tsc", "deploy": "npm run build && firebase deploy --only functions:publishAppRelease --project castdoo" },
+  "scripts": { "build": "tsc", "deploy": "npm run build && (firebase functions:delete sendAdminNotification --region asia-south1 --project castdoo --force || true) && firebase deploy --only functions:publishAppRelease --project castdoo" },
   "dependencies": {
     "firebase-admin": "^13.0.2",
     "firebase-functions": "^6.3.2"
