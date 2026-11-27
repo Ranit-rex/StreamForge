@@ -12,7 +12,7 @@ Set these variables on the `streamforge-admin-api` Render service:
 - `WEB_PUSH_PRIVATE_KEY`: matching VAPID private key (keep secret).
 - `WEB_PUSH_SUBJECT`: a contact URI such as `mailto:support@castdoo.app`.
 - `CASTDOO_ADMIN_PAIRING_CODE`: a long random one-time code used only to pair the Admin APK.
-- Keep `MONGODB_URI`, `MONGODB_DATABASE`, and `FIREBASE_SERVICE_ACCOUNT_JSON` for the existing user-auth token verification endpoint. The Firebase service account is not used to send notifications.
+- Keep `MONGODB_URI`, `MONGODB_DATABASE`, and `FIREBASE_SERVICE_ACCOUNT_JSON` for the existing user-auth token verification endpoint. The Firebase service account is not used to send notifications. To remove the previously deployed Firebase callable sender (if it exists), run `npm run deploy` from the `functions/` directory; the deploy script deletes `sendAdminNotification` before publishing the unrelated release callable.
 
 Generate VAPID keys locally with:
 ```bash
