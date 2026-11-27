@@ -53,7 +53,9 @@ async function database() {
       db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
       db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
-      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 })
+      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 }),
+      db.collection("notification_campaigns").createIndex({ createdAt: -1 }),
+      db.collection("app_users").createIndex({ lastSeenAt: -1 })
     ]);
     return db;
   })().catch(error => { connecting = null; throw error; });
@@ -200,11 +202,17 @@ async function handler(req,res) {
       const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
       const registeredUsers = await d.collection("push_devices").distinct("uid",{enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
       let totalUsers = null;
+      let totalUsersSource = "unavailable";
       if (SERVICE_ACCOUNT) {
-        try { const count = await getFirestore().collection("users").count().get(); totalUsers = count.data().count; }
+        try { const count = await getFirestore().collection("users").count().get(); totalUsers = count.data().count; totalUsersSource = "firebase_firestore"; }
         catch (error) { console.error("firebase_user_count_failed",error.message); }
       }
-      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,totalUsers,registeredUsers:registeredUsers.length,registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
+      if (totalUsers === null) {
+        totalUsers = await d.collection("app_users").countDocuments();
+        totalUsersSource = "observed_signed_in_sessions";
+      }
+      const unifiedPushDevices = await d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"},fcmToken:{$exists:false}});
+      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseAdminConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,totalUsers,totalUsersSource,registeredUsers:registeredUsers.length,registeredDevices,fcmDevices,unifiedPushDevices,transport:"Firebase Cloud Messaging + Web Push"});
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
       const input = await body(req);
@@ -246,6 +254,38 @@ async function handler(req,res) {
       await d.collection("notification_campaigns").updateOne({campaignId},{$set:{status:"sent",sent,failed,completedAt:new Date()}});
       await d.collection("admin_audit_logs").insertOne({action:"push.sent",campaignId,sent,failed,createdAt:new Date()});
       return send(res,200,{configured:true,sent,failed,devices:rows.length,campaignId});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/devices") {
+      const devices = await d.collection("push_devices").find({}).sort({updatedAt:-1}).limit(200).toArray();
+      return send(res,200,{devices:devices.map(device=>({
+        uid:device.uid || null,
+        platform:device.platform || "android",
+        transport:device.fcmToken ? "FCM" : "UnifiedPush",
+        enabled:device.enabled === true,
+        createdAt:device.createdAt || null,
+        updatedAt:device.updatedAt || null,
+        lastSeenAt:device.lastSeenAt || null
+      }))});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/campaigns") {
+      const campaigns = await d.collection("notification_campaigns").find({}).sort({createdAt:-1}).limit(50).toArray();
+      return send(res,200,{campaigns:campaigns.map(({_id,...campaign})=>campaign)});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/audit") {
+      const entries = await d.collection("admin_audit_logs").find({}).sort({createdAt:-1}).limit(100).toArray();
+      return send(res,200,{entries:entries.map(({_id,...entry})=>entry)});
+    }
+    if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [totalUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent,pushFailed] = await Promise.all([
+        d.collection("app_users").countDocuments(),
+        d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
+        d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]}),
+        d.collection("push_devices").distinct("uid",{enabled:true,uid:{$type:"string"},$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]}),
+        d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
+        d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray()
+      ]);
+      return send(res,200,{totalUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,pushSent24h:pushSent[0]?.total||0,pushFailed24h:pushFailed[0]?.total||0,hourlyEvents:[]});
     }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
