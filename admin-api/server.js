@@ -408,13 +408,15 @@ async function handler(req,res) {
     }
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,hourlyRows] = await Promise.all([
+      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,reportsOpen,reports24h,hourlyRows] = await Promise.all([
         d.collection("app_users").countDocuments(),
         d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
         d.collection("push_devices").countDocuments({enabled:true,$or:[{transport:"fcm",token:{$type:"string"}},{transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}]}),
         d.collection("push_devices").distinct("uid",{enabled:true,uid:{$type:"string"},$or:[{transport:"fcm",token:{$type:"string"}},{transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}]}),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray(),
+        d.collection("support_reports").countDocuments({status:"open"}),
+        d.collection("support_reports").countDocuments({createdAt:{$gte:since}}),
         d.collection("admin_events").aggregate([
           {$match:{createdAt:{$gte:since}}},
           {$group:{_id:{$dateToString:{format:"%Y-%m-%dT%H:00:00.000Z",date:"$createdAt"}},events:{$sum:1}}},
@@ -441,7 +443,8 @@ async function handler(req,res) {
       });
       return send(res,200,{
         totalUsers,totalUsersSource,observedUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,
-        pushSent24h:pushSent24h[0]?.total||0,pushFailed24h:pushFailed24h[0]?.total||0,hourlyEvents
+        pushSent24h:pushSent24h[0]?.total||0,pushFailed24h:pushFailed24h[0]?.total||0,
+        reportsOpen,reports24h,hourlyEvents
       });
     }
     if (req.method === "GET" && url.pathname === "/api/admin/devices") {
