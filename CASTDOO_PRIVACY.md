@@ -8,14 +8,14 @@ This notice explains the information CastDoo processes when you use the app.
 ## Information processed
 - Google account identifiers and basic profile information made available during sign-in, such as name, email address, and profile photo.
 - A CastDoo user ID, account creation time, and the version/time of Terms & Conditions acceptance.
-- Information needed to provide app features, such as settings, device registration tokens, messages, invitations, notifications, and streaming/session data when those features are used.
+- Information needed to provide app features, such as settings, messages, invitations, notification delivery endpoints, and streaming/session data when those features are used.
 - Diagnostics and technical information needed to secure, operate, and troubleshoot the service.
 
 ## How information is used
 Information is used to authenticate you, create and maintain your account, provide requested features, deliver notifications, prevent abuse, maintain security, and improve reliability.
 
 ## Service providers
-CastDoo uses Google and Firebase services for authentication, database, and related infrastructure. Those providers process information under their own terms and privacy documentation.
+CastDoo uses Google and Firebase services for account authentication and selected app data. Push notification campaigns and delivery endpoint records are stored in MongoDB Atlas and delivered using UnifiedPush/Web Push; Firebase Cloud Messaging is not used for push delivery. UnifiedPush distributors (for example, ntfy) may process encrypted delivery payloads.
 
 ## Sharing
 We do not intend to sell personal information. Information may be processed by infrastructure providers, disclosed when legally required, or shared when necessary to protect users and the service.
