@@ -35,7 +35,7 @@ fun ProblemReporterPanel() {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
     }.getOrDefault("unknown")
     val report = buildString {
-        appendLine("StreamForge diagnostic report")
+        appendLine("CastDoo diagnostic report")
         appendLine("App version: $version")
         appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
         appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
@@ -72,23 +72,15 @@ fun ProblemReporterPanel() {
             onClick = {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "StreamForge diagnostic report")
+                    putExtra(Intent.EXTRA_SUBJECT, "CastDoo diagnostic report")
                     putExtra(Intent.EXTRA_TEXT, report)
                 }
-                context.startActivity(Intent.createChooser(send, "Share StreamForge report"))
+                context.startActivity(Intent.createChooser(send, "Share CastDoo report"))
             },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) { Text("SHARE DIAGNOSTIC REPORT", fontWeight = FontWeight.Bold) }
         Text("Nothing is sent automatically. Review the report and choose your email or support channel in Android's share menu.", color = ReportMuted, fontSize = 10.sp)
-        OutlinedButton(
-            onClick = {
-                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Ranit-rex/StreamForge/issues"))
-                context.startActivity(intent)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        ) { Text("OPEN BUG REPORTS") }
     }
 }
 
