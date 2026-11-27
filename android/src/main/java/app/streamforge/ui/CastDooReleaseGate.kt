@@ -74,7 +74,7 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val installedCode = BuildConfig.VERSION_CODE.toLong()
     // versionCode is the sole version comparison. versionName is display-only.
     val updateAvailable = current != null && current.latestVersionCode > installedCode
-    val mandatory = current != null && (current.minimumVersionCode > installedCode || current.forceUpdate)
+    val mandatory = current != null && current.minimumVersionCode > installedCode
     val validUpdateUrl = current?.updateUrl?.startsWith("https://") == true
 
     when {
