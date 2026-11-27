@@ -10,6 +10,9 @@ import kotlinx.coroutines.withContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -18,12 +21,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
 private const val VERSION_API = "https://castdoo-version-api.mranit66.workers.dev"
@@ -33,6 +40,16 @@ private val PRIVATE_ADMIN_PAIRING_CODE: String get() = BuildConfig.PRIVATE_ADMIN
 class AdminMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        @Suppress("DEPRECATION")
+        run {
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        }
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         val masterKey = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
         val prefs = EncryptedSharedPreferences.create(
             this, PREFS_NAME, masterKey,
@@ -162,7 +179,7 @@ private fun AdminGateScreen(
     onAction: (() -> Unit)? = null,
     onContinue: (() -> Unit)? = null
 ) {
-    Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
+    Surface(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), color = Color(0xFF0B1018)) {
         Column(
             Modifier.fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.Center
@@ -258,26 +275,40 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
         } else {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                        Text("Control Center", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AdminBrandMark()
+                        Column {
+                            Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                            Text("Control Center", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Text("PRIVATE DEVICE", color = Color(0xFF55D6A1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("overview" to "Overview", "push" to "Push", "versions" to "Versions").forEach { (key, label) ->
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "overview" to "Overview", "analytics" to "Analytics", "push" to "Push",
+                        "devices" to "Devices", "campaigns" to "Campaigns", "versions" to "Releases", "audit" to "Audit"
+                    ).forEach { (key, label) ->
                         FilterChip(selected = section == key, onClick = { section = key }, label = { Text(label) })
                     }
                 }
                 Spacer(Modifier.height(18.dp))
                 when (section) {
+                    "analytics" -> AdminAnalytics(token)
                     "push" -> PushComposer(token)
+                    "devices" -> AdminDevices(token)
+                    "campaigns" -> AdminCampaigns(token)
                     "versions" -> ReleaseManager(token)
+                    "audit" -> AdminAudit(token)
                     else -> {
-                        AdminCard("Push notifications", "Send phone notifications to all registered devices or selected users.")
-                        AdminCard("Stable + Beta releases", "Publish Live and Test Android updates from this private Admin app.")
-                        AdminCard("Device security", "This private installation uses a protected device session.")
+                        AdminCard("Live analytics", "Interactive 24-hour usage graph, active users, registered devices and delivery trends.")
+                        AdminCard("Push operations", "UnifiedPush delivery, audience targeting, campaign history and delivery results.")
+                        AdminCard("Release control", "Publish Stable and Beta releases and manage the Admin version lock.")
+                        AdminCard("Security & audit", "Private device session, recent administrative actions and delivery diagnostics.")
                     }
                 }
             }
@@ -315,7 +346,7 @@ private fun PushComposer(token: String) {
             if (ok) {
                 registeredDevices = data.optInt("registeredDevices", 0)
                 pushConfigured = data.optBoolean("configured", false)
-                statusMessage = if (pushConfigured) "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "unknown" else it.toString() }} · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · FCM: ${data.optInt("fcmDevices", 0)}" else "Firebase Admin credentials are missing on the server; device registration cannot be verified."
+                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · UnifiedPush: ${data.optInt("unifiedPushDevices", registeredDevices)} · ${if (pushConfigured) "delivery ready" else "VAPID setup required"}"
             } else statusMessage = data.optString("error", "Could not check push status")
         }
     }
@@ -510,6 +541,180 @@ private fun ReleaseManager(token: String) {
                 }
             }, modifier = Modifier.fillMaxWidth()
         ) { Text(if (publishingAdminPolicy) "Publishing…" else "Publish Admin version policy") }
+    }
+}
+
+
+@Composable
+private fun AdminBrandMark() {
+    Box(
+        Modifier.size(46.dp).background(Color(0xFF142C3C), RoundedCornerShape(15.dp)),
+        contentAlignment = androidx.compose.ui.Alignment.Center
+    ) {
+        Text("C", color = Color(0xFF55D6FF), fontSize = 31.sp, fontWeight = FontWeight.Black)
+        Box(
+            Modifier.size(9.dp).background(Color(0xFF55D6A1), RoundedCornerShape(50))
+                .align(androidx.compose.ui.Alignment.BottomEnd)
+        )
+    }
+}
+
+@Composable
+private fun AdminAnalytics(token: String) {
+    var summary by remember { mutableStateOf(JSONObject()) }
+    var status by remember { mutableStateOf("Loading analytics…") }
+    var selected by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/analytics/summary", JSONObject()) { ok, data ->
+            if (ok) { summary = data; status = "Updated just now" }
+            else status = data.optString("error", "Analytics unavailable")
+        }
+    }
+    val hourly = summary.optJSONArray("hourlyEvents")
+    val values = (0 until (hourly?.length() ?: 0)).map { hourly!!.optJSONObject(it)?.optInt("events", 0)?.toFloat() ?: 0f }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Analytics overview", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("App users", summary.optInt("totalUsers", 0).toString(), Modifier.weight(1f))
+            MetricTile("Active 24h", summary.optInt("activeUsers24h", 0).toString(), Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("Push users", summary.optInt("registeredUsers", 0).toString(), Modifier.weight(1f))
+            MetricTile("Devices", summary.optInt("registeredDevices", 0).toString(), Modifier.weight(1f))
+        }
+        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF151F2B)), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("APP ACTIVITY · 24 HOURS", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(if (selected in values.indices) "Selected hour: ${hourly?.optJSONObject(selected)?.optString("hour", "—")} · ${values[selected].toInt()} events" else "Touch the graph to inspect an hour", color = Color(0xFF9BAABD), fontSize = 11.sp)
+                if (values.isNotEmpty()) InteractiveActivityGraph(values, selected) { selected = it }
+                else Text("Activity data will appear after signed-in devices report sessions.", color = Color(0xFF9BAABD), fontSize = 12.sp)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("Push sent 24h", summary.optInt("pushSent24h", 0).toString(), Modifier.weight(1f))
+            MetricTile("Push failed 24h", summary.optInt("pushFailed24h", 0).toString(), Modifier.weight(1f))
+        }
+        AdminCard("Tracked events", "App sessions, device registrations, push campaigns and admin actions are counted from server-side records.")
+    }
+}
+
+@Composable
+private fun MetricTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(modifier, colors = CardDefaults.cardColors(containerColor = Color(0xFF151F2B)), shape = RoundedCornerShape(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(13.dp)) {
+            Text(label, color = Color(0xFF9BAABD), fontSize = 11.sp)
+            Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun InteractiveActivityGraph(values: List<Float>, selected: Int, onSelect: (Int) -> Unit) {
+    val maxValue = (values.maxOrNull() ?: 1f).coerceAtLeast(1f)
+    Canvas(
+        Modifier.fillMaxWidth().height(176.dp).pointerInput(values) {
+            detectTapGestures { point ->
+                if (values.isNotEmpty() && size.width > 0) {
+                    onSelect((point.x / size.width * values.size).toInt().coerceIn(values.indices))
+                }
+            }
+        }
+    ) {
+        val left = 8f
+        val right = size.width - 8f
+        val top = 12f
+        val bottom = size.height - 14f
+        repeat(4) { row ->
+            val y = top + (bottom - top) * row / 3f
+            drawLine(Color(0xFF29384A), Offset(left, y), Offset(right, y), 1f)
+        }
+        val points = values.mapIndexed { index, value ->
+            Offset(
+                left + (right - left) * (if (values.size <= 1) 0f else index.toFloat() / (values.size - 1)),
+                bottom - (bottom - top) * (value / maxValue).coerceIn(0f, 1f)
+            )
+        }
+        for (index in 1 until points.size) drawLine(Color(0xFF55D6FF), points[index - 1], points[index], 4f)
+        if (selected in points.indices) {
+            drawLine(Color(0xFF55D6A1), Offset(points[selected].x, top), Offset(points[selected].x, bottom), 2f)
+            drawCircle(Color(0xFF55D6A1), 7f, points[selected])
+        } else if (points.isNotEmpty()) {
+            drawCircle(Color(0xFF55D6FF), 5f, points.last())
+        }
+    }
+}
+
+@Composable
+private fun AdminDevices(token: String) {
+    var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var status by remember { mutableStateOf("Loading registered devices…") }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/admin/devices", JSONObject()) { ok, data ->
+            if (ok) {
+                val array = data.optJSONArray("devices")
+                rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+                status = "${rows.size} device record(s)"
+            } else status = data.optString("error", "Device list unavailable")
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Registered devices", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        rows.forEach { row ->
+            AdminCard(
+                row.optString("platform", "Android").uppercase() + " · " + if (row.optBoolean("enabled")) "Enabled" else "Disabled",
+                "User ${row.optString("uid", "—").take(12)} · ${row.optString("transport", "UnifiedPush")} · Updated ${row.optString("updatedAt", "—")}"
+            )
+        }
+        if (rows.isEmpty()) Text("No UnifiedPush devices are registered yet. Users must sign in and choose a UnifiedPush distributor.", color = Color(0xFFFFC56B), fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AdminCampaigns(token: String) {
+    var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var status by remember { mutableStateOf("Loading campaigns…") }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/admin/campaigns", JSONObject()) { ok, data ->
+            if (ok) {
+                val array = data.optJSONArray("campaigns")
+                rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+                status = "${rows.size} recent campaign(s)"
+            } else status = data.optString("error", "Campaign history unavailable")
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Push campaigns", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        rows.forEach { row ->
+            AdminCard(
+                row.optString("title", "Notification"),
+                "${row.optString("status", "—")} · sent ${row.optInt("sent", 0)} · failed ${row.optInt("failed", 0)} · devices ${row.optInt("deviceCount", 0)}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdminAudit(token: String) {
+    var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var status by remember { mutableStateOf("Loading audit log…") }
+    LaunchedEffect(token) {
+        adminRequest(token, "GET", "/api/admin/audit", JSONObject()) { ok, data ->
+            if (ok) {
+                val array = data.optJSONArray("entries")
+                rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+                status = "${rows.size} recent audit event(s)"
+            } else status = data.optString("error", "Audit log unavailable")
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Admin audit log", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        rows.forEach { row ->
+            AdminCard(row.optString("action", "Action"), "${row.optString("track", "")} · ${row.optString("campaignId", "")} · ${row.optString("createdAt", "—")}")
+        }
     }
 }
 
