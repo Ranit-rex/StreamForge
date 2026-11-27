@@ -58,7 +58,9 @@ async function database() {
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
       db.collection("notifications").createIndex({ uid: 1, createdAt: -1 }),
       db.collection("app_users").createIndex({ lastSeenAt: -1 }),
-      db.collection("notification_campaigns").createIndex({ createdAt: -1 })
+      db.collection("notification_campaigns").createIndex({ createdAt: -1 }),
+      db.collection("support_reports").createIndex({ createdAt: -1 }),
+      db.collection("support_reports").createIndex({ uid: 1, createdAt: -1 })
     ]);
     return db;
   })().catch(error => { connecting = null; throw error; });
@@ -251,6 +253,28 @@ async function handler(req,res) {
       return send(res,200,{tracked:true,source:"authenticated_app_session"});
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"App session tracking failed"}); }
   }
+  if (req.method === "POST" && url.pathname === "/api/reports") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "Firebase Admin credentials are missing on the server."});
+      const input = await body(req);
+      const description = String(input.description || "").trim().slice(0,4000);
+      const category = String(input.category || "general").trim().slice(0,40);
+      if (description.length < 10) return send(res,400,{error:"Please describe the problem in at least 10 characters."});
+      const d = await database();
+      const report = {
+        reportId:crypto.randomUUID(),uid:identity.uid,
+        email:String(identity.email || "").slice(0,200),
+        category,description,
+        diagnostics:input.diagnostics && typeof input.diagnostics === "object" ? input.diagnostics : {},
+        status:"open",createdAt:new Date()
+      };
+      await d.collection("support_reports").insertOne(report);
+      await d.collection("admin_events").insertOne({type:"support.report_created",uid:identity.uid,createdAt:report.createdAt});
+      return send(res,201,{submitted:true,reportId:report.reportId});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Could not submit the report"}); }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/admin/unpair") {
     try {
       const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
@@ -427,6 +451,10 @@ async function handler(req,res) {
         enabled:device.enabled===true,createdAt:device.createdAt||null,
         updatedAt:device.updatedAt||null,lastSeenAt:device.lastSeenAt||null
       }))});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/reports") {
+      const reports = await d.collection("support_reports").find({}).sort({createdAt:-1}).limit(100).toArray();
+      return send(res,200,{reports:reports.map(({_id,...report})=>report)});
     }
     if (req.method === "GET" && url.pathname === "/api/admin/campaigns") {
       const campaigns = await d.collection("notification_campaigns").find({}).sort({createdAt:-1}).limit(50).toArray();
