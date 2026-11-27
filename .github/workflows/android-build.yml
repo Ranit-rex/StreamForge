@@ -71,7 +71,7 @@ jobs:
         run: gradle --no-daemon --stacktrace :beta:assembleDebug :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
       - name: Build Stable APK
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
-        run: gradle --no-daemon --stacktrace :android:assembleStableDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+        run: gradle --no-daemon --stacktrace :android:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
       - name: Name and verify Beta and Admin APKs
         if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
         shell: bash
@@ -96,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          STABLE="android/build/outputs/apk/stable/debug"
+          STABLE="android/build/outputs/apk/debug"
           APK="$(find "$STABLE" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
           mv "$APK" "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
