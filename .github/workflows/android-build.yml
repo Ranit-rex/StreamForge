@@ -68,7 +68,7 @@ jobs:
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
       - name: Build Beta and Admin APKs
         if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
-        run: gradle --no-daemon --stacktrace :android:assembleBetaDebug :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+        run: gradle --no-daemon --stacktrace :beta:assembleDebug :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
       - name: Build Stable APK
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
         run: gradle --no-daemon --stacktrace :android:assembleStableDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
@@ -77,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BETA="android/build/outputs/apk/beta/debug"
+          BETA="beta/build/outputs/apk/debug"
           ADMIN="admin/build/outputs/apk/debug"
           BETA_APK="$(find "$BETA" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           ADMIN_APK="$(find "$ADMIN" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
@@ -89,7 +89,7 @@ jobs:
           SIGNER_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk" 2>&1)"
           echo "$SIGNER_OUTPUT"
           echo "$SIGNER_OUTPUT" | grep -qi "certificate SHA-1 digest: 660c3627e118939405591df55a92cc9c3fa0b322"
-          "$AAPT" dump badging "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
+          "$AAPT" dump badging "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.beta'"
           "$AAPT" dump badging "$ADMIN/CastDoo-Admin-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.admin'"
       - name: Name and verify Stable APK
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
