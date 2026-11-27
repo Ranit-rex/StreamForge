@@ -210,10 +210,10 @@ private fun PushComposer(token: String) {
 
 @Composable
 private fun ReleaseManager(token: String) {
-    var versionCode by remember { mutableStateOf("1087") }
+    var versionCode by remember { mutableStateOf("1088") }
     var minimumVersionCode by remember { mutableStateOf("1") }
-    var versionName by remember { mutableStateOf("Alpha build 1087") }
-    var updateUrl by remember { mutableStateOf("https://github.com/Ranit-rex/StreamForge/releases/download/castdoo-stable-build-1087/CastDoo-Stable-build-1087.apk") }
+    var versionName by remember { mutableStateOf("Alpha build 1088") }
+    var updateUrl by remember { mutableStateOf("https://github.com/Ranit-rex/StreamForge/releases/download/castdoo-stable-build-1088/CastDoo-Stable-build-1088.apk") }
     var notes by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var publishing by remember { mutableStateOf(false) }
@@ -221,8 +221,8 @@ private fun ReleaseManager(token: String) {
     LaunchedEffect(token) {
         adminRequest(token, "GET", "/api/releases/stable", JSONObject()) { ok, data ->
             if (ok) {
-                versionName = data.optString("versionName", "Alpha build 1087")
-                versionCode = data.optInt("versionCode", 1087).toString()
+                versionName = data.optString("versionName", "Alpha build 1088")
+                versionCode = data.optInt("versionCode", 1088).toString()
                 minimumVersionCode = data.optInt("minimumVersionCode", 1).toString()
                 updateUrl = data.optString("updateUrl", updateUrl).ifBlank { updateUrl }
                 notes = data.optString("releaseNotes", "")
