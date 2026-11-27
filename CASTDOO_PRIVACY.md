@@ -8,20 +8,20 @@ This notice explains the information CastDoo processes when you use the app.
 ## Information processed
 - Google account identifiers and basic profile information made available during sign-in, such as name, email address, and profile photo.
 - A CastDoo user ID, account creation time, and the version/time of Terms & Conditions acceptance.
-- Information needed to provide app features, such as settings, messages, invitations, notification delivery endpoints, and streaming/session data when those features are used.
+- Information needed to provide app features, such as settings, messages, friend requests, notification device tokens, support reports, and streaming/session data when those features are used.
 - Diagnostics and technical information needed to secure, operate, and troubleshoot the service.
 
 ## How information is used
 Information is used to authenticate you, create and maintain your account, provide requested features, deliver notifications, prevent abuse, maintain security, and improve reliability.
 
 ## Service providers
-CastDoo uses Google and Firebase services for account authentication and selected app data. Push notification campaigns and delivery endpoint records are stored in MongoDB Atlas and delivered using UnifiedPush/Web Push; Firebase Cloud Messaging is not used for push delivery. UnifiedPush distributors (for example, ntfy) may process encrypted delivery payloads.
+CastDoo uses Google and Firebase services for account authentication and selected app data. Support reports, app session records, friend requests, and push notification device registrations are stored in MongoDB Atlas and Firestore as applicable. Push delivery may use Firebase Cloud Messaging and UnifiedPush. UnifiedPush distributors (for example, ntfy) may process encrypted delivery payloads.
 
 ## Sharing
 We do not intend to sell personal information. Information may be processed by infrastructure providers, disclosed when legally required, or shared when necessary to protect users and the service.
 
 ## Retention and deletion
-Information is retained for as long as needed to provide the service, meet legal obligations, resolve disputes, and protect security. Account deletion controls will be provided in the app; deletion may take time to propagate through backups and legally required records.
+Information is retained for as long as needed to provide the service, meet legal obligations, resolve disputes, and protect security. Account deletion controls are still being developed; until available, use the in app support report flow to request account assistance. Deletion may take time to propagate through backups and legally required records.
 
 ## Security
 Reasonable technical and organizational safeguards are used, but no online service can guarantee absolute security.
