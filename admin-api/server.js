@@ -415,11 +415,12 @@ async function handler(req,res) {
     }
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent,pushFailed] = await Promise.all([
+      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,profileUsers,pushSent,pushFailed] = await Promise.all([
         d.collection("app_users").countDocuments(),
         d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
         d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]}),
         d.collection("push_devices").distinct("uid",{enabled:true,uid:{$type:"string"},$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]}),
+        d.collection("castdoo_profiles").countDocuments(),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
         d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray()
       ]);
@@ -435,10 +436,10 @@ async function handler(req,res) {
         }
       }
       if (!totalUsers) {
-        totalUsers = Math.max(observedUsers, registeredUsers.length);
-        if (totalUsersSource === "firebase_firestore_users" && totalUsers > 0) totalUsersSource = "observed_sessions_or_registered_devices";
+        totalUsers = Math.max(observedUsers, registeredUsers.length, profileUsers);
+        if (totalUsers > 0) totalUsersSource = profileUsers > 0 ? "castdoo_google_profiles" : "observed_sessions_or_registered_devices";
       }
-      return send(res,200,{totalUsers,totalUsersSource,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,pushSent24h:pushSent[0]?.total||0,pushFailed24h:pushFailed[0]?.total||0,hourlyEvents:[]});
+      return send(res,200,{totalUsers,totalUsersSource,profileUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,pushSent24h:pushSent[0]?.total||0,pushFailed24h:pushFailed[0]?.total||0,hourlyEvents:[]});
     }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
