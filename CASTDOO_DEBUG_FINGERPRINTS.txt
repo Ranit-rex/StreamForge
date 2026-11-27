@@ -1,0 +1,10 @@
+# CastDoo Android debug certificate
+
+Package: com.castdoo.app
+Certificate type: stable GitHub Actions debug key
+
+SHA-1: 66:0C:36:27:E1:18:93:94:05:59:1D:F5:5A:92:CC:9C:3F:A0:B3:22
+
+SHA-256: BA:EB:7A:6E:74:4E:DB:FE:35:FE:DB:99:E4:14:37:0A:68:C7:82:EB:A8:AD:78:69:90:60:2F:D2:08:79:80:56
+
+This is the same keystore used by the Android APK build workflow.

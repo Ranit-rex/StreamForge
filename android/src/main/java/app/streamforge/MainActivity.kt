@@ -18,6 +18,10 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.gms.ads.MobileAds
 import app.streamforge.stream.StreamService
 import app.streamforge.ui.StreamForgeApp
+import app.streamforge.ui.CastDooAuthGate
+import app.streamforge.ui.EditorAssetDownloads
+import app.streamforge.ui.CastDooReleaseGate
+import app.streamforge.notifications.CastDooUnifiedPushService
 
 class MainActivity : ComponentActivity() {
     private var pendingEndpoint = ""
@@ -87,6 +91,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        EditorAssetDownloads.schedule(this)
         MobileAds.initialize(this)
         // Android 15 enforces edge-to-edge for targetSdk 35. Compose applies system-bar
         // insets to the content so the app header never sits underneath the status bar.
@@ -102,6 +107,8 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
+            CastDooAuthGate {
+              CastDooReleaseGate {
             StreamForgeApp(
                 onStartStream = { endpoint, width, height, fps, bitrate, captureMode ->
                     pendingRecordingOnly = false
@@ -171,6 +178,23 @@ class MainActivity : ComponentActivity() {
                 onStopRecording = { sendServiceAction(StreamService.ACTION_STOP_RECORDING) },
                 compactMode = false
             )
+              }
+            }
+        }
+        handleNotificationAction(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationAction(intent)
+    }
+
+    private fun handleNotificationAction(source: Intent?) {
+        val actionUrl = source?.getStringExtra(CastDooUnifiedPushService.EXTRA_ACTION_URL).orEmpty()
+        source?.removeExtra(CastDooPushMessagingService.EXTRA_ACTION_URL)
+        if (actionUrl.startsWith("https://")) {
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(actionUrl))) }
         }
     }
 

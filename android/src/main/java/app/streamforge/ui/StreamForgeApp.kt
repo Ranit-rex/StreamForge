@@ -259,6 +259,8 @@ fun StreamForgeApp(
                         6 -> LiveChatPanel(onConfigure = { selectedTab = 10 })
                         10 -> ChatIntegrationPanel()
                         9 -> PartyVoicePanel()
+                        11 -> VideoEditorPanel()
+                        12 -> CastDooNotificationsPanel()
                         7 -> DestinationsPanel()
                         8 -> MoreToolsPanel(onNavigate = { selectedTab = it })
                         4 -> {
@@ -544,7 +546,7 @@ fun StreamForgeApp(
                     )
                     destinations.forEach { (tab, label, icon) ->
                         NavigationBarItem(
-                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 else selectedTab == tab,
+                            selected = if (tab == 8) selectedTab == 8 || selectedTab in 3..5 || selectedTab == 7 || selectedTab == 10 || selectedTab == 11 else selectedTab == tab,
                             onClick = { selectedTab = tab },
                             icon = { Text(icon, fontSize = 17.sp) },
                             label = { Text(label, fontSize = 10.sp, maxLines = 1) },
@@ -1093,7 +1095,11 @@ private fun MoreToolsPanel(onNavigate: (Int) -> Unit) {
             QuickTile("☷", "Chat Connect", "YouTube chat setup", Modifier.weight(1f)) { onNavigate(10) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("✂", "Video Editor", "Trim & export videos", Modifier.weight(1f)) { onNavigate(11) }
             QuickTile("◎", "Destinations", "Link creator accounts", Modifier.weight(1f)) { onNavigate(7) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            QuickTile("♧", "Notifications", "Your announcements", Modifier.weight(1f)) { onNavigate(12) }
         }
         Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {

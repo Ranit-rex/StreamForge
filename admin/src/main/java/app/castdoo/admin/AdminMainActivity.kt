@@ -1,0 +1,269 @@
+package app.castdoo.admin
+
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+
+private const val ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+private const val PREFS_NAME = "castdoo_admin_secure"
+
+class AdminMainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val masterKey = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        val prefs = EncryptedSharedPreferences.create(
+            this, PREFS_NAME, masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        setContent {
+            MaterialTheme(colorScheme = darkColorScheme(
+                primary = Color(0xFF55D6FF),
+                background = Color(0xFF0B1018),
+                surface = Color(0xFF151F2B)
+            )) {
+                AdminRoot(
+                    savedToken = prefs.getString("admin_device_token", "").orEmpty(),
+                    saveToken = { prefs.edit().putString("admin_device_token", it).apply() },
+                    clearToken = { prefs.edit().remove("admin_device_token").apply() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToken: () -> Unit) {
+    var token by remember { mutableStateOf(savedToken) }
+    var section by remember { mutableStateOf("overview") }
+    var pairCode by remember { mutableStateOf("") }
+    var pairing by remember { mutableStateOf(false) }
+    var pairError by remember { mutableStateOf("") }
+
+    Surface(Modifier.fillMaxSize(), color = Color(0xFF0B1018)) {
+        if (token.isBlank()) {
+            Column(
+                Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("CASTDOO", color = Color(0xFF55D6FF), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.height(10.dp))
+                Text("Connect this device", color = Color.White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "One-time private device pairing. No Google login and no repeated sign-in. Once paired, this device opens directly to the admin dashboard.",
+                    color = Color(0xFF9BAABD), fontSize = 14.sp, lineHeight = 21.sp
+                )
+                Spacer(Modifier.height(22.dp))
+                OutlinedTextField(
+                    value = pairCode, onValueChange = { pairCode = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("One-time pairing code") },
+                    singleLine = true, visualTransformation = PasswordVisualTransformation()
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    enabled = !pairing && pairCode.isNotBlank(),
+                    onClick = {
+                        pairing = true
+                        pairError = ""
+                        pairAdminDevice(pairCode.trim()) { ok, data ->
+                            pairing = false
+                            if (ok) {
+                                val newToken = data.optString("token")
+                                if (newToken.isNotBlank()) {
+                                    saveToken(newToken)
+                                    token = newToken
+                                    pairCode = ""
+                                } else pairError = "The server did not return a device token."
+                            } else pairError = data.optString("error", "Pairing failed")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (pairing) "Pairing…" else "Pair admin device") }
+                if (pairError.isNotBlank()) Text(pairError, color = Color(0xFFFF8585), modifier = Modifier.padding(top = 12.dp))
+            }
+        } else {
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Text("Control Center", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = {
+                        adminRequest(token, "POST", "/api/admin/unpair", JSONObject()) { _, _ ->
+                            clearToken()
+                            token = ""
+                        }
+                    }) { Text("Unpair device") }
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("overview" to "Overview", "push" to "Push", "versions" to "Versions").forEach { (key, label) ->
+                        FilterChip(selected = section == key, onClick = { section = key }, label = { Text(label) })
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                when (section) {
+                    "push" -> PushComposer(token)
+                    "versions" -> ReleaseManager(token)
+                    else -> {
+                        AdminCard("Push notifications", "Send phone notifications to all registered devices or selected users.")
+                        AdminCard("Stable releases", "Manage the public stable Android release.")
+                        AdminCard("Device security", "This device is paired once and can be revoked server-side.")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminCard(title: String, body: String) {
+    Card(Modifier.fillMaxWidth().padding(bottom = 10.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF151F2B)), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(Modifier.height(5.dp))
+            Text(body, color = Color(0xFF9BAABD), fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun PushComposer(token: String) {
+    var title by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf("") }
+    var target by remember { mutableStateOf("all") }
+    var userIds by remember { mutableStateOf("") }
+    var priority by remember { mutableStateOf("normal") }
+    var actionUrl by remember { mutableStateOf("") }
+    var resultText by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Send push notification", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(title, { title = it }, label = { Text("Notification title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(body, { body = it }, label = { Text("Message") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(target == "all", { target = "all" }, label = { Text("All users") })
+            FilterChip(target == "selected", { target = "selected" }, label = { Text("Selected users") })
+        }
+        if (target == "selected") OutlinedTextField(userIds, { userIds = it }, label = { Text("User UIDs (comma separated)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+        OutlinedTextField(actionUrl, { actionUrl = it }, label = { Text("Optional HTTPS action URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(priority == "normal", { priority = "normal" }, label = { Text("Normal") })
+            FilterChip(priority == "important", { priority = "important" }, label = { Text("Important") })
+        }
+        Button(
+            enabled = !sending && title.isNotBlank() && body.isNotBlank() && (target == "all" || userIds.isNotBlank()),
+            onClick = {
+                sending = true
+                resultText = ""
+                val ids = userIds.split(",", "\n").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                val json = JSONObject().put("title", title.trim()).put("message", body.trim())
+                    .put("audience", target).put("priority", priority).put("targetUids", org.json.JSONArray(ids))
+                    .put("actionUrl", actionUrl.trim())
+                adminRequest(token, "POST", "/api/push/send", json) { ok, data ->
+                    resultText = if (ok) "Sent: ${data.optInt("sent")} · Failed: ${data.optInt("failed")}" else data.optString("error", "Send failed")
+                    sending = false
+                }
+            }, modifier = Modifier.fillMaxWidth()
+        ) { Text(if (sending) "Sending…" else "Send notification") }
+        if (resultText.isNotBlank()) Text(resultText, color = Color(0xFF55D6A1), fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun ReleaseManager(token: String) {
+    var versionCode by remember { mutableStateOf("1") }
+    var minimumVersionCode by remember { mutableStateOf("1") }
+    var versionName by remember { mutableStateOf("1.0.0") }
+    var updateUrl by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    var resultText by remember { mutableStateOf("") }
+    var publishing by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Release management", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(versionName, { versionName = it }, label = { Text("Version name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(versionCode, { versionCode = it }, label = { Text("Version code") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(minimumVersionCode, { minimumVersionCode = it }, label = { Text("Minimum supported build") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(updateUrl, { updateUrl = it }, label = { Text("APK / Play Store update URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(notes, { notes = it }, label = { Text("Release notes") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        Button(
+            enabled = !publishing && versionCode.toIntOrNull() != null && minimumVersionCode.toIntOrNull() != null && updateUrl.startsWith("https://"),
+            onClick = {
+                publishing = true
+                val json = JSONObject().put("versionCode", versionCode.toIntOrNull() ?: 1)
+                    .put("minimumVersionCode", minimumVersionCode.toIntOrNull() ?: 1)
+                    .put("versionName", versionName.trim()).put("updateUrl", updateUrl.trim())
+                    .put("releaseNotes", notes.trim()).put("forceUpdate", false)
+                adminRequest(token, "POST", "/api/releases/stable", json) { ok, data ->
+                    resultText = if (ok) "Stable release published to MongoDB" else data.optString("error", "Publish failed")
+                    publishing = false
+                }
+            }, modifier = Modifier.fillMaxWidth()
+        ) { Text(if (publishing) "Publishing…" else "Publish release") }
+        if (resultText.isNotBlank()) Text(resultText, color = Color(0xFF55D6A1), fontSize = 13.sp)
+    }
+}
+
+private fun pairAdminDevice(code: String, done: (Boolean, JSONObject) -> Unit) {
+    Thread {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL("$ADMIN_API/api/admin/pair").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"; connectTimeout = 15000; readTimeout = 20000
+                setRequestProperty("Content-Type", "application/json"); doOutput = true
+            }
+            val payload = JSONObject().put("code", code).put("label", "CastDoo Admin Android")
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            Handler(Looper.getMainLooper()).post { done(status in 200..299, data) }
+        } catch (error: Exception) {
+            Handler(Looper.getMainLooper()).post { done(false, JSONObject().put("error", error.message ?: "Network request failed")) }
+        } finally { connection?.disconnect() }
+    }.start()
+}
+
+private fun adminRequest(token: String, method: String, path: String, payload: JSONObject, done: (Boolean, JSONObject) -> Unit) {
+    Thread {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL(ADMIN_API + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method; connectTimeout = 15000; readTimeout = 20000
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json"); doOutput = true
+            }
+            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val data = runCatching { JSONObject(text) }.getOrElse { JSONObject().put("error", "Invalid server response") }
+            Handler(Looper.getMainLooper()).post { done(code in 200..299, data) }
+        } catch (error: Exception) {
+            Handler(Looper.getMainLooper()).post { done(false, JSONObject().put("error", error.message ?: "Network request failed")) }
+        } finally { connection?.disconnect() }
+    }.start()
+}
