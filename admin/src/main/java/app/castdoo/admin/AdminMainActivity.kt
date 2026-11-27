@@ -64,7 +64,7 @@ private const val ADMIN_RELEASE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
 private fun AdminVersionGate(content: @Composable () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val releasePrefs = remember(context) {
-        context.getSharedPreferences(ADMIN_RELEASE_PREFS, ComponentActivity.MODE_PRIVATE)
+        context.getSharedPreferences(ADMIN_RELEASE_PREFS, android.content.Context.MODE_PRIVATE)
     }
     var release by remember(context) {
         mutableStateOf(
@@ -111,7 +111,7 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
     val latestCode = current?.optLong("versionCode", 0L) ?: 0L
     val minimumCode = current?.optLong("minimumVersionCode", 1L) ?: 1L
     val optionalUpdate = current != null && latestCode > installedCode
-    val updateType = current?.optString("updateType", if (current.optBoolean("forceUpdate", false)) "major" else "mini") ?: "mini"
+    val updateType = current?.let { it.optString("updateType", if (it.optBoolean("forceUpdate", false)) "major" else "mini") } ?: "mini"
     val mandatory = current != null && (
         minimumCode > installedCode ||
             (optionalUpdate && (updateType == "major" || current.optBoolean("forceUpdate", false)))
@@ -127,11 +127,11 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             message = "This Admin build is no longer supported. Install the latest version to continue.",
             versionName = current!!.optString("versionName", "Admin update"),
             versionCode = latestCode,
-            releaseNotes = current.optString("releaseNotes", "Security, stability and performance improvements."),
+            releaseNotes = current!!.optString("releaseNotes", "Security, stability and performance improvements."),
             mandatory = true,
             actionLabel = "Download Admin update",
             actionEnabled = validUrl,
-            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))) }
+            onAction = { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(current!!.optString("updateUrl")))) }
         )
         optionalUpdate && !continueWithoutUpdate -> AdminGateScreen(
             message = "A newer Admin app version is available.",
