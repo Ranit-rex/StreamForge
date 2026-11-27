@@ -4,4 +4,4 @@ dependencyResolutionManagement {
  repositories { google(); maven { url = uri("https://repo1.maven.org/maven2") }; mavenCentral(); maven { url = uri("https://jitpack.io") } }
 }
 rootProject.name = "CastDoo"
-include(":android", ":admin")
+include(":android", ":admin", ":beta")
