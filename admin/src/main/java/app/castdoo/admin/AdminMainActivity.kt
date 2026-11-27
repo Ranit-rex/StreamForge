@@ -84,8 +84,8 @@ private fun AdminVersionGate(content: @Composable () -> Unit) {
             val loaded = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
                     val connection = (URL("$ADMIN_API/api/releases/admin").openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 8000
-                        readTimeout = 10000
+                        connectTimeout = 15000
+                        readTimeout = 30000
                         requestMethod = "GET"
                     }
                     try {
