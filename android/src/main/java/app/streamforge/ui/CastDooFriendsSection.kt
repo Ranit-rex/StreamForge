@@ -217,9 +217,24 @@ fun CastDooFriendsSection() {
                     Row {
                         TextButton(enabled = busyId != friend.id, onClick = {
                             busyId = friend.id
-                            db.collection("friendships").document(friend.id).update("status", "accepted")
-                                .addOnSuccessListener { busyId = ""; feedback = "Friend added." }
-                                .addOnFailureListener { busyId = ""; feedback = it.localizedMessage ?: "Could not accept request." }
+                            val me = uid
+                            if (me == null) {
+                                busyId = ""
+                                feedback = "Sign in again to accept requests."
+                            } else {
+                                db.collection("friendships").whereArrayContains("members", me).get()
+                                    .addOnSuccessListener { current ->
+                                        val count = current.documents.count { it.getString("status") == "accepted" }
+                                        if (count >= 6) {
+                                            busyId = ""
+                                            feedback = "Friend limit reached. Remove a friend first."
+                                        } else {
+                                            db.collection("friendships").document(friend.id).update("status", "accepted")
+                                                .addOnSuccessListener { busyId = ""; feedback = "Friend added." }
+                                                .addOnFailureListener { busyId = ""; feedback = it.localizedMessage ?: "Could not accept request." }
+                                        }
+                                    }.addOnFailureListener { busyId = ""; feedback = it.localizedMessage ?: "Could not check your friend limit." }
+                            }
                         }) { Text("Accept", color = Color(0xFF55D6A1), fontSize = 11.sp) }
                         TextButton(enabled = busyId != friend.id, onClick = {
                             busyId = friend.id
