@@ -80,7 +80,9 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
     val validUpdateUrl = current?.updateUrl?.startsWith("https://") == true
 
     when {
-        !checked -> ReleaseGateBackdrop()
+        // Keep the app usable while the silent release check runs.
+        // Update screens take over immediately when the response arrives.
+        !checked -> content()
         current == null -> CastDooVerificationScreen(onRetry = { retry++ })
         mandatory -> CastDooUpdateScreen(
             release = current,
