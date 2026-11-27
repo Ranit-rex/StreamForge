@@ -344,12 +344,16 @@ private fun PushComposer(token: String) {
     var statusMessage by remember { mutableStateOf("Checking registered devices…") }
     var resultColor by remember { mutableStateOf(Color(0xFF55D6A1)) }
     LaunchedEffect(token) {
-        adminRequest(token, "GET", "/api/push/status", JSONObject()) { ok, data ->
-            if (ok) {
-                registeredDevices = data.optInt("registeredDevices", 0)
-                pushConfigured = data.optBoolean("configured", false)
-                statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} (${data.optString("totalUsersSource", "observed sessions")}) · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · FCM: ${data.optInt("fcmDevices", 0)} · UnifiedPush: ${data.optInt("unifiedPushDevices", 0)} · Firebase: ${if (data.optBoolean("firebaseAdminConfigured")) "ready" else "missing"} · ${if (pushConfigured) "delivery ready" else "Firebase Admin setup required"}"
-            } else statusMessage = data.optString("error", "Could not check push status")
+        while (true) {
+            adminRequest(token, "GET", "/api/push/status", JSONObject()) { ok, data ->
+                if (ok) {
+                    registeredDevices = data.optInt("registeredDevices", 0)
+                    pushConfigured = data.optBoolean("configured", false)
+                    val firebaseReady = data.optBoolean("firebaseAdminConfigured")
+                    statusMessage = "App users: ${data.opt("totalUsers").let { if (it == JSONObject.NULL) "not synced" else it.toString() }} (${data.optString("totalUsersSource", "observed sessions")}) · Push users: ${data.optInt("registeredUsers", 0)} · Devices: $registeredDevices · FCM: ${data.optInt("fcmDevices", 0)} · UnifiedPush: ${data.optInt("unifiedPushDevices", 0)} · Firebase: ${if (firebaseReady) "ready" else "NOT CONFIGURED"} · ${if (pushConfigured) "delivery ready" else "delivery not configured"}"
+                } else statusMessage = data.optString("error", "Could not check push status")
+            }
+            delay(20_000)
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -662,12 +666,15 @@ private fun AdminDevices(token: String) {
     var rows by remember { mutableStateOf(emptyList<JSONObject>()) }
     var status by remember { mutableStateOf("Loading registered devices…") }
     LaunchedEffect(token) {
-        adminRequest(token, "GET", "/api/admin/devices", JSONObject()) { ok, data ->
-            if (ok) {
-                val array = data.optJSONArray("devices")
-                rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
-                status = "${rows.size} device record(s)"
-            } else status = data.optString("error", "Device list unavailable")
+        while (true) {
+            adminRequest(token, "GET", "/api/admin/devices", JSONObject()) { ok, data ->
+                if (ok) {
+                    val array = data.optJSONArray("devices")
+                    rows = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+                    status = "${rows.size} device record(s) · refreshed " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                } else status = data.optString("error", "Device list unavailable")
+            }
+            delay(20_000)
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -679,7 +686,7 @@ private fun AdminDevices(token: String) {
                 "User ${row.optString("uid", "—").take(12)} · ${row.optString("transport", "UnifiedPush")} · Updated ${row.optString("updatedAt", "—")}"
             )
         }
-        if (rows.isEmpty()) Text("No app installs have registered yet. Devices appear after opening the updated CastDoo app once with internet access.", color = Color(0xFFFFC56B), fontSize = 12.sp)
+        if (rows.isEmpty()) Text("No device token has reached the server yet. Open the signed-in CastDoo app with internet and Firebase Cloud Messaging enabled. This list refreshes every 20 seconds.", color = Color(0xFFFFC56B), fontSize = 12.sp)
     }
 }
 
