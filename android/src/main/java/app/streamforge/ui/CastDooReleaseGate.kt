@@ -150,26 +150,9 @@ fun CastDooReleaseGate(content: @Composable () -> Unit) {
         }.getOrDefault(false)
     } ?: false
 
-    when {
-        // Cached policy is enforced offline. If this is a first launch with no cache,
-        // keep the app usable rather than locking the user out without a network check.
-        mandatory -> CastDooUpdateScreen(
-            release = current!!,
-            installedCode = installedCode,
-            mandatory = true,
-            updateEnabled = validUpdateUrl,
-            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current!!.updateUrl))) }
-        )
-        updateAvailable && !continueWithoutUpdate -> CastDooUpdateScreen(
-            release = current!!,
-            installedCode = installedCode,
-            mandatory = false,
-            updateEnabled = validUpdateUrl,
-            onUpdate = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(current!!.updateUrl))) },
-            onContinue = { continueWithoutUpdate = true }
-        )
-        else -> content()
-    }
+    // Update prompts are temporarily disabled. Keep the daily background policy
+    // refresh and cached release data so the version service can be enabled later.
+    content()
 }
 
 @Composable
