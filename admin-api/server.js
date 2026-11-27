@@ -166,6 +166,25 @@ async function handler(req,res) {
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
   }
 
+  if (req.method === "POST" && url.pathname === "/api/devices/fcm/register") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "Firebase Admin credentials are missing on the server."});
+      const input = await body(req);
+      const token = String(input.token || "").trim();
+      if (token.length < 50 || token.length > 4096) return send(res,400,{error:"A valid Firebase Messaging token is required"});
+      const d = await database();
+      const now = new Date();
+      await d.collection("push_devices").updateOne(
+        {uid:identity.uid,endpoint:`fcm:${token}`},
+        {$set:{uid:identity.uid,endpoint:`fcm:${token}`,fcmToken:token,token,platform:"android",transport:"fcm",enabled:true,updatedAt:now,lastSeenAt:now},$setOnInsert:{createdAt:now}},
+        {upsert:true}
+      );
+      await d.collection("admin_events").insertOne({type:"push.fcm_device_registered",uid:identity.uid,platform:"android",createdAt:now});
+      return send(res,200,{registered:true,transport:"FCM"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
+  }
+
   if (req.method === "POST" && url.pathname === "/api/devices/register-fcm") {
     try {
       const input = await body(req);
