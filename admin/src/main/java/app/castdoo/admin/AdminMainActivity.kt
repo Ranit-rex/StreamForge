@@ -110,7 +110,12 @@ private fun AdminRoot(savedToken: String, saveToken: (String) -> Unit, clearToke
                         Text("CASTDOO ADMIN", color = Color(0xFF55D6FF), fontSize = 12.sp, fontWeight = FontWeight.Black)
                         Text("Control Center", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                     }
-                    TextButton(onClick = { clearToken(); token = "" }) { Text("Unpair device") }
+                    TextButton(onClick = {
+                        adminRequest(token, "POST", "/api/admin/unpair", JSONObject()) { _, _ ->
+                            clearToken()
+                            token = ""
+                        }
+                    }) { Text("Unpair device") }
                 }
                 Spacer(Modifier.height(18.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
