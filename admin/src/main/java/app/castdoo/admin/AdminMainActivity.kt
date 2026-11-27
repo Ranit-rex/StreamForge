@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -566,18 +567,23 @@ private fun AdminAnalytics(token: String) {
     var status by remember { mutableStateOf("Loading analytics…") }
     var selected by remember { mutableIntStateOf(-1) }
     LaunchedEffect(token) {
-        adminRequest(token, "GET", "/api/analytics/summary", JSONObject()) { ok, data ->
-            if (ok) { summary = data; status = "Updated just now" }
-            else status = data.optString("error", "Analytics unavailable")
+        while (true) {
+            adminRequest(token, "GET", "/api/analytics/summary", JSONObject()) { ok, data ->
+                if (ok) {
+                    summary = data
+                    status = "Live refresh · " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                } else status = data.optString("error", "Analytics unavailable")
+            }
+            delay(30_000)
         }
     }
     val hourly = summary.optJSONArray("hourlyEvents")
     val values = (0 until (hourly?.length() ?: 0)).map { hourly!!.optJSONObject(it)?.optInt("events", 0)?.toFloat() ?: 0f }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Analytics overview", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Text(status, color = Color(0xFF9BAABD), fontSize = 12.sp)
+        Text(status + " · " + summary.optString("totalUsersSource", "waiting for data"), color = Color(0xFF9BAABD), fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricTile("App users", summary.optInt("totalUsers", 0).toString(), Modifier.weight(1f))
+            MetricTile("Registered users", summary.optInt("totalUsers", 0).toString(), Modifier.weight(1f))
             MetricTile("Active 24h", summary.optInt("activeUsers24h", 0).toString(), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
