@@ -384,7 +384,7 @@ async function handler(req,res) {
     }
     if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [totalUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,hourlyRows] = await Promise.all([
+      const [observedUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,hourlyRows] = await Promise.all([
         d.collection("app_users").countDocuments(),
         d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
         d.collection("push_devices").countDocuments({enabled:true,$or:[{transport:"fcm",token:{$type:"string"}},{transport:"unifiedpush",endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}]}),
@@ -397,6 +397,17 @@ async function handler(req,res) {
           {$sort:{_id:1}}
         ]).toArray()
       ]);
+      let totalUsers = observedUsers;
+      let totalUsersSource = "observed_app_sessions";
+      if (SERVICE_ACCOUNT) {
+        try {
+          const count = await getFirestore().collection("users").count().get();
+          totalUsers = count.data().count;
+          totalUsersSource = "firebase_registered_accounts";
+        } catch (error) {
+          console.error("analytics_firebase_user_count_failed",error.message);
+        }
+      }
       const counts = new Map(hourlyRows.map(row=>[row._id,row.events]));
       const hourlyEvents = Array.from({length:24},(_,index)=>{
         const hour = new Date(Date.now() - (23-index)*60*60*1000);
@@ -405,7 +416,7 @@ async function handler(req,res) {
         return {hour:key,events:counts.get(key)||0};
       });
       return send(res,200,{
-        totalUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,
+        totalUsers,totalUsersSource,observedUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,
         pushSent24h:pushSent24h[0]?.total||0,pushFailed24h:pushFailed24h[0]?.total||0,hourlyEvents
       });
     }
