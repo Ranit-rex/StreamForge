@@ -61,7 +61,7 @@ async function authorized(req) {
   const apiKey = String(req.headers["x-admin-key"] || "");
   if (ADMIN_API_KEY && apiKey && apiKey.length === ADMIN_API_KEY.length &&
       crypto.timingSafeEqual(Buffer.from(apiKey), Buffer.from(ADMIN_API_KEY))) return true;
-  const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
   if (!match) return false;
   const bearer = match[1];
   if (bearer.length >= 40 && URI) {
@@ -139,7 +139,7 @@ async function handler(req,res) {
   }
   if (req.method === "POST" && url.pathname === "/api/admin/unpair") {
     try {
-      const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
+      const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
       if (!match) return send(res,401,{error:"Admin device token required"});
       const tokenHash = crypto.createHash("sha256").update(match[1]).digest("hex");
       const d = await database();
