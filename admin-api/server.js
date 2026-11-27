@@ -10,8 +10,23 @@ import { getFirestore } from "firebase-admin/firestore";
 const PORT = Number(process.env.PORT || 3000);
 const URI = (process.env.MONGODB_URI || "").trim();
 const DB_NAME = process.env.MONGODB_DATABASE || "streamforge";
-const SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) : null;
-if (SERVICE_ACCOUNT && !getApps().length) initializeApp({ credential: cert(SERVICE_ACCOUNT) });
+function readServiceAccount() {
+  const raw = (process.env.FIREBASE_SERVICE_ACCOUNT_CASTDOO || process.env.FIREBASE_SERVICE_ACCOUNT_CASTDOO_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.project_id && parsed.project_id !== "castdoo") {
+      console.error("firebase_admin_project_mismatch", parsed.project_id);
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    console.error("firebase_admin_credentials_invalid_json", error.message);
+    return null;
+  }
+}
+const SERVICE_ACCOUNT = readServiceAccount();
+if (SERVICE_ACCOUNT && !getApps().length) initializeApp({ credential: cert(SERVICE_ACCOUNT), projectId: "castdoo" });
 const PAIRING_CODE = (process.env.CASTDOO_ADMIN_PAIRING_CODE || "").trim();
 const ADMIN_API_KEY = (process.env.ADMIN_API_KEY || "").trim();
 const VAPID_PUBLIC_KEY = (process.env.WEB_PUSH_PUBLIC_KEY || "").trim();
@@ -54,7 +69,7 @@ async function body(req) {
   return raw ? JSON.parse(raw) : {};
 }
 async function firebaseUser(req) {
-  if (!SERVICE_ACCOUNT || !getApps().length) return null;
+  if (!SERVICE_ACCOUNT || !getApps().length) throw Object.assign(new Error("CastDoo Firebase Admin service-account credentials are missing on the server."), {status:503});
   const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
   try { return await getAuth().verifyIdToken(match[1]); } catch { return null; }
@@ -83,7 +98,7 @@ async function authorized(req) {
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
-  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT)});
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
   const publicRelease = url.pathname === "/api/releases/stable";
   if (req.method === "GET" && publicRelease) {
     try { const d = await database(); const release = await d.collection("app_releases").findOne({_id:"stable"}); return send(res,200,release || {track:"stable",versionName:"1.0.0",versionCode:1,minimumVersionCode:1,forceUpdate:false,updateUrl:"",releaseNotes:""}); }
@@ -121,7 +136,7 @@ async function handler(req,res) {
   if (req.method === "POST" && url.pathname === "/api/devices/fcm/register") {
     try {
       const identity = await firebaseUser(req);
-      if (!identity?.uid) return send(res,401,{error:"Sign in required"});
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "CastDoo Firebase Admin credentials are not configured on the server."});
       const input = await body(req);
       const token = String(input.token || "").trim();
       if (token.length < 40 || token.length > 4096) return send(res,400,{error:"A valid Firebase messaging token is required"});
@@ -192,7 +207,7 @@ async function handler(req,res) {
     if (req.method === "GET" && url.pathname === "/api/push/status") {
       const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
       const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
-      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
+      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
       const input = await body(req);
