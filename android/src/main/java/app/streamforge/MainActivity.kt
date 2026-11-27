@@ -25,6 +25,9 @@ import app.streamforge.ui.CastDooReleaseGate
 import app.streamforge.ui.CastDooReleaseChannel
 import app.streamforge.notifications.CastDooUnifiedPushService
 import app.streamforge.notifications.CastDooFcmRegistration
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private var pendingEndpoint = ""
@@ -42,7 +45,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
     private val pushAuthListener = FirebaseAuth.AuthStateListener { auth ->
-        if (auth.currentUser != null) CastDooFcmRegistration.register(this)
+        if (auth.currentUser != null) { CastDooFcmRegistration.register(this); trackAppSession() }
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -102,7 +105,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseAuth.getInstance().addAuthStateListener(pushAuthListener)
-        CastDooFcmRegistration.register(this)
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             val notificationPrefs = getSharedPreferences("castdoo_notifications", MODE_PRIVATE)
             if (!notificationPrefs.getBoolean("permission_prompted", false)) {
@@ -221,10 +223,43 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         CastDooFcmRegistration.register(this)
+        trackAppSession()
         val keepAwake = getSharedPreferences("streamforge_studio", MODE_PRIVATE)
             .getBoolean("keep_screen_awake", true)
         if (keepAwake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun trackAppSession() {
+        val currentUser = FirebaseAuth.getInstance().currentUser ?: return
+        currentUser.getIdToken(false).addOnSuccessListener { tokenResult ->
+            val idToken = tokenResult.token ?: return@addOnSuccessListener
+            Thread {
+                var connection: HttpURLConnection? = null
+                try {
+                    connection = (URL("https://streamforge-admin-api-y6ie.onrender.com/api/usage/session").openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        connectTimeout = 12000
+                        readTimeout = 12000
+                        setRequestProperty("Authorization", "Bearer $idToken")
+                        setRequestProperty("Content-Type", "application/json")
+                        doOutput = true
+                    }
+                    val device = "${Build.MANUFACTURER} ${Build.MODEL}".take(100)
+                    val payload = JSONObject().put("platform", "android").put("device", device)
+                    connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+                    val status = connection.responseCode
+                    if (status !in 200..299) {
+                        val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                        android.util.Log.e("CastDooAnalytics", "Session tracking rejected ($status): $error")
+                    } else android.util.Log.d("CastDooAnalytics", "App session tracked")
+                } catch (error: Exception) {
+                    android.util.Log.e("CastDooAnalytics", "Session tracking failed", error)
+                } finally { connection?.disconnect() }
+            }.start()
+        }.addOnFailureListener { error ->
+            android.util.Log.e("CastDooAnalytics", "Could not authenticate app session", error)
+        }
     }
 
     override fun onDestroy() {
