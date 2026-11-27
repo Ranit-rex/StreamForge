@@ -5,6 +5,7 @@ plugins {
 }
 
 val privateAdminPairingCode = providers.gradleProperty("castdooPrivateAdminPairingCode").orElse("").get()
+val adminBuildNumber = providers.gradleProperty("streamforgeBuildNumber").orElse("1073").get().toInt()
 val escapedPrivateAdminPairingCode = privateAdminPairingCode.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
@@ -15,8 +16,8 @@ android {
         applicationId = "com.castdoo.admin"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = adminBuildNumber
+        versionName = "Admin build $adminBuildNumber"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
