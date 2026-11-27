@@ -22,7 +22,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-private const val CASTDOO_ADMIN_API = "https://streamforge-admin-api-y6ie.onrender.com"
+private const val CASTDOO_ADMIN_API = "https://castdoo-version-api.mranit66.workers.dev"
 private const val RELEASE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
 private const val RELEASE_PREFS = "castdoo_release_policy"
 
