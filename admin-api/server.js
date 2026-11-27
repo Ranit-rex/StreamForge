@@ -63,7 +63,7 @@ async function authorized(req) {
   const match = String(req.headers.authorization || "").match(/^Bearer\\s+(.+)$/i);
   if (!match) return false;
   const bearer = match[1];
-  if (bearer.length > 100 && URI) {
+  if (bearer.length >= 40 && URI) {
     try {
       const d = await database();
       const tokenHash = crypto.createHash("sha256").update(bearer).digest("hex");
