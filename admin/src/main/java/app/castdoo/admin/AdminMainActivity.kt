@@ -591,6 +591,10 @@ private fun AdminAnalytics(token: String) {
             MetricTile("Push users", summary.optInt("registeredUsers", 0).toString(), Modifier.weight(1f))
             MetricTile("Devices", summary.optInt("registeredDevices", 0).toString(), Modifier.weight(1f))
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetricTile("Observed accounts", summary.optInt("observedUsers", 0).toString(), Modifier.weight(1f))
+            MetricTile("Open reports", summary.optInt("reportsOpen", 0).toString(), Modifier.weight(1f))
+        }
         Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF151F2B)), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("APP ACTIVITY · 24 HOURS", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -603,7 +607,7 @@ private fun AdminAnalytics(token: String) {
             MetricTile("Push sent 24h", summary.optInt("pushSent24h", 0).toString(), Modifier.weight(1f))
             MetricTile("Push failed 24h", summary.optInt("pushFailed24h", 0).toString(), Modifier.weight(1f))
         }
-        AdminCard("Tracked events", "App sessions, device registrations, push campaigns and admin actions are counted from server-side records.")
+        AdminCard("Tracked events", "App sessions, device registrations, push campaigns, support reports and admin actions are counted from server-side records.")
     }
 }
 
