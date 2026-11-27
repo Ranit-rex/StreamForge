@@ -4,7 +4,6 @@ import crypto from "node:crypto";
 import webpush from "web-push";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { getMessaging } from "firebase-admin/messaging";
 import { getFirestore } from "firebase-admin/firestore";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -53,7 +52,9 @@ async function database() {
       db.collection("admin_audit_logs").createIndex({ createdAt: -1 }),
       db.collection("push_devices").createIndex({ uid: 1, endpoint: 1 }, { unique: true, partialFilterExpression: { endpoint: { $type: "string" } } }),
       db.collection("admin_devices").createIndex({ tokenHash: 1 }, { unique: true }),
-      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 })
+      db.collection("notifications").createIndex({ uid: 1, createdAt: -1 }),
+      db.collection("app_users").createIndex({ lastSeenAt: -1 }),
+      db.collection("notification_campaigns").createIndex({ createdAt: -1 })
     ]);
     return db;
   })().catch(error => { connecting = null; throw error; });
@@ -98,7 +99,7 @@ async function authorized(req) {
 async function handler(req,res) {
   if (req.method === "OPTIONS") return send(res,204,{});
   const url = new URL(req.url,"http://localhost");
-  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null});
+  if (url.pathname === "/health") return send(res,200,{ok:true,service:"streamforge-admin-api",databaseConfigured:Boolean(URI),authConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,pushConfigured:pushConfigured(),pushTransport:"UnifiedPush Web Push"});
   const publicReleaseMatch = url.pathname.match(/^\/api\/releases\/(stable|beta|admin)$/);
   if (req.method === "GET" && publicReleaseMatch) {
     const track = publicReleaseMatch[1];
@@ -161,26 +162,10 @@ async function handler(req,res) {
     } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device pairing failed"}); }
   }
 
-  if (req.method === "POST" && url.pathname === "/api/devices/fcm/register") {
-    try {
-      const identity = await firebaseUser(req);
-      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "CastDoo Firebase Admin credentials are not configured on the server."});
-      const input = await body(req);
-      const token = String(input.token || "").trim();
-      if (token.length < 40 || token.length > 4096) return send(res,400,{error:"A valid Firebase messaging token is required"});
-      const d = await database();
-      await d.collection("push_devices").updateOne(
-        {uid:identity.uid,endpoint:`fcm:${token}`},
-        {$set:{uid:identity.uid,endpoint:`fcm:${token}`,fcmToken:token,platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
-        {upsert:true}
-      );
-      return send(res,200,{registered:true,transport:"FCM"});
-    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"FCM device registration failed"}); }
-  }
   if (req.method === "POST" && url.pathname === "/api/devices/register") {
     try {
       const identity = await firebaseUser(req);
-      if (!identity?.uid) return send(res,401,{error:"Sign in required"});
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "Firebase Admin credentials are missing on the server."});
       const input = await body(req);
       const endpoint = String(input.endpoint || "").trim();
       const p256dh = String(input.p256dh || "").trim();
@@ -190,13 +175,40 @@ async function handler(req,res) {
         return send(res,400,{error:"A valid UnifiedPush endpoint and Web Push keys are required"});
       }
       const d = await database();
+      const now = new Date();
       await d.collection("push_devices").updateOne(
         {uid: identity.uid, endpoint},
-        {$set:{uid:identity.uid,endpoint,keys:{p256dh,auth},instance:String(input.instance || "default"),platform:"android",enabled:true,updatedAt:new Date()},$setOnInsert:{createdAt:new Date()}},
+        {$set:{uid:identity.uid,endpoint,keys:{p256dh,auth},instance:String(input.instance || "default"),platform:"android",transport:"unifiedpush",enabled:true,updatedAt:now,lastSeenAt:now},$setOnInsert:{createdAt:now}},
         {upsert:true}
       );
-      return send(res,200,{registered:true});
-    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"Device registration failed"}); }
+      await d.collection("app_users").updateOne(
+        {uid:identity.uid},
+        {$set:{uid:identity.uid,platform:"android",lastSeenAt:now},$setOnInsert:{firstSeenAt:now}},
+        {upsert:true}
+      );
+      await d.collection("admin_events").insertOne({type:"push.device_registered",uid:identity.uid,createdAt:now});
+      return send(res,200,{registered:true,transport:"UnifiedPush"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"UnifiedPush device registration failed"}); }
+  }
+  if (req.method === "POST" && url.pathname === "/api/usage/session") {
+    try {
+      const identity = await firebaseUser(req);
+      if (!identity?.uid) return send(res,SERVICE_ACCOUNT ? 401 : 503,{error:SERVICE_ACCOUNT ? "Sign in required" : "Firebase Admin credentials are missing on the server."});
+      const input = await body(req);
+      const d = await database();
+      const now = new Date();
+      const previous = await d.collection("app_users").findOne({uid:identity.uid},{projection:{lastSeenAt:1}});
+      await d.collection("app_users").updateOne(
+        {uid:identity.uid},
+        {$set:{uid:identity.uid,platform:String(input.platform || "android").slice(0,24),lastSeenAt:now},$setOnInsert:{firstSeenAt:now}},
+        {upsert:true}
+      );
+      const lastSeen = previous?.lastSeenAt ? new Date(previous.lastSeenAt).getTime() : 0;
+      if (!lastSeen || now.getTime() - lastSeen >= 10 * 60 * 1000) {
+        await d.collection("admin_events").insertOne({type:"app.session",uid:identity.uid,platform:String(input.platform || "android").slice(0,24),createdAt:now});
+      }
+      return send(res,200,{tracked:true,source:"authenticated_app_session"});
+    } catch(error) { return send(res,error.status||500,{error:error.status?error.message:"App session tracking failed"}); }
   }
   if (req.method === "POST" && url.pathname === "/api/admin/unpair") {
     try {
@@ -234,56 +246,124 @@ async function handler(req,res) {
       return send(res,200,release);
     }
     if (req.method === "GET" && url.pathname === "/api/push/status") {
-      const registeredDevices = await d.collection("push_devices").countDocuments({enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
-      const fcmDevices = await d.collection("push_devices").countDocuments({enabled:true,fcmToken:{$type:"string"}});
-      const registeredUsers = await d.collection("push_devices").distinct("uid",{enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}]});
+      const filter = {enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"}};
+      const registeredDevices = await d.collection("push_devices").countDocuments(filter);
+      const registeredUsers = await d.collection("push_devices").distinct("uid",filter);
       let totalUsers = null;
+      let totalUsersSource = "unavailable";
       if (SERVICE_ACCOUNT) {
-        try { const count = await getFirestore().collection("users").count().get(); totalUsers = count.data().count; }
-        catch (error) { console.error("firebase_user_count_failed",error.message); }
+        try {
+          const count = await getFirestore().collection("users").count().get();
+          totalUsers = count.data().count;
+          totalUsersSource = "firebase_firestore";
+        } catch (error) {
+          console.error("firebase_user_count_failed",error.message);
+        }
       }
-      return send(res,200,{configured:Boolean(SERVICE_ACCOUNT) || pushConfigured(),fcmConfigured:Boolean(SERVICE_ACCOUNT),firebaseProject:SERVICE_ACCOUNT?.project_id || null,totalUsers,registeredUsers:registeredUsers.length,registeredDevices,fcmDevices,transport:"Firebase Cloud Messaging + Web Push"});
+      if (totalUsers === null) {
+        totalUsers = await d.collection("app_users").countDocuments();
+        totalUsersSource = "observed_signed_in_sessions";
+      }
+      return send(res,200,{
+        configured:pushConfigured(),
+        firebaseAdminConfigured:Boolean(SERVICE_ACCOUNT),
+        firebaseProject:SERVICE_ACCOUNT?.project_id || null,
+        totalUsers,totalUsersSource,
+        registeredUsers:registeredUsers.length,
+        registeredDevices,
+        unifiedPushDevices:registeredDevices,
+        transport:"UnifiedPush Web Push"
+      });
     }
     if (req.method === "POST" && url.pathname === "/api/push/send") {
       const input = await body(req);
       const title = String(input.title || "").trim().slice(0,100);
       const message = String(input.message || input.body || "").trim().slice(0,2000);
       if (!title || !message) return send(res,400,{error:"Title and message are required"});
-      if (!SERVICE_ACCOUNT && !pushConfigured()) return send(res,503,{error:"Push delivery is not configured. Connect Firebase Admin credentials or configure Web Push keys."});
+      if (!pushConfigured()) return send(res,503,{error:"UnifiedPush delivery is not configured. Add WEB_PUSH_PUBLIC_KEY and WEB_PUSH_PRIVATE_KEY to the Render service."});
       const targetUids = Array.isArray(input.targetUids) ? [...new Set(input.targetUids.map(x=>String(x).trim()).filter(Boolean))].slice(0,500) : [];
       if (input.audience === "selected" && !targetUids.length) return send(res,400,{error:"Select at least one valid user UID"});
-      const filter = {enabled:true,$or:[{fcmToken:{$type:"string"}},{endpoint:{$type:"string"}}],... (input.audience === "selected" ? {uid:{$in:targetUids}} : {})};
+      const filter = {
+        enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"},"keys.auth":{$type:"string"},
+        ...(input.audience === "selected" ? {uid:{$in:targetUids}} : {})
+      };
       const rows = await d.collection("push_devices").find(filter).toArray();
       const campaignId = crypto.randomUUID();
-      const campaign = {campaignId,title,message,audience:input.audience === "selected" ? "selected" : "all",targetUids,priority:input.priority === "important" ? "high" : "normal",actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl).slice(0,400) : "",createdAt:new Date(),deviceCount:rows.length,status:"sending"};
+      const campaign = {
+        campaignId,title,message,
+        audience:input.audience === "selected" ? "selected" : "all",
+        targetUids,
+        priority:input.priority === "important" ? "high" : "normal",
+        actionUrl:String(input.actionUrl || "").startsWith("https://") ? String(input.actionUrl).slice(0,400) : "",
+        createdAt:new Date(),deviceCount:rows.length,status:"sending",sent:0,failed:0
+      };
       await d.collection("notification_campaigns").insertOne(campaign);
       let sent = 0, failed = 0;
       for (const device of rows) {
-        const notification = {title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl.slice(0,400),priority:campaign.priority};
+        const notification = {title,body:message.slice(0,700),campaignId,actionUrl:campaign.actionUrl,priority:campaign.priority};
         try {
-          if (device.fcmToken) {
-            if (!SERVICE_ACCOUNT) throw new Error("Firebase Cloud Messaging is not configured");
-            await getMessaging().send({token:device.fcmToken,notification:{title,body:notification.body},data:{campaignId,actionUrl:notification.actionUrl,priority:notification.priority}});
-          } else if (device.endpoint && device.keys && pushConfigured()) {
-            await webpush.sendNotification({endpoint:device.endpoint,keys:device.keys},JSON.stringify(notification),{TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"});
-          } else { throw new Error("Device has no supported push transport"); }
+          await webpush.sendNotification(
+            {endpoint:device.endpoint,keys:device.keys},
+            JSON.stringify(notification),
+            {TTL:86400,urgency:campaign.priority === "high" ? "high" : "normal"}
+          );
           sent++;
           await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"sent"});
-          if (SERVICE_ACCOUNT && device.uid) {
-            try { await getFirestore().collection("users").doc(device.uid).collection("notifications").add({title:notification.title,body:notification.body,read:false,createdAt:new Date(),campaignId,actionUrl:notification.actionUrl}); }
-            catch (firestoreError) { console.error("push_inbox_write_failed",firestoreError.message); }
-          }
         } catch (error) {
           failed++;
-          const code = String(error.code || "");
           const status = Number(error.statusCode || 0);
-          if (status === 404 || status === 410 || code.includes("registration-token-not-registered") || code.includes("invalid-registration-token")) await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
+          if (status === 404 || status === 410) {
+            await d.collection("push_devices").updateOne({_id:device._id},{$set:{enabled:false,disabledAt:new Date()}});
+          }
           await d.collection("notifications").insertOne({uid:device.uid,...notification,read:false,createdAt:new Date(),deliveryStatus:"failed",deliveryError:String(error.message || "Delivery failed").slice(0,300)});
         }
       }
-      await d.collection("notification_campaigns").updateOne({campaignId},{$set:{status:"sent",sent,failed,completedAt:new Date()}});
+      await d.collection("notification_campaigns").updateOne({campaignId},{$set:{status:"completed",sent,failed,completedAt:new Date()}});
       await d.collection("admin_audit_logs").insertOne({action:"push.sent",campaignId,sent,failed,createdAt:new Date()});
-      return send(res,200,{configured:true,sent,failed,devices:rows.length,campaignId});
+      return send(res,200,{configured:true,transport:"UnifiedPush",sent,failed,devices:rows.length,campaignId});
+    }
+    if (req.method === "GET" && url.pathname === "/api/analytics/summary") {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const [totalUsers,activeUsers24h,registeredDevices,registeredUsers,pushSent24h,pushFailed24h,hourlyRows] = await Promise.all([
+        d.collection("app_users").countDocuments(),
+        d.collection("app_users").countDocuments({lastSeenAt:{$gte:since}}),
+        d.collection("push_devices").countDocuments({enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}),
+        d.collection("push_devices").distinct("uid",{enabled:true,endpoint:{$type:"string"},"keys.p256dh":{$type:"string"}}),
+        d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$sent",0]}}}}]).toArray(),
+        d.collection("notification_campaigns").aggregate([{$match:{createdAt:{$gte:since}}},{$group:{_id:null,total:{$sum:{$ifNull:["$failed",0]}}}}]).toArray(),
+        d.collection("admin_events").aggregate([
+          {$match:{createdAt:{$gte:since}}},
+          {$group:{_id:{$dateToString:{format:"%Y-%m-%dT%H:00:00.000Z",date:"$createdAt"}},events:{$sum:1}}},
+          {$sort:{_id:1}}
+        ]).toArray()
+      ]);
+      const counts = new Map(hourlyRows.map(row=>[row._id,row.events]));
+      const hourlyEvents = Array.from({length:24},(_,index)=>{
+        const hour = new Date(Date.now() - (23-index)*60*60*1000);
+        hour.setUTCMinutes(0,0,0);
+        const key = hour.toISOString().slice(0,13)+":00:00.000Z";
+        return {hour:key,events:counts.get(key)||0};
+      });
+      return send(res,200,{
+        totalUsers,activeUsers24h,registeredDevices,registeredUsers:registeredUsers.length,
+        pushSent24h:pushSent24h[0]?.total||0,pushFailed24h:pushFailed24h[0]?.total||0,hourlyEvents
+      });
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/devices") {
+      const devices = await d.collection("push_devices").find({}).sort({updatedAt:-1}).limit(100).toArray();
+      return send(res,200,{devices:devices.map(device=>({
+        uid:device.uid,platform:device.platform||"android",transport:"UnifiedPush",
+        enabled:device.enabled===true,createdAt:device.createdAt||null,
+        updatedAt:device.updatedAt||null,lastSeenAt:device.lastSeenAt||null
+      }))});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/campaigns") {
+      const campaigns = await d.collection("notification_campaigns").find({}).sort({createdAt:-1}).limit(50).toArray();
+      return send(res,200,{campaigns:campaigns.map(({_id,...campaign})=>campaign)});
+    }
+    if (req.method === "GET" && url.pathname === "/api/admin/audit") {
+      const entries = await d.collection("admin_audit_logs").find({}).sort({createdAt:-1}).limit(100).toArray();
+      return send(res,200,{entries:entries.map(({_id,...entry})=>entry)});
     }
     if (req.method === "GET" && url.pathname === "/api/overview") {
       const [announcements, events, config] = await Promise.all([
