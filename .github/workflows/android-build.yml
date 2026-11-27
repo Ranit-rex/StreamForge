@@ -1,4 +1,4 @@
-name: Android APK build
+name: CastDoo Beta and Stable builds
 on:
   workflow_dispatch:
   push:
@@ -14,11 +14,11 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: castdoo-android-signing
+  group: castdoo-build-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  android-apks:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,61 +66,76 @@ jobs:
           BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER - 114))
           if [ "$BUILD_NUMBER" -lt 1073 ]; then BUILD_NUMBER=1073; fi
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-      - name: Build Stable, Beta and Admin APKs
-        run: gradle --no-daemon --stacktrace :android:assembleStableDebug :android:assembleBetaDebug :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
-      - name: Name and verify APKs
+      - name: Build Beta and Admin APKs
+        if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
+        run: gradle --no-daemon --stacktrace :android:assembleBetaDebug :admin:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+      - name: Build Stable APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
+        run: gradle --no-daemon --stacktrace :android:assembleStableDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
+      - name: Name and verify Beta and Admin APKs
+        if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
         shell: bash
         run: |
           set -euo pipefail
-          STABLE="android/build/outputs/apk/stable/debug"
           BETA="android/build/outputs/apk/beta/debug"
           ADMIN="admin/build/outputs/apk/debug"
-          STABLE_APK="$(find "$STABLE" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           BETA_APK="$(find "$BETA" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           ADMIN_APK="$(find "$ADMIN" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-          test -n "$STABLE_APK" && test -n "$BETA_APK" && test -n "$ADMIN_APK"
-          mv "$STABLE_APK" "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
+          test -n "$BETA_APK" && test -n "$ADMIN_APK"
           mv "$BETA_APK" "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk"
           mv "$ADMIN_APK" "$ADMIN/CastDoo-Admin-build-${BUILD_NUMBER}.apk"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          for APK in "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk" "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk"; do
-            SIGNER_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1)"
-            echo "$SIGNER_OUTPUT"
-            echo "$SIGNER_OUTPUT" | grep -qi "certificate SHA-1 digest: 660c3627e118939405591df55a92cc9c3fa0b322"
-            "$AAPT" dump badging "$APK" | grep -F "package: name='com.castdoo.app'"
-          done
+          SIGNER_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk" 2>&1)"
+          echo "$SIGNER_OUTPUT"
+          echo "$SIGNER_OUTPUT" | grep -qi "certificate SHA-1 digest: 660c3627e118939405591df55a92cc9c3fa0b322"
+          "$AAPT" dump badging "$BETA/CastDoo-Beta-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
           "$AAPT" dump badging "$ADMIN/CastDoo-Admin-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.admin'"
+      - name: Name and verify Stable APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STABLE="android/build/outputs/apk/stable/debug"
+          APK="$(find "$STABLE" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          mv "$APK" "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          SIGNER_OUTPUT="$("$APKSIGNER" verify --verbose --print-certs "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk" 2>&1)"
+          echo "$SIGNER_OUTPUT"
+          echo "$SIGNER_OUTPUT" | grep -qi "certificate SHA-1 digest: 660c3627e118939405591df55a92cc9c3fa0b322"
+          "$AAPT" dump badging "$STABLE/CastDoo-Stable-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
       - name: Save stable debug signing key
         if: steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.android/debug.keystore
           key: streamforge-debug-signing-v1
-      - name: Check Cloud Functions TypeScript
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
       - name: Build Cloud Functions
-        working-directory: functions
+        shell: bash
         run: |
+          cd functions
           npm install --no-audit --no-fund
           npm run build
-      - name: Upload Stable APK
-        uses: actions/upload-artifact@v7
-        with:
-          path: android/build/outputs/apk/stable/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
-          archive: false
-          retention-days: 14
       - name: Upload Beta APK
+        if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
         uses: actions/upload-artifact@v7
         with:
           path: android/build/outputs/apk/beta/debug/CastDoo-Beta-build-${{ env.BUILD_NUMBER }}.apk
           archive: false
           retention-days: 14
       - name: Upload Admin APK
+        if: github.ref == 'refs/heads/feature/castdoo-admin-beta-platform'
         uses: actions/upload-artifact@v7
         with:
           path: admin/build/outputs/apk/debug/CastDoo-Admin-build-${{ env.BUILD_NUMBER }}.apk
+          archive: false
+          retention-days: 14
+      - name: Upload Stable APK
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/castdoo-auth-foundation'
+        uses: actions/upload-artifact@v7
+        with:
+          path: android/build/outputs/apk/stable/debug/CastDoo-Stable-build-${{ env.BUILD_NUMBER }}.apk
           archive: false
           retention-days: 14
