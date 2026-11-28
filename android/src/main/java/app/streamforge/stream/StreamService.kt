@@ -522,7 +522,22 @@ class StreamService : Service(), ConnectChecker {
         val raw = sceneJsonOverride ?: prefs.getString("scenes", "[]").orEmpty()
         val scenes = runCatching { org.json.JSONArray(raw) }.getOrNull()
         if (scenes == null || scenes.length() == 0) {
-            filter.setSceneOverlayBitmap(null)
+            if (privacyModeEnabled) {
+                val scale = minOf(1f, 1920f / activeStreamWidth.coerceAtLeast(1), 1080f / activeStreamHeight.coerceAtLeast(1))
+                val width = (activeStreamWidth * scale).toInt().coerceAtLeast(320)
+                val height = (activeStreamHeight * scale).toInt().coerceAtLeast(180)
+                val slate = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(slate)
+                canvas.drawColor(AndroidColor.rgb(8, 13, 22))
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = AndroidColor.WHITE
+                    textAlign = Paint.Align.CENTER
+                    typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                    textSize = (width * .065f).coerceIn(34f, 88f)
+                }
+                canvas.drawText("BE RIGHT BACK", width / 2f, height / 2f, paint)
+                filter.setSceneOverlayBitmap(slate)
+            } else filter.setSceneOverlayBitmap(null)
             return
         }
         val safeIndex = sceneIndex.coerceIn(0, scenes.length() - 1)
@@ -1161,18 +1176,25 @@ class StreamService : Service(), ConnectChecker {
     private fun toggleMicrophone() {
         val muted = !microphoneMuted.value
         val activeStream = stream
-        if (activeStream != null) {
-            runCatching {
-                val mix = mixedAudioSource
-                if (mix != null) {
-                    mix.microphoneVolume = if (muted) 0f else microphoneGain.value
-                } else {
-                    if (muted) activeStream.changeAudioSource(SilenceAudioSource())
-                    else activeStream.changeAudioSource(microphoneSource)
-                }
-            }.onFailure { status.value = "Microphone toggle failed: ${it.message ?: "audio source error"}" }
+        if (activeStream == null) {
+            status.value = "Microphone control is available while recording or live"
+            return
+        }
+        val changed = runCatching {
+            val mix = mixedAudioSource
+            if (mix != null) {
+                mix.microphoneVolume = if (muted) 0f else microphoneGain.value
+            } else {
+                if (muted) activeStream.changeAudioSource(SilenceAudioSource())
+                else activeStream.changeAudioSource(microphoneSource)
+            }
+        }
+        if (changed.isFailure) {
+            status.value = "Microphone toggle failed: ${changed.exceptionOrNull()?.message ?: "audio source error"}"
+            return
         }
         microphoneMuted.value = muted
+        status.value = if (muted) "Microphone muted" else "Microphone unmuted"
         overlayRoot?.let { updateOverlayLabels(it) }
     }
 
@@ -1343,7 +1365,7 @@ class StreamService : Service(), ConnectChecker {
             }
             val body = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(2), dp(2), dp(3), dp(12))
+                setPadding(dp(2), dp(1), dp(2), dp(4))
             }
             scroll.addView(body, android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1398,7 +1420,7 @@ class StreamService : Service(), ConnectChecker {
         val statusPage = addPage("Status")
         val timer = label("00:00:00", 29f, AndroidColor.WHITE, true).apply {
             gravity = Gravity.START
-            setPadding(dp(2), dp(9), 0, dp(2))
+            setPadding(dp(2), dp(3), 0, dp(1))
         }
         overlayTimerLabel = timer
         statusPage.addView(timer)
@@ -1418,14 +1440,14 @@ class StreamService : Service(), ConnectChecker {
             @Suppress("DEPRECATION")
             (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.refreshRate.toInt().coerceAtLeast(1)
         }.getOrDefault(0)
-        metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(66), 1f).apply { marginEnd = dp(5) })
-        metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(66), 1f).apply { marginEnd = dp(5) })
+        metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
+        metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
         metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(66), 1f))
         statusPage.addView(metricRow)
 
         val stats = label("", 10f, 0xFFE0EAF0.toInt()).apply {
             background = glass(0x442E3C47, 13, 0x33FFFFFF)
-            setPadding(dp(9), dp(10), dp(9), dp(10))
+            setPadding(dp(7), dp(5), dp(7), dp(5))
             gravity = Gravity.START
         }
         overlayStatsLabel = stats
@@ -1646,9 +1668,11 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
-        val panelWidth = (screenWidthDp - 28).coerceIn(340, 760)
+        val panelWidth = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+            (screenWidthDp * 0.64f).toInt().coerceIn(420, 900)
+        } else (screenWidthDp - 24).coerceIn(320, 520)
         val panelParams = WindowManager.LayoutParams(
-            dp(panelWidth), dp(500),
+            dp(panelWidth), if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) dp(360) else dp(500),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
