@@ -50,6 +50,8 @@ import com.pedro.encoder.input.sources.audio.SilenceAudioSource
 import com.pedro.encoder.input.sources.video.NoVideoSource
 import com.pedro.encoder.input.sources.video.ScreenSource
 import com.pedro.library.generic.GenericStream
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
@@ -1163,6 +1165,7 @@ class StreamService : Service(), ConnectChecker {
     }
 
     private var overlayPanel: LinearLayout? = null
+    private var overlayPartyNameLabel: TextView? = null
 
     /**
      * Shared CastDoo floating console for both LIVE and local recording.
@@ -1176,232 +1179,396 @@ class StreamService : Service(), ConnectChecker {
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
-        fun surface(color: Int, radius: Int, stroke: Int = 0) = GradientDrawable().apply {
+        fun glass(color: Int, radius: Int, stroke: Int = 0x55FFFFFF) = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
             if (stroke != 0) setStroke(dp(1), stroke)
         }
-        fun text(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
+        fun label(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
             TextView(this).apply {
-                this.text = value
+                text = value
                 textSize = size
                 setTextColor(color)
-                if (bold) typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setPadding(dp(5), dp(4), dp(5), dp(4))
                 includeFontPadding = false
             }
-        fun action(value: String, tint: Int = 0xFF29343D.toInt(), onClick: () -> Unit) =
-            text(value, 11f, AndroidColor.WHITE, true).apply {
-                background = surface(tint, 12, 0xFF3B4A53.toInt())
-                minHeight = dp(46)
-                setOnClickListener { onClick() }
-            }
-        fun sectionTitle(value: String) = text(value, 10f, 0xFF9EADB7.toInt(), true).apply {
+        fun heading(value: String) = label(value, 10f, 0xFF9EABB9.toInt(), true).apply {
             gravity = Gravity.START
-            letterSpacing = 0.10f
-            setPadding(dp(2), dp(12), dp(2), dp(6))
+            letterSpacing = 0.08f
+            setPadding(dp(2), dp(11), dp(2), dp(7))
+        }
+        fun action(value: String, tint: Int = 0x443F5362, onClick: () -> Unit) =
+            label(value, 11f, AndroidColor.WHITE, true).apply {
+                background = glass(tint, 13, 0x44FFFFFF)
+                minHeight = dp(44)
+                elevation = dp(5).toFloat()
+                setOnClickListener { isPressed = true; onClick() }
+            }
+        fun row(vararg views: View): LinearLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            views.forEachIndexed { index, view ->
+                addView(view, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    if (index < views.lastIndex) marginEnd = dp(7)
+                })
+            }
+        }
+        fun glassCard(): LinearLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glass(0x442B3540, 16, 0x33FFFFFF)
+            elevation = dp(4).toFloat()
+            setPadding(dp(11), dp(10), dp(11), dp(10))
         }
 
-        val accent = 0xFFFFC928.toInt()
-        val cyan = 0xFF64D9F2.toInt()
-        val liveColor = if (recording.value) accent else 0xFFFF6675.toInt()
+        val accent = 0xFFFFD36A.toInt()
+        val cyan = 0xFF9BE8F5.toInt()
+        val liveColor = if (recording.value) accent else 0xFFFF7E8B.toInt()
 
-        // Compact draggable launcher stays visible while the expanded console is closed.
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = surface(0xF2182027.toInt(), 24, if (recording.value) accent else cyan)
-            elevation = dp(14).toFloat()
+            background = glass(0xE51C2833.toInt(), 23, if (recording.value) 0xAAFFD36A.toInt() else 0xAA9BE8F5.toInt())
+            elevation = dp(18).toFloat()
             setPadding(dp(5), dp(7), dp(5), dp(7))
         }
-        val bubbleMode = text(if (recording.value) "REC" else "LIVE", 10f, liveColor, true)
+        val bubbleMode = label(if (recording.value) "● REC" else "● LIVE", 9f, liveColor, true)
         overlayBubbleMode = bubbleMode
         bubble.addView(bubbleMode)
-        val bubbleTimer = text("00:00", 12f, AndroidColor.WHITE, true)
+        val bubbleTimer = label("00:00", 12f, AndroidColor.WHITE, true)
         overlayBubbleTimer = bubbleTimer
         bubble.addView(bubbleTimer)
         val bubbleParams = WindowManager.LayoutParams(
-            dp(68), dp(68), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            dp(70), dp(70), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(150) }
 
+        // Liquid-glass console: translucent layered surfaces, soft elevation and a compact spatial sidebar.
         val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(13), dp(14), dp(14))
-            background = surface(0xF20D1115.toInt(), 22, 0xFF34434D.toInt())
-            elevation = dp(22).toFloat()
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = glass(0xD91A222B.toInt(), 25, 0x77FFFFFF)
+            elevation = dp(26).toFloat()
             visibility = View.GONE
         }
         overlayPanel = panel
 
-        val scroll = android.widget.ScrollView(this).apply {
-            isFillViewport = true
-            clipToPadding = false
-            setVerticalScrollBarEnabled(false)
-        }
-        val content = LinearLayout(this).apply {
+        val sidebar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(2))
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            background = glass(0x663A4652, 19, 0x33FFFFFF)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
         }
-        scroll.addView(content, android.widget.FrameLayout.LayoutParams(
-            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-        ))
-        panel.addView(scroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
+        panel.addView(sidebar, LinearLayout.LayoutParams(dp(78), LinearLayout.LayoutParams.MATCH_PARENT).apply {
+            marginEnd = dp(9)
+        })
+
+        val main = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glass(0x55232D37, 19, 0x22FFFFFF)
+            setPadding(dp(10), dp(9), dp(10), dp(8))
+        }
+        panel.addView(main, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val titleBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        titleBlock.addView(text("CASTDOO  /  PERFORMANCE", 10f, cyan, true).apply { gravity = Gravity.START; letterSpacing = 0.08f })
-        val mode = text(
+        val headerBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        headerBlock.addView(label("CASTDOO  ·  SPATIAL STUDIO", 9f, cyan, true).apply {
+            gravity = Gravity.START; letterSpacing = 0.08f
+        })
+        val mode = label(
             if (streaming.value && recording.value) "Live + recording"
-            else if (recording.value) "Local recording"
-            else "Live stream",
-            17f, AndroidColor.WHITE, true
-        ).apply { gravity = Gravity.START; setPadding(dp(2), dp(4), 0, 0) }
+            else if (recording.value) "Local recording" else "Live session",
+            16f, AndroidColor.WHITE, true
+        ).apply { gravity = Gravity.START; setPadding(dp(1), dp(4), 0, 0) }
         overlayModeLabel = mode
-        titleBlock.addView(mode)
-        header.addView(titleBlock, LinearLayout.LayoutParams(0, dp(48), 1f))
-        val close = text("×", 25f, 0xFFDDE6F5.toInt(), true).apply {
-            background = surface(0xFF252E35.toInt(), 12)
+        headerBlock.addView(mode)
+        header.addView(headerBlock, LinearLayout.LayoutParams(0, dp(44), 1f))
+        val close = label("×", 23f, 0xFFE7F4FA.toInt(), true).apply {
+            background = glass(0x553D4A55, 13, 0x55FFFFFF)
             setOnClickListener { panel.visibility = View.GONE }
         }
-        header.addView(close, LinearLayout.LayoutParams(dp(42), dp(42)))
-        content.addView(header)
+        header.addView(close, LinearLayout.LayoutParams(dp(36), dp(36)))
+        main.addView(header)
 
-        val timer = text("00:00:00", 29f, AndroidColor.WHITE, true).apply {
-            setPadding(0, dp(13), 0, dp(3))
+        val pageHost = android.widget.FrameLayout(this)
+        main.addView(pageHost, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+        ).apply { topMargin = dp(5) })
+
+        val pageNames = listOf("Status", "Party", "Scene", "Settings", "More")
+        val pageIcons = listOf("◉", "♧", "▧", "⚙", "···")
+        val pages = linkedMapOf<String, LinearLayout>()
+        val navButtons = linkedMapOf<String, TextView>()
+        var activePage = "Status"
+
+        fun addPage(name: String): LinearLayout {
+            val scroll = android.widget.ScrollView(this).apply {
+                isFillViewport = true
+                clipToPadding = false
+                setVerticalScrollBarEnabled(false)
+                visibility = View.GONE
+            }
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(2), dp(3), dp(12))
+            }
+            scroll.addView(body, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+            ))
+            pageHost.addView(scroll, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            pages[name] = body
+            return body
+        }
+        fun showPage(name: String) {
+            activePage = name
+            pages.keys.forEach { key ->
+                val page = pages[key]
+                (page?.parent as? View)?.visibility = if (key == name) View.VISIBLE else View.GONE
+            }
+            navButtons.forEach { (key, button) ->
+                button.background = glass(
+                    if (key == name) 0x667B9EAA else 0x222D3944,
+                    13,
+                    if (key == name) 0x88B8F1F8.toInt() else 0x00FFFFFF
+                )
+                button.setTextColor(if (key == name) cyan else 0xFFB5C2CB.toInt())
+                button.elevation = if (key == name) dp(7).toFloat() else 0f
+            }
+        }
+
+        sidebar.addView(label("CD", 17f, cyan, true).apply {
+            background = glass(0x664D6876, 14, 0x66FFFFFF)
+        }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { bottomMargin = dp(12) })
+        pageNames.forEachIndexed { index, name ->
+            val nav = label("${pageIcons[index]}\n$name", 9f, 0xFFB5C2CB.toInt(), true).apply {
+                background = glass(0x222D3944, 13, 0)
+                minHeight = dp(53)
+                setOnClickListener { showPage(name) }
+            }
+            navButtons[name] = nav
+            sidebar.addView(nav, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56)
+            ).apply { bottomMargin = dp(5) })
+        }
+        sidebar.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        sidebar.addView(label("●", 12f, if (recording.value) accent else 0xFFFF7E8B.toInt(), true))
+
+        val statusPage = addPage("Status")
+        val timer = label("00:00:00", 29f, AndroidColor.WHITE, true).apply {
+            gravity = Gravity.START
+            setPadding(dp(2), dp(9), 0, dp(2))
         }
         overlayTimerLabel = timer
-        content.addView(timer)
-        val timerCaption = text("SESSION DURATION", 9f, 0xFF9EADB7.toInt(), true)
-        content.addView(timerCaption)
-
+        statusPage.addView(timer)
+        statusPage.addView(label("SESSION DURATION", 9f, 0xFF9EABB9.toInt(), true).apply { gravity = Gravity.START })
         val metricRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(13), 0, dp(10))
+            setPadding(0, dp(11), 0, dp(8))
         }
         fun metric(caption: String, value: String, tint: Int): LinearLayout {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                background = surface(0xFF20282E.toInt(), 15)
-                setPadding(dp(4), dp(11), dp(4), dp(10))
-            }
-            card.addView(text(value, 16f, tint, true))
-            card.addView(text(caption, 9f, 0xFF9EADB7.toInt()))
+            val card = glassCard().apply { gravity = Gravity.CENTER }
+            card.addView(label(value, 16f, tint, true))
+            card.addView(label(caption, 9f, 0xFF9EABB9.toInt()))
             return card
         }
         val refreshRate = runCatching {
             @Suppress("DEPRECATION")
             (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.refreshRate.toInt().coerceAtLeast(1)
         }.getOrDefault(0)
-        metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(68), 1f).apply { marginEnd = dp(6) })
-        metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(68), 1f).apply { marginEnd = dp(6) })
-        metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(68), 1f))
-        content.addView(metricRow)
+        metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(66), 1f).apply { marginEnd = dp(5) })
+        metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(66), 1f).apply { marginEnd = dp(5) })
+        metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(66), 1f))
+        statusPage.addView(metricRow)
 
-        val stats = text("", 10f, 0xFFD0D9DF.toInt()).apply {
-            background = surface(0xFF20282E.toInt(), 11)
+        val stats = label("", 10f, 0xFFE0EAF0.toInt()).apply {
+            background = glass(0x442E3C47, 13, 0x33FFFFFF)
             setPadding(dp(9), dp(10), dp(9), dp(10))
+            gravity = Gravity.START
         }
         overlayStatsLabel = stats
-        content.addView(stats)
-
+        statusPage.addView(stats)
         val batteryPct = runCatching {
-            val bm = getSystemService(android.os.BatteryManager::class.java)
-            bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            getSystemService(android.os.BatteryManager::class.java)
+                ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 ?.takeIf { it in 0..100 }?.let { "$it%" } ?: "—"
         }.getOrDefault("—")
-        val network = text("NETWORK  ·  ${networkHealth.value}     BATTERY  ·  $batteryPct", 10f, 0xFFB9C8D4.toInt()).apply {
-            gravity = Gravity.START
-            setPadding(dp(3), dp(10), dp(3), dp(2))
-            maxLines = 2
-        }
-        content.addView(network)
-
-        content.addView(sectionTitle("QUICK CONTROLS"))
-        fun controlRow(vararg views: View) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-            }
-            views.forEachIndexed { index, view ->
-                row.addView(view, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-                    if (index < views.lastIndex) marginEnd = dp(7)
-                })
-            }
-            content.addView(row)
-        }
-
-        val pause = action(if (recordingPaused.value) "▶  RESUME" else "Ⅱ  PAUSE", 0xFF254B57.toInt()) {
+        statusPage.addView(label("NETWORK  ·  ${networkHealth.value}\nBATTERY  ·  $batteryPct", 10f, 0xFFB9C8D4.toInt()).apply {
+            gravity = Gravity.START; setPadding(dp(3), dp(9), 0, dp(3))
+        })
+        statusPage.addView(heading("Quick controls"))
+        val pause = action(if (recordingPaused.value) "▶  Resume" else "Ⅱ  Pause", 0x554B7681) {
             if (recording.value) toggleRecordingPause()
         }.apply { visibility = if (recording.value) View.VISIBLE else View.GONE }
         overlayPauseLabel = pause
-        val screenshot = action("▣  SCREENSHOT") { saveOverlayScreenshot() }
-        controlRow(pause, screenshot)
-
-        val scene = action("SCENE  ↻") {
-            val prefs = getSharedPreferences("streamforge_studio", 0)
-            val scenes = runCatching { org.json.JSONArray(prefs.getString("scenes", "[]").orEmpty()) }.getOrNull()
+        val screenshot = action("▣  Screenshot") { saveOverlayScreenshot() }
+        statusPage.addView(row(pause, screenshot))
+        val sceneQuick = action("▧  Next scene") {
+            val scenes = runCatching { org.json.JSONArray(getSharedPreferences("streamforge_studio", 0).getString("scenes", "[]").orEmpty()) }.getOrNull()
             val count = scenes?.length() ?: 0
             if (count > 0) {
                 val next = (activeSceneIndex + 1) % count
-                prefs.edit().putInt("active_scene", next).apply()
                 applyScene(next)
+                getSharedPreferences("streamforge_studio", 0).edit().putInt("active_scene", next).apply()
                 status.value = "Scene ${next + 1} applied"
-            } else status.value = "No scenes available"
+            } else status.value = "No scenes saved yet"
         }
-        val mic = action(if (microphoneMuted.value) "MIC  OFF" else "MIC  ON") { toggleMicrophone() }
-        overlayMicLabel = mic
-        controlRow(scene, mic)
-
-        val chatFeed = text("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
+        val micQuick = action(if (microphoneMuted.value) "Mic off" else "Mic on") { toggleMicrophone() }
+        overlayMicLabel = micQuick
+        statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
+        val chatFeed = label("Connect a chat source in the Chat tab.", 10f, 0xFFE0EAF0.toInt()).apply {
             gravity = Gravity.START
             maxLines = 4
             visibility = View.GONE
-            background = surface(0xFF20282E.toInt(), 11)
-            setPadding(dp(10), dp(9), dp(10), dp(9))
+            background = glass(0x44303D48, 13, 0x33FFFFFF)
+            setPadding(dp(9), dp(9), dp(9), dp(9))
         }
         overlayChatText = chatFeed
-        content.addView(chatFeed, LinearLayout.LayoutParams(
+        statusPage.addView(chatFeed, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(8) })
-
-        val chat = action("CHAT  ▾") {
+        val chatAction = action("Chat preview  ▾") {
             chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
-            chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
             panel.requestLayout()
         }
-        val stop = action(if (recording.value) "STOP RECORDING" else "END LIVE", 0xFF7A303B.toInt()) {
+        val stop = action(if (recording.value) "Stop recording" else "End live", 0x667B3944) {
             if (recording.value) stopRecording() else stopStream("Stream stopped")
         }
-        controlRow(chat, stop)
+        statusPage.addView(row(chatAction, stop).apply { setPadding(0, dp(7), 0, 0) })
 
-        content.addView(text(
-            "Drag the CastDoo bubble to move it. Tap it to open controls.",
-            9f, 0xFF82919B.toInt()
-        ).apply { setPadding(dp(2), dp(12), dp(2), dp(2)) })
+        val partyPage = addPage("Party")
+        partyPage.addView(heading("Your CastDoo identity"))
+        val partyCard = glassCard()
+        val user = FirebaseAuth.getInstance().currentUser
+        val fallbackName = user?.displayName?.takeIf { it.isNotBlank() }
+            ?: user?.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+            ?: "CastDoo member"
+        val partyName = label(fallbackName, 17f, AndroidColor.WHITE, true).apply { gravity = Gravity.START }
+        overlayPartyNameLabel = partyName
+        partyCard.addView(partyName)
+        val partyEmail = label(user?.email ?: "Signed-in Firebase account", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START }
+        partyCard.addView(partyEmail)
+        partyPage.addView(partyCard)
+        partyPage.addView(heading("Voice and chat"))
+        partyPage.addView(row(
+            action(if (microphoneMuted.value) "Mic off" else "Mic on", 0x554B7681) { toggleMicrophone() },
+            action("Open chat preview") {
+                showPage("Status")
+                chatFeed.visibility = View.VISIBLE
+                chatFeed.text = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n").ifBlank { YouTubeLiveChat.connectionState.value }
+            }
+        ))
+        partyPage.addView(heading("Session presence"))
+        partyPage.addView(glassCard().apply {
+            addView(label(if (streaming.value) "You are live" else "Local recording session", 13f, cyan, true).apply { gravity = Gravity.START })
+            addView(label("Your Firebase sign-in name is shown above. Party identity follows your CastDoo account.", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START; setPadding(0, dp(5), 0, 0) })
+        })
+
+        val scenePage = addPage("Scene")
+        scenePage.addView(heading("Your scenes"))
+        val scenePrefs = getSharedPreferences("streamforge_studio", 0)
+        val sceneArray = runCatching { org.json.JSONArray(scenePrefs.getString("scenes", "[]").orEmpty()) }.getOrNull()
+        val sceneCount = sceneArray?.length() ?: 0
+        if (sceneCount == 0) {
+            scenePage.addView(glassCard().apply {
+                addView(label("No saved scenes yet", 13f, AndroidColor.WHITE, true).apply { gravity = Gravity.START })
+                addView(label("Create scenes in Studio and they will appear here.", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START })
+            })
+        } else {
+            for (i in 0 until sceneCount) {
+                val sceneObject = sceneArray?.optJSONObject(i)
+                val sceneName = sceneObject?.optString("name")?.takeIf { it.isNotBlank() } ?: "Scene ${i + 1}"
+                scenePage.addView(action(
+                    "${if (i == activeSceneIndex) "●  " else ""}$sceneName",
+                    if (i == activeSceneIndex) 0x665E8792 else 0x44303D48
+                ) {
+                    activeSceneIndex = i
+                    scenePrefs.edit().putInt("active_scene", i).apply()
+                    applyScene(i)
+                    status.value = "$sceneName applied"
+                    showPage("Scene")
+                }.apply { gravity = Gravity.START })
+            }
+        }
+
+        val settingsPage = addPage("Settings")
+        settingsPage.addView(heading("Capture settings"))
+        settingsPage.addView(glassCard().apply {
+            addView(label("Output  ·  ${streamResolution.value}", 12f, AndroidColor.WHITE, true).apply { gravity = Gravity.START })
+            addView(label("Frame rate  ·  ${streamFps.value} FPS", 11f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START; setPadding(0, dp(5), 0, 0) })
+            addView(label("Bitrate  ·  ${bitrateKbps.value} kbps", 11f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START; setPadding(0, dp(5), 0, 0) })
+        })
+        settingsPage.addView(heading("Audio"))
+        settingsPage.addView(action(if (microphoneMuted.value) "Enable microphone" else "Mute microphone", 0x554B7681) { toggleMicrophone() })
+        settingsPage.addView(heading("Overlay"))
+        settingsPage.addView(glassCard().apply {
+            addView(label("Liquid glass · spatial controls", 12f, cyan, true).apply { gravity = Gravity.START })
+            addView(label("Drag the floating CastDoo capsule anywhere. Tap it to open this panel.", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START; setPadding(0, dp(5), 0, 0) })
+        })
+
+        val morePage = addPage("More")
+        morePage.addView(heading("More tools"))
+        morePage.addView(row(
+            action("▣  Screenshot") { saveOverlayScreenshot() },
+            action("Chat preview") {
+                showPage("Status")
+                chatFeed.visibility = View.VISIBLE
+            }
+        ))
+        morePage.addView(heading("Session actions"))
+        morePage.addView(action(if (recording.value) "Stop recording and save" else "End live session", 0x667B3944) {
+            if (recording.value) stopRecording() else stopStream("Stream stopped")
+        })
+        morePage.addView(action("Hide controls", 0x44303D48) { panel.visibility = View.GONE })
+
+        pageNames.forEach { name ->
+            val nav = navButtons[name]
+            nav?.setOnClickListener { showPage(name) }
+        }
+        showPage("Status")
+
+        // Firebase profile name is resolved from the signed-in account, then the user's Firestore profile.
+        user?.uid?.let { uid ->
+            runCatching {
+                FirebaseFirestore.getInstance().collection("users").document(uid).get()
+                    .addOnSuccessListener { doc ->
+                        val name = listOf("displayName", "username", "name")
+                            .firstNotNullOfOrNull { key -> doc.getString(key)?.takeIf { it.isNotBlank() } }
+                            ?: FirebaseAuth.getInstance().currentUser?.displayName
+                            ?: fallbackName
+                        overlayPartyNameLabel?.text = name
+                    }
+            }
+        }
 
         val panelParams = WindowManager.LayoutParams(
-            dp(310), WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(370), dp(440),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(74) }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = bubbleParams.x
+            y = bubbleParams.y + dp(74)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                setBlurBehindRadius(dp(24))
+            }
+        }
 
         fun positionPanelWithBubble() {
             val screenHeight = resources.displayMetrics.heightPixels
-            val maxPanelHeight = (screenHeight - dp(32)).coerceAtLeast(dp(260))
-            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(430), maxPanelHeight)
+            val maxPanelHeight = (screenHeight - dp(32)).coerceAtLeast(dp(280))
+            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(440), maxPanelHeight)
             panelParams.x = bubbleParams.x
             val below = bubbleParams.y + dp(74)
             panelParams.y = if (below + panelParams.height <= screenHeight - dp(12)) below
@@ -1435,7 +1602,7 @@ class StreamService : Service(), ConnectChecker {
                         val dy = (event.rawY - ty).toInt()
                         if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(5)) dragged = true
                         bubbleParams.x = (sx - dx).coerceAtLeast(0)
-                        bubbleParams.y = (sy + dy).coerceAtLeast(0)
+                        bubbleParams.y = (sy + dy).toInt().coerceAtLeast(0)
                         runCatching { manager.updateViewLayout(bubble, bubbleParams) }
                         positionPanelWithBubble()
                         return true
@@ -1518,6 +1685,7 @@ class StreamService : Service(), ConnectChecker {
         overlayPauseLabel = null
         overlayBubbleTimer = null
         overlayBubbleMode = null
+        overlayPartyNameLabel = null
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
