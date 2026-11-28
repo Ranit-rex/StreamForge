@@ -195,7 +195,8 @@ class StreamService : Service(), ConnectChecker {
             overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
             overlayBubbleMode?.text = if (recording.value) "● REC" else "● LIVE"
             overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
-            overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
+            overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF · TAP TO CONFIGURE" else "MIC ON · TAP TO CONFIGURE"
+        overlayMicMuteAction?.text = if (microphoneMuted.value) "Unmute microphone" else "Mute microphone"
             val recentChat = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
             overlayChatText?.text = if (recentChat.isBlank()) YouTubeLiveChat.connectionState.value else recentChat
             overlayHandler.postDelayed(this, 1000L)
@@ -1177,6 +1178,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var overlayPanel: LinearLayout? = null
     private var overlayPartyNameLabel: TextView? = null
+    private var overlayMicMuteAction: TextView? = null
     @Volatile private var privacyModeEnabled = false
 
     /**
@@ -1216,7 +1218,19 @@ class StreamService : Service(), ConnectChecker {
                 background = glass(tint, 13, 0x44FFFFFF)
                 minHeight = dp(44)
                 elevation = dp(5).toFloat()
-                setOnClickListener { isPressed = true; onClick() }
+                isClickable = true
+                isFocusable = true
+                contentDescription = value
+                setOnClickListener {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                    val idleBackground = background
+                    background = glass(0xAA42616E.toInt(), 13, 0xFF9BE8F5.toInt())
+                    animate().scaleX(0.96f).scaleY(0.96f).setDuration(75).withEndAction {
+                        animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                        postDelayed({ background = idleBackground }, 180)
+                    }.start()
+                    onClick()
+                }
             }
         fun row(vararg views: View): LinearLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1364,7 +1378,12 @@ class StreamService : Service(), ConnectChecker {
             val nav = label("${pageIcons[index]}\n$name", 9f, 0xFFB5C2CB.toInt(), true).apply {
                 background = glass(0x222D3944, 13, 0)
                 minHeight = dp(53)
-                setOnClickListener { showPage(name) }
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                    showPage(name)
+                }
             }
             navButtons[name] = nav
             sidebar.addView(nav, LinearLayout.LayoutParams(
@@ -1452,6 +1471,10 @@ class StreamService : Service(), ConnectChecker {
                 status.value = "Scene ${next + 1} applied"
             } else status.value = "No scenes saved yet"
         }
+        val micMuteAction = action(if (microphoneMuted.value) "Unmute microphone" else "Mute microphone", 0x554B7681) {
+            toggleMicrophone()
+        }
+        overlayMicMuteAction = micMuteAction
         val micSettings = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = glass(0x44303D48, 13, 0x33FFFFFF)
@@ -1471,9 +1494,7 @@ class StreamService : Service(), ConnectChecker {
             })
         }
         micSettings.addView(micGainSlider)
-        micSettings.addView(action(if (microphoneMuted.value) "Unmute microphone" else "Mute microphone", 0x554B7681) {
-            toggleMicrophone()
-        })
+        micSettings.addView(micMuteAction)
         val micQuick = action("Mic settings  ▾") {
             micSettings.visibility = if (micSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             panel.requestLayout()
@@ -1620,7 +1641,7 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
-        val panelWidth = minOf(470, (screenWidthDp - 28).coerceAtLeast(320))
+        val panelWidth = (screenWidthDp - 28).coerceIn(340, 760)
         val panelParams = WindowManager.LayoutParams(
             dp(panelWidth), dp(500),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -1687,7 +1708,7 @@ class StreamService : Service(), ConnectChecker {
             manager.addView(bubble, bubbleParams)
             manager.addView(panel, panelParams)
             overlayRoot = bubble
-            panel.visibility = View.VISIBLE
+            panel.visibility = View.GONE
             overlayHandler.removeCallbacks(overlayTicker)
             overlayHandler.post(overlayTicker)
         }.onFailure {
@@ -1744,6 +1765,7 @@ class StreamService : Service(), ConnectChecker {
         overlayPanel?.let { panel -> runCatching { manager.removeView(panel) } }
         overlayPanel = null
         overlayRoot = null
+        overlayMicMuteAction = null
         overlayExpanded = false
         overlayMicLabel = null
         overlayTimerLabel = null
@@ -1754,6 +1776,7 @@ class StreamService : Service(), ConnectChecker {
         overlayBubbleTimer = null
         overlayBubbleMode = null
         overlayPartyNameLabel = null
+        overlayMicMuteAction = null
         privacyModeEnabled = false
     }
 
