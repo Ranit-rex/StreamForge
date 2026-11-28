@@ -71,7 +71,16 @@ jobs:
           test -n "$APK"
           mv "$APK" "$OUT/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          "$AAPT" dump badging "$OUT/CastDoo-Stable-build-${BUILD_NUMBER}.apk" | grep -F "package: name='com.castdoo.app'"
+          FINAL_APK="$OUT/CastDoo-Stable-build-${BUILD_NUMBER}.apk"
+          "$AAPT" dump badging "$FINAL_APK" | grep -F "package: name='com.castdoo.app'"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$FINAL_APK"
+          CERT_SHA1="$("$APKSIGNER" verify --print-certs "$FINAL_APK" | awk -F': ' '/Signer #1 certificate SHA-1 digest:/{print toupper($2); exit}')"
+          EXPECTED_SHA1="660C3627E118939405591DF55A92CC9C3FA0B322"
+          test "$CERT_SHA1" = "$EXPECTED_SHA1" || { echo "APK signing certificate changed; refusing to publish an incompatible update."; exit 1; }
+          echo "Verified package: com.castdoo.app"
+          echo "Verified stable signing certificate: $CERT_SHA1"
       - name: Save signing key
         if: steps.signing-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
