@@ -1686,28 +1686,36 @@ class StreamService : Service(), ConnectChecker {
         }
 
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
-        val panelWidth = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            (screenWidthDp * 0.70f).toInt().coerceIn(360, 960).coerceAtMost(screenWidthDp - 16)
-        } else (screenWidthDp - 20).coerceIn(320, 540)
+        val screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
+        val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        // Give Studio the broad, side-docked workspace feel of dedicated streaming apps.
+        // Keep a slim edge margin so the game remains visible around the panel.
+        val panelWidth = (screenWidthDp * if (isLandscape) 0.92f else 0.94f)
+            .toInt().coerceAtMost(screenWidthDp - 16).coerceAtLeast(280)
+        val panelHeight = (screenHeightDp * 0.88f)
+            .toInt().coerceAtMost(screenHeightDp - 24).coerceAtLeast(320)
         val panelParams = WindowManager.LayoutParams(
-            dp(panelWidth), if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) dp(410) else dp(520),
+            dp(panelWidth), dp(panelHeight),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = bubbleParams.x
-            y = bubbleParams.y + dp(74)
+            x = dp(8)
+            y = dp(12)
         }
 
         fun positionPanelWithBubble() {
+            val screenWidth = resources.displayMetrics.widthPixels
             val screenHeight = resources.displayMetrics.heightPixels
-            val maxPanelHeight = (screenHeight - dp(32)).coerceAtLeast(dp(280))
-            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(500), maxPanelHeight)
-            panelParams.x = bubbleParams.x
-            val below = bubbleParams.y + dp(74)
-            panelParams.y = if (below + panelParams.height <= screenHeight - dp(12)) below
-                else (bubbleParams.y - panelParams.height - dp(8)).coerceAtLeast(dp(8))
+            val maxPanelWidth = (screenWidth - dp(16)).coerceAtLeast(dp(280))
+            val maxPanelHeight = (screenHeight - dp(24)).coerceAtLeast(dp(320))
+            panelParams.width = minOf(dp(panelWidth), maxPanelWidth)
+            panelParams.height = minOf(dp(panelHeight), maxPanelHeight)
+            // Keep the large workspace docked to the nearest screen edge, not underneath
+            // the small floating capsule; center it vertically for one-handed access.
+            panelParams.x = dp(8).coerceAtMost((screenWidth - panelParams.width) / 2)
+            panelParams.y = ((screenHeight - panelParams.height) / 2).coerceAtLeast(dp(8))
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
