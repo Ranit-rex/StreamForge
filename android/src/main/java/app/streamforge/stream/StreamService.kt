@@ -1442,7 +1442,7 @@ class StreamService : Service(), ConnectChecker {
         }.getOrDefault(0)
         metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
         metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
-        metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(66), 1f))
+        metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(48), 1f))
         statusPage.addView(metricRow)
 
         val stats = label("", 10f, 0xFFE0EAF0.toInt()).apply {
@@ -1533,6 +1533,8 @@ class StreamService : Service(), ConnectChecker {
             privacyModeEnabled = !privacyModeEnabled
             applyScene(activeSceneIndex)
             status.value = if (privacyModeEnabled) "Privacy mode · Be right back is on stream" else "Privacy mode ended"
+            android.widget.Toast.makeText(this, status.value, android.widget.Toast.LENGTH_SHORT).show()
+            overlayRoot?.let { updateOverlayLabels(it) }
         }
         val stop = action(if (recording.value) "Stop recording" else "End live", 0x667B3944) {
             if (recording.value) stopRecording() else stopStream("Stream stopped")
@@ -1776,11 +1778,16 @@ class StreamService : Service(), ConnectChecker {
                 contentResolver.update(uri, values, null, null)
             }
             status.value = "Screenshot saved to Pictures/CastDoo"
-        }.onFailure { status.value = "Screenshot failed: ${it.message ?: "storage error"}" }
+            android.widget.Toast.makeText(this, "Screenshot saved to Pictures/CastDoo", android.widget.Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            status.value = "Screenshot failed: ${it.message ?: "storage error"}"
+            android.widget.Toast.makeText(this, status.value, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun updateOverlayLabels(root: LinearLayout) {
         overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
+        overlayMicMuteAction?.text = if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE"
         overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
         overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
         overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
