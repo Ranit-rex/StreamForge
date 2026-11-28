@@ -1409,6 +1409,13 @@ class StreamService : Service(), ConnectChecker {
         }
         overlayStatsLabel = stats
         statusPage.addView(stats)
+        val chatVisual = glassCard().apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("LIVE CHAT", 9f, cyan, true).apply { gravity = Gravity.START })
+            addView(label("▂ ▅ ▃ ▆ ▄ ▇ ▃ ▅", 17f, 0xFF9BE8F5.toInt(), true).apply { gravity = Gravity.CENTER; setPadding(0, dp(3), 0, dp(3)) })
+            addView(chatFeed, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        statusPage.addView(chatVisual, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         val batteryPct = runCatching {
             getSystemService(android.os.BatteryManager::class.java)
                 ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
@@ -1434,7 +1441,22 @@ class StreamService : Service(), ConnectChecker {
                 status.value = "Scene ${next + 1} applied"
             } else status.value = "No scenes saved yet"
         }
-        val micQuick = action(if (microphoneMuted.value) "Mic off" else "Mic on") { toggleMicrophone() }
+        val micQuick = action(if (microphoneMuted.value) "Mic off · settings" else "Mic on · settings") {
+            val slider = android.widget.SeekBar(this).apply {
+                max = 200
+                progress = (microphoneGain.value * 100).toInt().coerceIn(0, 200)
+            }
+            val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0) }
+            body.addView(label("Microphone level · ${microphoneGain.value.toInt().let { if (it == 0) 0 else (microphoneGain.value * 100).toInt() }}%", 12f, AndroidColor.WHITE))
+            body.addView(slider)
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Microphone controls")
+                .setView(body)
+                .setNeutralButton(if (microphoneMuted.value) "Unmute" else "Mute") { _, _ -> toggleMicrophone() }
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Apply") { _, _ -> updateAudioMix(slider.progress / 100f, gameAudioGain.value) }
+                .show()
+        }
         overlayMicLabel = micQuick
         statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
         val chatFeed = label("Chat is not configured yet. Connect a supported live chat source in Studio settings.", 10f, 0xFFE0EAF0.toInt()).apply {
@@ -1445,9 +1467,6 @@ class StreamService : Service(), ConnectChecker {
             setPadding(dp(9), dp(9), dp(9), dp(9))
         }
         overlayChatText = chatFeed
-        statusPage.addView(chatFeed, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(8) })
         val privacy = action(if (privacyModeEnabled) "Privacy: Be right back" else "Privacy mode", 0x665A526F) {
             privacyModeEnabled = !privacyModeEnabled
             applyScene(activeSceneIndex)
@@ -1463,7 +1482,6 @@ class StreamService : Service(), ConnectChecker {
         val partyCard = glassCard()
         val user = FirebaseAuth.getInstance().currentUser
         val fallbackName = user?.displayName?.takeIf { it.isNotBlank() }
-            ?: user?.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
             ?: "CastDoo member"
         val partyName = label(fallbackName, 17f, AndroidColor.WHITE, true).apply { gravity = Gravity.START }
         overlayPartyNameLabel = partyName
@@ -1481,7 +1499,7 @@ class StreamService : Service(), ConnectChecker {
         partyPage.addView(row(
             action("Create / manage party", 0x555B7184) {
                 val launch = Intent(this, app.streamforge.MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     putExtra("castdoo_open_party", true)
                 }
                 startActivity(launch)
