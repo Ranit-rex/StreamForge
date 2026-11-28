@@ -193,6 +193,7 @@ class StreamService : Service(), ConnectChecker {
             overlayBubbleTimer?.text = String.format(Locale.US, "%02d:%02d", (elapsed % 3600) / 60, elapsed % 60)
             overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
             overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
+            overlayConnectionLabel?.text = when { streaming.value -> "●  CONNECTED  ·  ${networkHealth.value}"; recording.value -> "●  LOCAL CAPTURE  ·  READY"; else -> "●  SESSION ENDING" }
             overlayBubbleMode?.text = if (recording.value) "● REC" else "● LIVE"
             overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
             overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE"
@@ -1200,6 +1201,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var overlayPanel: LinearLayout? = null
     private var overlayPartyNameLabel: TextView? = null
+    private var overlayConnectionLabel: TextView? = null
     private var overlayMicMuteAction: TextView? = null
     @Volatile private var privacyModeEnabled = false
 
@@ -1338,12 +1340,26 @@ class StreamService : Service(), ConnectChecker {
         overlayModeLabel = mode
         headerBlock.addView(mode)
         header.addView(headerBlock, LinearLayout.LayoutParams(0, dp(44), 1f))
+        val sessionBadge = label(if (streaming.value) "● LIVE" else "● REC", 9f, if (streaming.value) 0xFF9BE8F5.toInt() else accent, true).apply {
+            background = glass(0x443B5962, 12, 0x669BE8F5)
+            setPadding(dp(9), dp(7), dp(9), dp(7))
+            maxLines = 1
+        }
+        header.addView(sessionBadge, LinearLayout.LayoutParams(-2, dp(32)).apply { marginEnd = dp(7) })
         val close = label("×", 23f, 0xFFE7F4FA.toInt(), true).apply {
             background = glass(0x553D4A55, 13, 0x55FFFFFF)
             setOnClickListener { panel.visibility = View.GONE }
         }
         header.addView(close, LinearLayout.LayoutParams(dp(36), dp(36)))
         main.addView(header)
+        val connectionLine = label(if (streaming.value) "●  CONNECTED  ·  ${networkHealth.value}" else "●  LOCAL CAPTURE  ·  READY", 9f, 0xFFB8C8D2.toInt(), true).apply {
+            gravity = Gravity.START
+            letterSpacing = 0.035f
+            background = glass(0x332E4650, 10, 0x224FFFFFF)
+            setPadding(dp(9), dp(6), dp(9), dp(6))
+        }
+        overlayConnectionLabel = connectionLine
+        main.addView(connectionLine, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(27)).apply { topMargin = dp(4) })
 
         val pageHost = android.widget.FrameLayout(this)
         main.addView(pageHost, LinearLayout.LayoutParams(
@@ -1671,10 +1687,10 @@ class StreamService : Service(), ConnectChecker {
 
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
         val panelWidth = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            (screenWidthDp * 0.64f).toInt().coerceIn(420, 900)
-        } else (screenWidthDp - 24).coerceIn(320, 520)
+            (screenWidthDp * 0.70f).toInt().coerceIn(480, 960)
+        } else (screenWidthDp - 20).coerceIn(320, 540)
         val panelParams = WindowManager.LayoutParams(
-            dp(panelWidth), if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) dp(360) else dp(500),
+            dp(panelWidth), if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) dp(410) else dp(520),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
@@ -1812,6 +1828,7 @@ class StreamService : Service(), ConnectChecker {
         overlayBubbleTimer = null
         overlayBubbleMode = null
         overlayPartyNameLabel = null
+        overlayConnectionLabel = null
         overlayMicMuteAction = null
         privacyModeEnabled = false
     }
