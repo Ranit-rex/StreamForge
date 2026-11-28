@@ -18,19 +18,18 @@ android {
  }
 
  signingConfigs {
-  create("castdooStable") {
-   storeFile = file(System.getenv("SIGNING_KEYSTORE_PATH") ?: "${System.getProperty("user.home")}/.android/castdoo-upload.jks")
-   storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: ""
-   keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: ""
-   keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: ""
+  getByName("debug") {
+   storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+   storePassword = "android"
+   keyAlias = "androiddebugkey"
+   keyPassword = "android"
   }
  }
  buildTypes {
-  getByName("debug") { signingConfig = signingConfigs.getByName("castdooStable") }
+  getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
   getByName("release") {
    isMinifyEnabled = true
    isShrinkResources = true
-   signingConfig = signingConfigs.getByName("castdooStable")
    proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
   }
  }
