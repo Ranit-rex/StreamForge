@@ -1532,6 +1532,7 @@ class StreamService : Service(), ConnectChecker {
         val micQuick = action("Mic settings  ▾") {
             micSettings.visibility = if (micSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             panel.requestLayout()
+            fitPagesWithoutScrolling()
         }
         val micToggle = action(if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE", 0x554B7681) { toggleMicrophone() }
         overlayMicMuteAction = micToggle
@@ -1795,8 +1796,10 @@ class StreamService : Service(), ConnectChecker {
                         val dx = (event.rawX - tx).toInt()
                         val dy = (event.rawY - ty).toInt()
                         if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(5)) dragged = true
-                        bubbleParams.x = (sx + dx).coerceAtLeast(0)
-                        bubbleParams.y = (sy + dy).toInt().coerceAtLeast(0)
+                        val maxBubbleX = (resources.displayMetrics.widthPixels - dp(70)).coerceAtLeast(0)
+                        bubbleParams.x = (sx + dx).coerceIn(0, maxBubbleX)
+                        val maxBubbleY = (resources.displayMetrics.heightPixels - dp(70)).coerceAtLeast(0)
+                        bubbleParams.y = (sy + dy).toInt().coerceIn(0, maxBubbleY)
                         runCatching { manager.updateViewLayout(bubble, bubbleParams) }
                         positionPanelWithBubble()
                         return true
