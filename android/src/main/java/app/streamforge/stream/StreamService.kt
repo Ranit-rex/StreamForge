@@ -1688,12 +1688,18 @@ class StreamService : Service(), ConnectChecker {
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
         val screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
         val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        // Give Studio the broad, side-docked workspace feel of dedicated streaming apps.
-        // Keep a slim edge margin so the game remains visible around the panel.
-        val panelWidth = (screenWidthDp * if (isLandscape) 0.92f else 0.94f)
-            .toInt().coerceAtMost(screenWidthDp - 16).coerceAtLeast(280)
-        val panelHeight = (screenHeightDp * 0.88f)
-            .toInt().coerceAtMost(screenHeightDp - 24).coerceAtLeast(320)
+        // Only landscape gameplay gets the large right-side Studio dock. Portrait keeps
+        // the normal compact floating panel dimensions.
+        val panelWidth = if (isLandscape) {
+            (screenWidthDp * 0.70f).toInt().coerceAtMost(screenWidthDp - 24).coerceAtLeast(240)
+        } else {
+            (screenWidthDp - 20).coerceIn(320, 540)
+        }
+        val panelHeight = if (isLandscape) {
+            (screenHeightDp - 48).coerceAtLeast(280)
+        } else {
+            520
+        }
         val panelParams = WindowManager.LayoutParams(
             dp(panelWidth), dp(panelHeight),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -1701,21 +1707,27 @@ class StreamService : Service(), ConnectChecker {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(8)
-            y = dp(12)
+            x = if (isLandscape) dp(screenWidthDp - panelWidth - 12) else dp(8)
+            y = if (isLandscape) dp(24) else dp(12)
         }
 
         fun positionPanelWithBubble() {
             val screenWidth = resources.displayMetrics.widthPixels
             val screenHeight = resources.displayMetrics.heightPixels
-            val maxPanelWidth = (screenWidth - dp(16)).coerceAtLeast(dp(280))
-            val maxPanelHeight = (screenHeight - dp(24)).coerceAtLeast(dp(320))
+            val sideMargin = dp(12)
+            val verticalMargin = if (isLandscape) dp(24) else dp(12)
+            val maxPanelWidth = (screenWidth - sideMargin * 2).coerceAtLeast(dp(240))
+            val maxPanelHeight = (screenHeight - verticalMargin * 2).coerceAtLeast(dp(280))
             panelParams.width = minOf(dp(panelWidth), maxPanelWidth)
             panelParams.height = minOf(dp(panelHeight), maxPanelHeight)
-            // Keep the large workspace docked to the nearest screen edge, not underneath
-            // the small floating capsule; center it vertically for one-handed access.
-            panelParams.x = dp(8).coerceAtMost((screenWidth - panelParams.width) / 2)
-            panelParams.y = ((screenHeight - panelParams.height) / 2).coerceAtLeast(dp(8))
+            // Landscape: fixed to the RIGHT edge, with a clear 24dp gap above and below.
+            // Portrait: preserve the normal compact placement.
+            panelParams.x = if (isLandscape) {
+                (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
+            } else {
+                dp(8).coerceAtMost((screenWidth - panelParams.width) / 2)
+            }
+            panelParams.y = if (isLandscape) verticalMargin else dp(12)
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
