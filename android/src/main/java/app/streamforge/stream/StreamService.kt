@@ -195,8 +195,8 @@ class StreamService : Service(), ConnectChecker {
             overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
             overlayBubbleMode?.text = if (recording.value) "● REC" else "● LIVE"
             overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
-            overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF · TAP TO CONFIGURE" else "MIC ON · TAP TO CONFIGURE"
-        overlayMicMuteAction?.text = if (microphoneMuted.value) "Unmute microphone" else "Mute microphone"
+            overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE"
+        overlayMicMuteAction?.text = if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE"
             val recentChat = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
             overlayChatText?.text = if (recentChat.isBlank()) YouTubeLiveChat.connectionState.value else recentChat
             overlayHandler.postDelayed(this, 1000L)
@@ -1229,7 +1229,9 @@ class StreamService : Service(), ConnectChecker {
                         animate().scaleX(1f).scaleY(1f).setDuration(100).start()
                         postDelayed({ background = idleBackground }, 180)
                     }.start()
-                    onClick()
+                    runCatching { onClick() }.onFailure {
+                        status.value = "Action failed: ${it.message ?: "please try again"}"
+                    }
                 }
             }
         fun row(vararg views: View): LinearLayout = LinearLayout(this).apply {
@@ -1499,8 +1501,11 @@ class StreamService : Service(), ConnectChecker {
             micSettings.visibility = if (micSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             panel.requestLayout()
         }
-        overlayMicLabel = micQuick
-        statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
+        val micToggle = action(if (microphoneMuted.value) "MIC OFF · TAP TO UNMUTE" else "MIC ON · TAP TO MUTE", 0x554B7681) { toggleMicrophone() }
+        overlayMicMuteAction = micToggle
+        overlayMicLabel = micToggle
+        statusPage.addView(row(sceneQuick, micToggle).apply { setPadding(0, dp(7), 0, 0) })
+        statusPage.addView(micQuick, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(6) })
         statusPage.addView(micSettings, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
         val privacy = action(if (privacyModeEnabled) "Privacy: Be right back" else "Privacy mode", 0x665A526F) {
             privacyModeEnabled = !privacyModeEnabled
