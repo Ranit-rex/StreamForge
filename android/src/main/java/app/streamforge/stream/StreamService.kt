@@ -1391,9 +1391,8 @@ class StreamService : Service(), ConnectChecker {
         }
         fun showPage(name: String) {
             activePage = name
-            pages.keys.forEach { key ->
-                val page = pages[key]
-                (page?.parent as? View)?.visibility = if (key == name) View.VISIBLE else View.GONE
+            pages.forEach { (key, page) ->
+                page.visibility = if (key == name) View.VISIBLE else View.GONE
             }
             navButtons.forEach { (key, button) ->
                 button.background = glass(
