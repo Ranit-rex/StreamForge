@@ -1422,6 +1422,9 @@ class StreamService : Service(), ConnectChecker {
             addView(label("LIVE CHAT", 9f, cyan, true).apply { gravity = Gravity.START })
             addView(label("▂ ▅ ▃ ▆ ▄ ▇ ▃ ▅", 17f, 0xFF9BE8F5.toInt(), true).apply { gravity = Gravity.CENTER; setPadding(0, dp(3), 0, dp(3)) })
             addView(chatFeed, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(action("Configure chat source", 0x554B7681) {
+                startActivity(Intent(this, app.streamforge.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.apply { setPadding(dp(4), dp(5), dp(4), dp(5)) })
         }
         statusPage.addView(chatVisual, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         val batteryPct = runCatching {
