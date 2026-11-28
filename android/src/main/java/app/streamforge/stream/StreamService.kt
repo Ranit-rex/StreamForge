@@ -1409,6 +1409,14 @@ class StreamService : Service(), ConnectChecker {
         }
         overlayStatsLabel = stats
         statusPage.addView(stats)
+        val chatFeed = label("Chat is not configured yet. Connect a supported live chat source in Studio settings.", 10f, 0xFFE0EAF0.toInt()).apply {
+            gravity = Gravity.START
+            maxLines = 5
+            visibility = View.VISIBLE
+            background = glass(0x44303D48, 13, 0x33FFFFFF)
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+        }
+        overlayChatText = chatFeed
         val chatVisual = glassCard().apply {
             orientation = LinearLayout.VERTICAL
             addView(label("LIVE CHAT", 9f, cyan, true).apply { gravity = Gravity.START })
@@ -1447,7 +1455,7 @@ class StreamService : Service(), ConnectChecker {
                 progress = (microphoneGain.value * 100).toInt().coerceIn(0, 200)
             }
             val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0) }
-            body.addView(label("Microphone level · ${microphoneGain.value.toInt().let { if (it == 0) 0 else (microphoneGain.value * 100).toInt() }}%", 12f, AndroidColor.WHITE))
+            body.addView(label("Microphone level · ${(microphoneGain.value * 100).toInt()}%", 12f, AndroidColor.WHITE))
             body.addView(slider)
             android.app.AlertDialog.Builder(this)
                 .setTitle("Microphone controls")
@@ -1459,14 +1467,6 @@ class StreamService : Service(), ConnectChecker {
         }
         overlayMicLabel = micQuick
         statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
-        val chatFeed = label("Chat is not configured yet. Connect a supported live chat source in Studio settings.", 10f, 0xFFE0EAF0.toInt()).apply {
-            gravity = Gravity.START
-            maxLines = 5
-            visibility = View.VISIBLE
-            background = glass(0x44303D48, 13, 0x33FFFFFF)
-            setPadding(dp(9), dp(9), dp(9), dp(9))
-        }
-        overlayChatText = chatFeed
         val privacy = action(if (privacyModeEnabled) "Privacy: Be right back" else "Privacy mode", 0x665A526F) {
             privacyModeEnabled = !privacyModeEnabled
             applyScene(activeSceneIndex)
