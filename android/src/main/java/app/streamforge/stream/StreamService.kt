@@ -857,6 +857,17 @@ class StreamService : Service(), ConnectChecker {
             }
             canvas.restore()
         }
+        if (privacyModeEnabled) {
+            val privacyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AndroidColor.rgb(8, 13, 22) }
+            canvas.drawRect(0f, 0f, outputWidth.toFloat(), outputHeight.toFloat(), privacyPaint)
+            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = AndroidColor.WHITE
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                textSize = (outputWidth * .065f).coerceIn(34f, 88f)
+            }
+            canvas.drawText("BE RIGHT BACK", outputWidth / 2f, outputHeight / 2f, titlePaint)
+        }
         filter.setSceneOverlayBitmap(bitmap)
         val hasVideo = (0 until layers.length()).any { i ->
             layers.optJSONObject(i)?.let { it.optBoolean("visible", true) && it.optString("kind") == "video" } == true
@@ -1166,6 +1177,7 @@ class StreamService : Service(), ConnectChecker {
 
     private var overlayPanel: LinearLayout? = null
     private var overlayPartyNameLabel: TextView? = null
+    @Volatile private var privacyModeEnabled = false
 
     /**
      * Shared CastDoo floating console for both LIVE and local recording.
@@ -1243,7 +1255,7 @@ class StreamService : Service(), ConnectChecker {
             dp(70), dp(70), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(150) }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = dp(12); y = dp(150) }
 
         // Liquid-glass console: translucent layered surfaces, soft elevation and a compact spatial sidebar.
         val panel = LinearLayout(this).apply {
@@ -1425,10 +1437,10 @@ class StreamService : Service(), ConnectChecker {
         val micQuick = action(if (microphoneMuted.value) "Mic off" else "Mic on") { toggleMicrophone() }
         overlayMicLabel = micQuick
         statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
-        val chatFeed = label("Connect a chat source in the Chat tab.", 10f, 0xFFE0EAF0.toInt()).apply {
+        val chatFeed = label("Chat is not configured yet. Connect a supported live chat source in Studio settings.", 10f, 0xFFE0EAF0.toInt()).apply {
             gravity = Gravity.START
-            maxLines = 4
-            visibility = View.GONE
+            maxLines = 5
+            visibility = View.VISIBLE
             background = glass(0x44303D48, 13, 0x33FFFFFF)
             setPadding(dp(9), dp(9), dp(9), dp(9))
         }
@@ -1436,17 +1448,18 @@ class StreamService : Service(), ConnectChecker {
         statusPage.addView(chatFeed, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(8) })
-        val chatAction = action("Chat preview  ▾") {
-            chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            panel.requestLayout()
+        val privacy = action(if (privacyModeEnabled) "Privacy: Be right back" else "Privacy mode", 0x665A526F) {
+            privacyModeEnabled = !privacyModeEnabled
+            applyScene(activeSceneIndex)
+            status.value = if (privacyModeEnabled) "Privacy mode · Be right back is on stream" else "Privacy mode ended"
         }
         val stop = action(if (recording.value) "Stop recording" else "End live", 0x667B3944) {
             if (recording.value) stopRecording() else stopStream("Stream stopped")
         }
-        statusPage.addView(row(chatAction, stop).apply { setPadding(0, dp(7), 0, 0) })
+        statusPage.addView(row(privacy, stop).apply { setPadding(0, dp(7), 0, 0) })
 
         val partyPage = addPage("Party")
-        partyPage.addView(heading("Your CastDoo identity"))
+        partyPage.addView(heading("Your party"))
         val partyCard = glassCard()
         val user = FirebaseAuth.getInstance().currentUser
         val fallbackName = user?.displayName?.takeIf { it.isNotBlank() }
@@ -1455,9 +1468,32 @@ class StreamService : Service(), ConnectChecker {
         val partyName = label(fallbackName, 17f, AndroidColor.WHITE, true).apply { gravity = Gravity.START }
         overlayPartyNameLabel = partyName
         partyCard.addView(partyName)
-        val partyEmail = label(user?.email ?: "Signed-in Firebase account", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START }
-        partyCard.addView(partyEmail)
+        partyCard.addView(label("CastDoo account", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START })
         partyPage.addView(partyCard)
+        val partyPrefs = getSharedPreferences("streamforge_party", 0)
+        val savedPartyId = partyPrefs.getString("room_id", "").orEmpty()
+        val savedPartyName = partyPrefs.getString("room_name", "").orEmpty()
+        partyPage.addView(heading("Current party"))
+        partyPage.addView(glassCard().apply {
+            addView(label(if (savedPartyId.isBlank()) "You are not in a party" else savedPartyName.ifBlank { "Gaming Party" }, 14f, AndroidColor.WHITE, true).apply { gravity = Gravity.START })
+            addView(label(if (savedPartyId.isBlank()) "Create a party or join one from the Party section." else "Party code  ·  $savedPartyId", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START; setPadding(0, dp(5), 0, 0) })
+        })
+        partyPage.addView(row(
+            action("Create / manage party", 0x555B7184) {
+                val launch = Intent(this, app.streamforge.MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra("castdoo_open_party", true)
+                }
+                startActivity(launch)
+            },
+            action("Copy party code") {
+                if (savedPartyId.isNotBlank()) {
+                    val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("CastDoo party code", savedPartyId))
+                    status.value = "Party code copied"
+                } else status.value = "Create or join a party first"
+            }
+        ))
         partyPage.addView(heading("Voice and chat"))
         partyPage.addView(row(
             action(if (microphoneMuted.value) "Mic off" else "Mic on", 0x554B7681) { toggleMicrophone() },
@@ -1474,7 +1510,7 @@ class StreamService : Service(), ConnectChecker {
         })
 
         val scenePage = addPage("Scene")
-        scenePage.addView(heading("Your scenes"))
+        scenePage.addView(heading("Switch your live scene"))
         val scenePrefs = getSharedPreferences("streamforge_studio", 0)
         val sceneArray = runCatching { org.json.JSONArray(scenePrefs.getString("scenes", "[]").orEmpty()) }.getOrNull()
         val sceneCount = sceneArray?.length() ?: 0
@@ -1550,25 +1586,23 @@ class StreamService : Service(), ConnectChecker {
             }
         }
 
+        val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
+        val panelWidth = minOf(470, (screenWidthDp - 28).coerceAtLeast(320))
         val panelParams = WindowManager.LayoutParams(
-            dp(370), dp(440),
+            dp(panelWidth), dp(500),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
+            gravity = Gravity.TOP or Gravity.START
             x = bubbleParams.x
             y = bubbleParams.y + dp(74)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
-                setBlurBehindRadius(dp(24))
-            }
         }
 
         fun positionPanelWithBubble() {
             val screenHeight = resources.displayMetrics.heightPixels
             val maxPanelHeight = (screenHeight - dp(32)).coerceAtLeast(dp(280))
-            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(440), maxPanelHeight)
+            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(500), maxPanelHeight)
             panelParams.x = bubbleParams.x
             val below = bubbleParams.y + dp(74)
             panelParams.y = if (below + panelParams.height <= screenHeight - dp(12)) below
@@ -1620,6 +1654,7 @@ class StreamService : Service(), ConnectChecker {
             manager.addView(bubble, bubbleParams)
             manager.addView(panel, panelParams)
             overlayRoot = bubble
+            panel.visibility = View.VISIBLE
             overlayHandler.removeCallbacks(overlayTicker)
             overlayHandler.post(overlayTicker)
         }.onFailure {
@@ -1686,6 +1721,7 @@ class StreamService : Service(), ConnectChecker {
         overlayBubbleTimer = null
         overlayBubbleMode = null
         overlayPartyNameLabel = null
+        privacyModeEnabled = false
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
