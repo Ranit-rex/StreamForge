@@ -1449,24 +1449,35 @@ class StreamService : Service(), ConnectChecker {
                 status.value = "Scene ${next + 1} applied"
             } else status.value = "No scenes saved yet"
         }
-        val micQuick = action(if (microphoneMuted.value) "Mic off · settings" else "Mic on · settings") {
-            val slider = android.widget.SeekBar(this).apply {
-                max = 200
-                progress = (microphoneGain.value * 100).toInt().coerceIn(0, 200)
-            }
-            val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), 0) }
-            body.addView(label("Microphone level · ${(microphoneGain.value * 100).toInt()}%", 12f, AndroidColor.WHITE))
-            body.addView(slider)
-            android.app.AlertDialog.Builder(this)
-                .setTitle("Microphone controls")
-                .setView(body)
-                .setNeutralButton(if (microphoneMuted.value) "Unmute" else "Mute") { _, _ -> toggleMicrophone() }
-                .setNegativeButton("Close", null)
-                .setPositiveButton("Apply") { _, _ -> updateAudioMix(slider.progress / 100f, gameAudioGain.value) }
-                .show()
+        val micSettings = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = glass(0x44303D48, 13, 0x33FFFFFF)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            visibility = View.GONE
+        }
+        micSettings.addView(label("Microphone level", 10f, 0xFFB9C8D4.toInt()).apply { gravity = Gravity.START })
+        val micGainSlider = android.widget.SeekBar(this).apply {
+            max = 200
+            progress = (microphoneGain.value * 100).toInt().coerceIn(0, 200)
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) updateAudioMix(progress / 100f, gameAudioGain.value)
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+        }
+        micSettings.addView(micGainSlider)
+        micSettings.addView(action(if (microphoneMuted.value) "Unmute microphone" else "Mute microphone", 0x554B7681) {
+            toggleMicrophone()
+        })
+        val micQuick = action("Mic settings  ▾") {
+            micSettings.visibility = if (micSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            panel.requestLayout()
         }
         overlayMicLabel = micQuick
         statusPage.addView(row(sceneQuick, micQuick).apply { setPadding(0, dp(7), 0, 0) })
+        statusPage.addView(micSettings, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
         val privacy = action(if (privacyModeEnabled) "Privacy: Be right back" else "Privacy mode", 0x665A526F) {
             privacyModeEnabled = !privacyModeEnabled
             applyScene(activeSceneIndex)
@@ -1654,7 +1665,7 @@ class StreamService : Service(), ConnectChecker {
                         val dx = (event.rawX - tx).toInt()
                         val dy = (event.rawY - ty).toInt()
                         if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > dp(5)) dragged = true
-                        bubbleParams.x = (sx - dx).coerceAtLeast(0)
+                        bubbleParams.x = (sx + dx).coerceAtLeast(0)
                         bubbleParams.y = (sy + dy).toInt().coerceAtLeast(0)
                         runCatching { manager.updateViewLayout(bubble, bubbleParams) }
                         positionPanelWithBubble()
