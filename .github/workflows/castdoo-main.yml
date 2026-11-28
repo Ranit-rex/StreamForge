@@ -26,30 +26,22 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Restore CastDoo signing credentials
+      - name: Restore Main signing key
+        id: signing-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: streamforge-debug-signing-v1
+      - name: Verify Firebase-registered signing key
         shell: bash
-        env:
-          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in SIGNING_KEYSTORE_BASE64 SIGNING_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::Missing GitHub Actions secret: $name"
-              exit 1
-            fi
-          done
-          mkdir -p "$HOME/.android"
-          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/castdoo-upload.jks"
-          test -s "$HOME/.android/castdoo-upload.jks"
-          echo "SIGNING_KEYSTORE_PATH=$HOME/.android/castdoo-upload.jks" >> "$GITHUB_ENV"
-          SHA1="$(keytool -list -v -keystore "$HOME/.android/castdoo-upload.jks" -storepass "$SIGNING_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" | awk -F': ' '/SHA1:/{print $2; exit}')"
+          test -s "$HOME/.android/debug.keystore" || { echo "Stable signing key cache is missing; refusing to generate a different certificate."; exit 1; }
+          SHA1="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | awk -F': ' '/SHA1:/{print $2; exit}')"
+          echo "Stable APK SHA-1: $SHA1"
           ACTUAL="$(printf '%s' "$SHA1" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
           EXPECTED="660C3627E118939405591DF55A92CC9C3FA0B322"
-          echo "CastDoo signing certificate SHA-1: $ACTUAL"
-          test "$ACTUAL" = "$EXPECTED" || { echo "::error::This keystore does not match CastDoo's existing Firebase-registered signing certificate."; exit 1; }
+          test "$ACTUAL" = "$EXPECTED" || { echo "Signing SHA-1 does not match Firebase registration."; exit 1; }
       - name: Install Android SDK packages
         shell: bash
         run: |
@@ -68,12 +60,7 @@ jobs:
           BUILD_NUMBER=$((1073 + GITHUB_RUN_NUMBER - 114))
           if [ "$BUILD_NUMBER" -lt 1073 ]; then BUILD_NUMBER=1073; fi
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
-      - name: Build CastDoo APK
-        env:
-          SIGNING_KEYSTORE_PATH: ${{ env.SIGNING_KEYSTORE_PATH }}
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      - name: Build Main APK
         run: gradle --no-daemon --stacktrace :android:assembleDebug -PstreamforgeBuildNumber="$BUILD_NUMBER"
       - name: Name and verify APK
         shell: bash
@@ -91,10 +78,16 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$FINAL_APK"
           CERT_SHA1="$("$APKSIGNER" verify --print-certs "$FINAL_APK" | awk -F': ' '/Signer #1 certificate SHA-1 digest:/{print toupper($2); exit}')"
           EXPECTED_SHA1="660C3627E118939405591DF55A92CC9C3FA0B322"
-          test "$CERT_SHA1" = "$EXPECTED_SHA1" || { echo "::error::APK signing certificate changed; refusing to publish an incompatible update."; exit 1; }
+          test "$CERT_SHA1" = "$EXPECTED_SHA1" || { echo "APK signing certificate changed; refusing to publish an incompatible update."; exit 1; }
           echo "Verified package: com.castdoo.app"
           echo "Verified stable signing certificate: $CERT_SHA1"
-      - name: Upload CastDoo APK
+      - name: Save signing key
+        if: steps.signing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: streamforge-debug-signing-v1
+      - name: Upload Main APK
         uses: actions/upload-artifact@v7
         with:
           name: CastDoo-Stable-APK
