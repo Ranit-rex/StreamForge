@@ -1373,23 +1373,18 @@ class StreamService : Service(), ConnectChecker {
         var activePage = "Status"
 
         fun addPage(name: String): LinearLayout {
-            val scroll = android.widget.ScrollView(this).apply {
-                isFillViewport = true
-                clipToPadding = false
-                setVerticalScrollBarEnabled(false)
-                visibility = View.GONE
-            }
+            // A single, non-scroll page per tab. The content is fitted as a whole
+            // to the available console height after Android has measured it.
             val body = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(2), dp(1), dp(2), dp(4))
+                visibility = View.GONE
+                clipChildren = false
+                clipToPadding = false
             }
-            scroll.addView(body, android.widget.FrameLayout.LayoutParams(
+            pageHost.addView(body, android.widget.FrameLayout.LayoutParams(
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                 android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
-            ))
-            pageHost.addView(scroll, android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             ))
             pages[name] = body
             return body
@@ -1665,13 +1660,36 @@ class StreamService : Service(), ConnectChecker {
         })
         morePage.addView(action("Hide controls", 0x44303D48) { panel.visibility = View.GONE })
 
+        fun fitPagesWithoutScrolling() {
+            pageHost.post {
+                val availableHeight = pageHost.height
+                val availableWidth = pageHost.width
+                if (availableHeight <= 0 || availableWidth <= 0) return@post
+                pages.values.forEach { page ->
+                    page.measure(
+                        View.MeasureSpec.makeMeasureSpec(availableWidth, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+                    )
+                    val naturalHeight = page.measuredHeight.coerceAtLeast(1)
+                    page.layoutParams = android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT, naturalHeight
+                    )
+                    val fitScale = minOf(1f, availableHeight.toFloat() / naturalHeight.toFloat())
+                    page.pivotX = 0f
+                    page.pivotY = 0f
+                    page.scaleX = fitScale
+                    page.scaleY = fitScale
+                }
+            }
+        }
+        pageHost.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitPagesWithoutScrolling() }
+
         pageNames.forEach { name ->
             val nav = navButtons[name]
             nav?.setOnClickListener { showPage(name) }
         }
         showPage("Status")
-
-        showPage("Status")
+        fitPagesWithoutScrolling()
 
         // Firebase profile name is resolved from the signed-in account, then the user's Firestore profile.
         user?.uid?.let { uid ->
@@ -1724,14 +1742,32 @@ class StreamService : Service(), ConnectChecker {
             val maxPanelHeight = (screenHeight - verticalMargin * 2).coerceAtLeast(dp(280))
             panelParams.width = minOf(dp(panelWidth), maxPanelWidth)
             panelParams.height = minOf(dp(panelHeight), maxPanelHeight)
-            // Landscape: fixed to the RIGHT edge, with a clear 24dp gap above and below.
-            // Portrait: preserve the normal compact placement.
+            // Keep the popup attached to the floating launcher. On the left half,
+            // open to its right; on the right half, open to its left.
+            val bubbleWidth = dp(70)
+            val bubbleCenterX = bubbleParams.x + bubbleWidth / 2
+            val launcherOnRight = bubbleCenterX > screenWidth / 2
             panelParams.x = if (isLandscape) {
-                (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
+                if (launcherOnRight) {
+                    (bubbleParams.x - panelParams.width - dp(4)).coerceAtLeast(sideMargin)
+                } else {
+                    (bubbleParams.x + bubbleWidth + dp(4)).coerceAtMost(
+                        (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
+                    )
+                }
             } else {
-                dp(8).coerceAtMost((screenWidth - panelParams.width) / 2)
+                // Portrait remains full-width; align its nearest edge with the launcher side.
+                if (launcherOnRight) (bubbleParams.x + bubbleWidth - panelParams.width).coerceIn(
+                    sideMargin, (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
+                ) else bubbleParams.x.coerceIn(
+                    sideMargin, (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
+                )
             }
-            panelParams.y = if (isLandscape) verticalMargin else dp(12)
+            panelParams.y = if (isLandscape) {
+                (bubbleParams.y - dp(8)).coerceIn(verticalMargin, (screenHeight - panelParams.height - verticalMargin).coerceAtLeast(verticalMargin))
+            } else {
+                dp(12)
+            }
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
