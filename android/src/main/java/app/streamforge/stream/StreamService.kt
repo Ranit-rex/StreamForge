@@ -1697,11 +1697,8 @@ class StreamService : Service(), ConnectChecker {
         } else {
             (screenWidthDp - 20).coerceIn(320, 540)
         }
-        val panelHeight = if (isLandscape) {
-            (screenHeightDp - 48).coerceAtLeast(280)
-        } else {
-            520
-        }
+        // Keep the original popup height in both orientations; only landscape width grows.
+        val panelHeight = 520
         val panelParams = WindowManager.LayoutParams(
             dp(panelWidth), dp(panelHeight),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
