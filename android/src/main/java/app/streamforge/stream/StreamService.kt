@@ -1245,9 +1245,9 @@ class StreamService : Service(), ConnectChecker {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(2))
         }
-        scroll.addView(content, android.widget.ScrollView.LayoutParams(
-            android.widget.ScrollView.LayoutParams.MATCH_PARENT,
-            android.widget.ScrollView.LayoutParams.WRAP_CONTENT
+        scroll.addView(content, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
         ))
         panel.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
