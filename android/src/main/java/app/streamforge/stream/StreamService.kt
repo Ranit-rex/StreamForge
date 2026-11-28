@@ -1355,7 +1355,7 @@ class StreamService : Service(), ConnectChecker {
         val connectionLine = label(if (streaming.value) "●  CONNECTED  ·  ${networkHealth.value}" else "●  LOCAL CAPTURE  ·  READY", 9f, 0xFFB8C8D2.toInt(), true).apply {
             gravity = Gravity.START
             letterSpacing = 0.035f
-            background = glass(0x332E4650, 10, 0x224FFFFFF)
+            background = glass(0x332E4650, 10, 0x22FFFFFF)
             setPadding(dp(9), dp(6), dp(9), dp(6))
         }
         overlayConnectionLabel = connectionLine
@@ -1687,7 +1687,7 @@ class StreamService : Service(), ConnectChecker {
 
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
         val panelWidth = if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            (screenWidthDp * 0.70f).toInt().coerceIn(480, 960)
+            (screenWidthDp * 0.70f).toInt().coerceIn(360, 960).coerceAtMost(screenWidthDp - 16)
         } else (screenWidthDp - 20).coerceIn(320, 540)
         val panelParams = WindowManager.LayoutParams(
             dp(panelWidth), if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) dp(410) else dp(520),
