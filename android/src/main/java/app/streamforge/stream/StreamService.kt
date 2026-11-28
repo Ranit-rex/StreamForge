@@ -180,6 +180,7 @@ class StreamService : Service(), ConnectChecker {
     private var overlayModeLabel: TextView? = null
     private var overlayPauseLabel: TextView? = null
     private var overlayBubbleTimer: TextView? = null
+    private var overlayBubbleMode: TextView? = null
     private val overlayHandler = Handler(Looper.getMainLooper())
     private val overlayTicker = object : Runnable {
         override fun run() {
@@ -190,6 +191,7 @@ class StreamService : Service(), ConnectChecker {
             overlayBubbleTimer?.text = String.format(Locale.US, "%02d:%02d", (elapsed % 3600) / 60, elapsed % 60)
             overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
             overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
+            overlayBubbleMode?.text = if (recording.value) "● REC" else "● LIVE"
             overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
             overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
             val recentChat = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
@@ -1206,7 +1208,9 @@ class StreamService : Service(), ConnectChecker {
             elevation = dp(12).toFloat()
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        bubble.addView(label(if (recording.value) "● REC" else "● LIVE", 10f, if (recording.value) accent else 0xFFFF6675.toInt(), true))
+        val bubbleMode = label(if (recording.value) "● REC" else "● LIVE", 10f, if (recording.value) accent else 0xFFFF6675.toInt(), true)
+        overlayBubbleMode = bubbleMode
+        bubble.addView(bubbleMode)
         val bubbleTimer = label("00:00", 12f, AndroidColor.WHITE, true)
         bubble.addView(bubbleTimer)
         overlayBubbleTimer = bubbleTimer
@@ -1291,7 +1295,7 @@ class StreamService : Service(), ConnectChecker {
         val rowOne = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val pause = actionButton(if (recordingPaused.value) "RESUME" else "PAUSE", 0xFF2E5362.toInt()) {
             if (recording.value) toggleRecordingPause()
-        }
+        }.apply { visibility = if (recording.value) View.VISIBLE else View.GONE }
         overlayPauseLabel = pause
         val screenshot = actionButton("SCREENSHOT", 0xFF34444F.toInt()) { saveOverlayScreenshot() }
         rowOne.addView(pause, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
@@ -1464,6 +1468,7 @@ class StreamService : Service(), ConnectChecker {
         overlayModeLabel = null
         overlayPauseLabel = null
         overlayBubbleTimer = null
+        overlayBubbleMode = null
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
