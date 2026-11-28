@@ -177,13 +177,19 @@ class StreamService : Service(), ConnectChecker {
     private var overlayTimerLabel: TextView? = null
     private var overlayStatsLabel: TextView? = null
     private var overlayChatText: TextView? = null
+    private var overlayModeLabel: TextView? = null
+    private var overlayPauseLabel: TextView? = null
     private val overlayHandler = Handler(Looper.getMainLooper())
     private val overlayTicker = object : Runnable {
         override fun run() {
             if (overlayRoot == null) return
-            val elapsed = ((System.currentTimeMillis() - streamStartedAt.value).coerceAtLeast(0L) / 1000L)
+            val startedAt = if (recording.value) recordingStartedAt.value else streamStartedAt.value
+            val elapsed = ((System.currentTimeMillis() - startedAt).coerceAtLeast(0L) / 1000L)
             overlayTimerLabel?.text = String.format(Locale.US, "%02d:%02d:%02d", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60)
             overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
+            overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
+            overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
+            overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
             val recentChat = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
             overlayChatText?.text = if (recentChat.isBlank()) YouTubeLiveChat.connectionState.value else recentChat
             overlayHandler.postDelayed(this, 1000L)
@@ -960,6 +966,7 @@ class StreamService : Service(), ConnectChecker {
                 // is live; this advances video overlays beyond their first decoded frame.
                 applyScene(activeSceneIndex)
                 startPreviewIfAvailable()
+                Handler(Looper.getMainLooper()).post { showFloatingControls() }
             }
             .onFailure { error ->
                 recording.value = false
@@ -1153,136 +1160,204 @@ class StreamService : Service(), ConnectChecker {
 
     private var overlayPanel: LinearLayout? = null
 
+    private var overlayPanel: LinearLayout? = null
+
+    /**
+     * Shared CastDoo floating console for both LIVE and local recording.
+     * The compact launcher expands into a performance panel inspired by the
+     * supplied gaming dashboard reference, while keeping gameplay visible.
+     */
     private fun showFloatingControls() {
         if (overlayRoot != null || !android.provider.Settings.canDrawOverlays(this)) return
+        if (!streaming.value && !recording.value) return
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
-        fun shape(color: Int, radius: Int) = GradientDrawable().apply {
+        fun shape(color: Int, radius: Int, stroke: Int = 0) = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
+            if (stroke != 0) setStroke(dp(1), stroke)
         }
-        fun text(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
+        fun label(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
             TextView(this).apply {
                 text = value
                 textSize = size
                 setTextColor(color)
                 if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
                 gravity = Gravity.CENTER
-                setPadding(dp(8), dp(6), dp(8), dp(6))
+                setPadding(dp(6), dp(5), dp(6), dp(5))
+            }
+        fun actionButton(value: String, color: Int, onClick: () -> Unit) =
+            label(value, 11f, AndroidColor.WHITE, true).apply {
+                background = shape(color, 11)
+                minHeight = dp(42)
+                setOnClickListener { onClick() }
             }
 
-        // Small circular live bubble, inspired by common mobile-streaming controls,
-        // with StreamForge's own colors and visual identity.
+        val accent = 0xFFFFC928.toInt()
+        val cyan = 0xFF64D9F2.toInt()
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = GradientDrawable(
                 GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF526EFF.toInt(), 0xFF253B80.toInt())
-            ).apply { shape = GradientDrawable.OVAL; setStroke(dp(2), 0xFF8EA5FF.toInt()) }
-            elevation = dp(10).toFloat()
+                intArrayOf(0xFF172B38.toInt(), 0xFF10171E.toInt())
+            ).apply { shape = GradientDrawable.OVAL; setStroke(dp(2), if (recording.value) accent else cyan) }
+            elevation = dp(12).toFloat()
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        val live = text("● LIVE", 9f, 0xFFFF777E.toInt(), true)
-        val viewers = text("◉ —", 12f, AndroidColor.WHITE, true)
-        bubble.addView(live)
-        bubble.addView(viewers)
+        bubble.addView(label(if (recording.value) "● REC" else "● LIVE", 10f, if (recording.value) accent else 0xFFFF6675.toInt(), true))
+        val bubbleTimer = label("00:00", 12f, AndroidColor.WHITE, true)
+        bubble.addView(bubbleTimer)
         val bubbleParams = WindowManager.LayoutParams(
-            dp(62), dp(62), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            dp(66), dp(66), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(155) }
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            background = shape(0xF21A2434.toInt(), 20)
-            elevation = dp(18).toFloat()
+            setPadding(dp(13), dp(12), dp(13), dp(13))
+            background = shape(0xF2182027.toInt(), 22, 0xFF344550.toInt())
+            elevation = dp(20).toFloat()
             visibility = View.GONE
         }
         overlayPanel = panel
-        val heading = LinearLayout(this).apply {
+
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        heading.addView(text("STREAMFORGE  •  LIVE", 12f, 0xFF9DB2FF.toInt(), true), LinearLayout.LayoutParams(0, dp(38), 1f))
-        val close = text("×", 23f, 0xFFDDE6F5.toInt(), true)
-        close.setOnClickListener { panel.visibility = View.GONE }
-        heading.addView(close, LinearLayout.LayoutParams(dp(38), dp(38)))
-        panel.addView(heading)
+        val headingColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        headingColumn.addView(label("CASTDOO  /  CONTROL CENTER", 10f, cyan, true).apply { gravity = Gravity.START })
+        val mode = label(if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM", 15f, AndroidColor.WHITE, true).apply { gravity = Gravity.START }
+        overlayModeLabel = mode
+        headingColumn.addView(mode)
+        header.addView(headingColumn, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val close = label("×", 25f, 0xFFDDE6F5.toInt(), true).apply {
+            setOnClickListener { panel.visibility = View.GONE }
+            background = shape(0xFF29343D.toInt(), 12)
+        }
+        header.addView(close, LinearLayout.LayoutParams(dp(42), dp(42)))
+        panel.addView(header)
 
-        val timer = text("00:00:00", 22f, AndroidColor.WHITE, true)
+        val timer = label("00:00:00", 25f, AndroidColor.WHITE, true).apply {
+            setPadding(0, dp(8), 0, dp(2))
+        }
         overlayTimerLabel = timer
         panel.addView(timer)
-        val stats = text("Viewers —  •  ${streamResolution.value}  •  ${bitrateKbps.value} kbps", 10f, 0xFFB9C8DC.toInt())
+        val stats = label("", 11f, 0xFFB9C8D4.toInt())
         overlayStatsLabel = stats
         panel.addView(stats)
-        val chatFeed = text("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
+
+        val metricRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(10))
+        }
+        fun metric(caption: String, value: String, tint: Int): LinearLayout {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = shape(0xFF222D35.toInt(), 13)
+                setPadding(dp(5), dp(8), dp(5), dp(8))
+            }
+            card.addView(label(value, 17f, tint, true))
+            card.addView(label(caption, 9f, 0xFF9EADB7.toInt()))
+            return card
+        }
+        metricRow.addView(metric("FRAME RATE", "${streamFps.value} FPS", cyan), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(6) })
+        metricRow.addView(metric("QUALITY", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(6) })
+        val batteryPct = runCatching {
+            val bm = getSystemService(android.os.BatteryManager::class.java)
+            bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }?.let { "$it%" } ?: "—"
+        }.getOrDefault("—")
+        metricRow.addView(metric("BATTERY", batteryPct, accent), LinearLayout.LayoutParams(0, dp(62), 1f))
+        panel.addView(metricRow)
+
+        val network = label("NETWORK  •  ${networkHealth.value}", 10f, 0xFFB9C8D4.toInt()).apply {
+            background = shape(0xFF222D35.toInt(), 10)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        panel.addView(network)
+
+        val toolsTitle = label("QUICK CONTROLS", 10f, accent, true).apply {
             gravity = Gravity.START
-            maxLines = 5
+            setPadding(dp(2), dp(10), dp(2), dp(5))
+        }
+        panel.addView(toolsTitle)
+
+        val rowOne = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val pause = actionButton(if (recordingPaused.value) "RESUME" else "PAUSE", 0xFF2E5362.toInt()) {
+            if (recording.value) toggleRecordingPause()
+        }
+        overlayPauseLabel = pause
+        val screenshot = actionButton("SCREENSHOT", 0xFF34444F.toInt()) { saveOverlayScreenshot() }
+        rowOne.addView(pause, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
+        rowOne.addView(screenshot, LinearLayout.LayoutParams(0, dp(44), 1f))
+        panel.addView(rowOne)
+
+        val rowTwo = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) }
+        val scene = actionButton("SCENE  ↻", 0xFF34444F.toInt()) {
+            val prefs = getSharedPreferences("streamforge_studio", 0)
+            val scenes = runCatching { org.json.JSONArray(prefs.getString("scenes", "[]").orEmpty()) }.getOrNull()
+            val count = scenes?.length() ?: 0
+            if (count > 0) {
+                val next = (activeSceneIndex + 1) % count
+                prefs.edit().putInt("active_scene", next).apply()
+                applyScene(next)
+                status.value = "Scene ${next + 1} applied"
+            } else status.value = "No scenes available"
+        }
+        val mic = actionButton(if (microphoneMuted.value) "MIC OFF" else "MIC ON", 0xFF34444F.toInt()) { toggleMicrophone() }
+        overlayMicLabel = mic
+        rowTwo.addView(scene, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
+        rowTwo.addView(mic, LinearLayout.LayoutParams(0, dp(44), 1f))
+        panel.addView(rowTwo)
+
+        val chatFeed = label("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
+            gravity = Gravity.START
+            maxLines = 4
             visibility = View.GONE
-            setPadding(dp(4), dp(8), dp(4), dp(4))
+            background = shape(0xFF202A32.toInt(), 10)
+            setPadding(dp(9), dp(8), dp(9), dp(8))
         }
         overlayChatText = chatFeed
         panel.addView(chatFeed)
-
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, 0)
+        val rowThree = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) }
+        val chat = actionButton("CHAT", 0xFF34444F.toInt()) {
+            chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
+            chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
+            panel.requestLayout()
         }
-        val mic = text(if (microphoneMuted.value) "MIC OFF" else "MIC ON", 11f, AndroidColor.WHITE, true).apply {
-            background = shape(0xFF344B6A.toInt(), 12)
-            setOnClickListener { toggleMicrophone() }
+        val stop = actionButton(if (recording.value && streaming.value) "STOP REC" else if (recording.value) "STOP REC" else "END LIVE", 0xFFB83D50.toInt()) {
+            if (recording.value) stopRecording() else stopStream("Stream stopped")
         }
-        overlayMicLabel = mic
-        val chat = text("CHAT", 11f, AndroidColor.WHITE, true).apply {
-            background = shape(0xFF344B6A.toInt(), 12)
-            setOnClickListener {
-                chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
-                chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
-                panel.requestLayout()
-            }
-        }
-        val stop = text("END LIVE", 11f, AndroidColor.WHITE, true).apply {
-            background = shape(0xFFB83D50.toInt(), 12)
-            setOnClickListener { stopStream("Stream stopped") }
-        }
-        val buttonParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
-        buttons.addView(mic, buttonParams)
-        buttons.addView(chat, buttonParams)
-        buttons.addView(stop, LinearLayout.LayoutParams(0, dp(42), 1f))
-        panel.addView(buttons)
+        rowThree.addView(chat, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
+        rowThree.addView(stop, LinearLayout.LayoutParams(0, dp(44), 1f))
+        panel.addView(rowThree)
 
         val panelParams = WindowManager.LayoutParams(
-            dp(280), WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(320), WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(70) }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(72) }
 
-        // Keep the control window physically attached to the bubble. Both overlays
-        // share the same right-edge offset; the panel flips above the bubble near
-        // the bottom of the screen so it remains visible.
         fun positionPanelWithBubble() {
-            val panelHeight = panel.height.takeIf { it > 0 } ?: dp(190)
+            val panelHeight = panel.height.takeIf { it > 0 } ?: dp(330)
             val screenHeight = resources.displayMetrics.heightPixels
             panelParams.x = bubbleParams.x
-            val below = bubbleParams.y + dp(70)
-            panelParams.y = if (below + panelHeight <= screenHeight - dp(12)) {
-                below
-            } else {
-                (bubbleParams.y - panelHeight - dp(8)).coerceAtLeast(dp(8))
-            }
+            val below = bubbleParams.y + dp(72)
+            panelParams.y = if (below + panelHeight <= screenHeight - dp(12)) below
+                else (bubbleParams.y - panelHeight - dp(8)).coerceAtLeast(dp(8))
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
         bubble.setOnClickListener {
-            if (panel.visibility == View.VISIBLE) {
-                panel.visibility = View.GONE
-            } else {
+            if (panel.visibility == View.VISIBLE) panel.visibility = View.GONE
+            else {
                 positionPanelWithBubble()
                 panel.visibility = View.VISIBLE
                 panel.post { positionPanelWithBubble() }
@@ -1335,9 +1410,41 @@ class StreamService : Service(), ConnectChecker {
         }
     }
 
+    private fun saveOverlayScreenshot() {
+        val bitmap = runCatching { previewView?.bitmap }.getOrNull()
+        if (bitmap == null) {
+            status.value = "Screenshot unavailable until the stream preview is ready"
+            return
+        }
+        runCatching {
+            val name = "CastDoo_Screenshot_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.jpg"
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= 29) {
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CastDoo")
+                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Could not create screenshot file")
+            contentResolver.openOutputStream(uri)?.use { output ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 94, output)) throw IllegalStateException("Screenshot encoding failed")
+            } ?: throw IllegalStateException("Could not write screenshot")
+            if (Build.VERSION.SDK_INT >= 29) {
+                values.clear()
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+            }
+            status.value = "Screenshot saved to Pictures/CastDoo"
+        }.onFailure { status.value = "Screenshot failed: ${it.message ?: "storage error"}" }
+    }
+
     private fun updateOverlayLabels(root: LinearLayout) {
         overlayMicLabel?.text = if (microphoneMuted.value) "MIC OFF" else "MIC ON"
-        overlayStatsLabel?.text = "Viewers —  •  ${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
+        overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
+        overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
+        overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
     }
 
     private fun hideFloatingControls() {
@@ -1353,6 +1460,8 @@ class StreamService : Service(), ConnectChecker {
         overlayTimerLabel = null
         overlayStatsLabel = null
         overlayChatText = null
+        overlayModeLabel = null
+        overlayPauseLabel = null
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
