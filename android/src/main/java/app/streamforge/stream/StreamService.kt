@@ -1498,6 +1498,7 @@ class StreamService : Service(), ConnectChecker {
         })
         partyPage.addView(row(
             action("Create / manage party", 0x555B7184) {
+                getSharedPreferences("streamforge_studio", 0).edit().putBoolean("open_party_tab", true).apply()
                 val launch = Intent(this, app.streamforge.MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     putExtra("castdoo_open_party", true)
