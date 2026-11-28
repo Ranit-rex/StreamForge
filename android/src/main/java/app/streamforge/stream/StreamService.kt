@@ -1172,138 +1172,183 @@ class StreamService : Service(), ConnectChecker {
     private fun showFloatingControls() {
         if (overlayRoot != null || !android.provider.Settings.canDrawOverlays(this)) return
         if (!streaming.value && !recording.value) return
+
         val manager = getSystemService(WINDOW_SERVICE) as WindowManager
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
-        fun shape(color: Int, radius: Int, stroke: Int = 0) = GradientDrawable().apply {
+        fun surface(color: Int, radius: Int, stroke: Int = 0) = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(radius).toFloat()
             if (stroke != 0) setStroke(dp(1), stroke)
         }
-        fun label(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
+        fun text(value: String, size: Float, color: Int = AndroidColor.WHITE, bold: Boolean = false) =
             TextView(this).apply {
-                text = value
+                this.text = value
                 textSize = size
                 setTextColor(color)
-                if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                if (bold) typeface = Typeface.create("sans-serif", Typeface.BOLD)
                 gravity = Gravity.CENTER
-                setPadding(dp(6), dp(5), dp(6), dp(5))
+                setPadding(dp(5), dp(4), dp(5), dp(4))
+                includeFontPadding = false
             }
-        fun actionButton(value: String, color: Int, onClick: () -> Unit) =
-            label(value, 11f, AndroidColor.WHITE, true).apply {
-                background = shape(color, 11)
-                minHeight = dp(42)
+        fun action(value: String, tint: Int = 0xFF29343D.toInt(), onClick: () -> Unit) =
+            text(value, 11f, AndroidColor.WHITE, true).apply {
+                background = surface(tint, 12, 0xFF3B4A53.toInt())
+                minHeight = dp(46)
                 setOnClickListener { onClick() }
             }
+        fun sectionTitle(value: String) = text(value, 10f, 0xFF9EADB7.toInt(), true).apply {
+            gravity = Gravity.START
+            letterSpacing = 0.10f
+            setPadding(dp(2), dp(12), dp(2), dp(6))
+        }
 
         val accent = 0xFFFFC928.toInt()
         val cyan = 0xFF64D9F2.toInt()
+        val liveColor = if (recording.value) accent else 0xFFFF6675.toInt()
+
+        // Compact draggable launcher stays visible while the expanded console is closed.
         val bubble = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(0xFF172B38.toInt(), 0xFF10171E.toInt())
-            ).apply { shape = GradientDrawable.OVAL; setStroke(dp(2), if (recording.value) accent else cyan) }
-            elevation = dp(12).toFloat()
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            background = surface(0xF2182027.toInt(), 24, if (recording.value) accent else cyan)
+            elevation = dp(14).toFloat()
+            setPadding(dp(5), dp(7), dp(5), dp(7))
         }
-        val bubbleMode = label(if (recording.value) "● REC" else "● LIVE", 10f, if (recording.value) accent else 0xFFFF6675.toInt(), true)
+        val bubbleMode = text(if (recording.value) "REC" else "LIVE", 10f, liveColor, true)
         overlayBubbleMode = bubbleMode
         bubble.addView(bubbleMode)
-        val bubbleTimer = label("00:00", 12f, AndroidColor.WHITE, true)
-        bubble.addView(bubbleTimer)
+        val bubbleTimer = text("00:00", 12f, AndroidColor.WHITE, true)
         overlayBubbleTimer = bubbleTimer
+        bubble.addView(bubbleTimer)
         val bubbleParams = WindowManager.LayoutParams(
-            dp(66), dp(66), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            dp(68), dp(68), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(155) }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = dp(12); y = dp(150) }
 
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(12), dp(13), dp(13))
-            background = shape(0xF2182027.toInt(), 22, 0xFF344550.toInt())
-            elevation = dp(20).toFloat()
+            setPadding(dp(14), dp(13), dp(14), dp(14))
+            background = surface(0xF20D1115.toInt(), 22, 0xFF34434D.toInt())
+            elevation = dp(22).toFloat()
             visibility = View.GONE
         }
         overlayPanel = panel
+
+        val scroll = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            setVerticalScrollBarEnabled(false)
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(2))
+        }
+        scroll.addView(content, android.widget.ScrollView.LayoutParams(
+            android.widget.ScrollView.LayoutParams.MATCH_PARENT,
+            android.widget.ScrollView.LayoutParams.WRAP_CONTENT
+        ))
+        panel.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val headingColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        headingColumn.addView(label("CASTDOO  /  CONTROL CENTER", 10f, cyan, true).apply { gravity = Gravity.START })
-        val mode = label(if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM", 15f, AndroidColor.WHITE, true).apply { gravity = Gravity.START }
+        val titleBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleBlock.addView(text("CASTDOO  /  PERFORMANCE", 10f, cyan, true).apply { gravity = Gravity.START; letterSpacing = 0.08f })
+        val mode = text(
+            if (streaming.value && recording.value) "Live + recording"
+            else if (recording.value) "Local recording"
+            else "Live stream",
+            17f, AndroidColor.WHITE, true
+        ).apply { gravity = Gravity.START; setPadding(dp(2), dp(4), 0, 0) }
         overlayModeLabel = mode
-        headingColumn.addView(mode)
-        header.addView(headingColumn, LinearLayout.LayoutParams(0, dp(48), 1f))
-        val close = label("×", 25f, 0xFFDDE6F5.toInt(), true).apply {
+        titleBlock.addView(mode)
+        header.addView(titleBlock, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val close = text("×", 25f, 0xFFDDE6F5.toInt(), true).apply {
+            background = surface(0xFF252E35.toInt(), 12)
             setOnClickListener { panel.visibility = View.GONE }
-            background = shape(0xFF29343D.toInt(), 12)
         }
         header.addView(close, LinearLayout.LayoutParams(dp(42), dp(42)))
-        panel.addView(header)
+        content.addView(header)
 
-        val timer = label("00:00:00", 25f, AndroidColor.WHITE, true).apply {
-            setPadding(0, dp(8), 0, dp(2))
+        val timer = text("00:00:00", 29f, AndroidColor.WHITE, true).apply {
+            setPadding(0, dp(13), 0, dp(3))
         }
         overlayTimerLabel = timer
-        panel.addView(timer)
-        val stats = label("", 11f, 0xFFB9C8D4.toInt())
-        overlayStatsLabel = stats
-        panel.addView(stats)
+        content.addView(timer)
+        val timerCaption = text("SESSION DURATION", 9f, 0xFF9EADB7.toInt(), true)
+        content.addView(timerCaption)
 
         val metricRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(10))
+            setPadding(0, dp(13), 0, dp(10))
         }
         fun metric(caption: String, value: String, tint: Int): LinearLayout {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = shape(0xFF222D35.toInt(), 13)
-                setPadding(dp(5), dp(8), dp(5), dp(8))
+                background = surface(0xFF20282E.toInt(), 15)
+                setPadding(dp(4), dp(11), dp(4), dp(10))
             }
-            card.addView(label(value, 17f, tint, true))
-            card.addView(label(caption, 9f, 0xFF9EADB7.toInt()))
+            card.addView(text(value, 16f, tint, true))
+            card.addView(text(caption, 9f, 0xFF9EADB7.toInt()))
             return card
         }
-        metricRow.addView(metric("FRAME RATE", "${streamFps.value} FPS", cyan), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(6) })
-        metricRow.addView(metric("QUALITY", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(6) })
+        val refreshRate = runCatching {
+            @Suppress("DEPRECATION")
+            (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.refreshRate.toInt().coerceAtLeast(1)
+        }.getOrDefault(0)
+        metricRow.addView(metric("FPS", "${streamFps.value}", cyan), LinearLayout.LayoutParams(0, dp(68), 1f).apply { marginEnd = dp(6) })
+        metricRow.addView(metric("OUTPUT", streamResolution.value.substringBefore(" "), AndroidColor.WHITE), LinearLayout.LayoutParams(0, dp(68), 1f).apply { marginEnd = dp(6) })
+        metricRow.addView(metric("DISPLAY", if (refreshRate > 0) "${refreshRate}Hz" else "—", accent), LinearLayout.LayoutParams(0, dp(68), 1f))
+        content.addView(metricRow)
+
+        val stats = text("", 10f, 0xFFD0D9DF.toInt()).apply {
+            background = surface(0xFF20282E.toInt(), 11)
+            setPadding(dp(9), dp(10), dp(9), dp(10))
+        }
+        overlayStatsLabel = stats
+        content.addView(stats)
+
         val batteryPct = runCatching {
             val bm = getSystemService(android.os.BatteryManager::class.java)
-            bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }?.let { "$it%" } ?: "—"
+            bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                ?.takeIf { it in 0..100 }?.let { "$it%" } ?: "—"
         }.getOrDefault("—")
-        metricRow.addView(metric("BATTERY", batteryPct, accent), LinearLayout.LayoutParams(0, dp(62), 1f))
-        panel.addView(metricRow)
-
-        val network = label("NETWORK  •  ${networkHealth.value}", 10f, 0xFFB9C8D4.toInt()).apply {
-            background = shape(0xFF222D35.toInt(), 10)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-        }
-        panel.addView(network)
-
-        val toolsTitle = label("QUICK CONTROLS", 10f, accent, true).apply {
+        val network = text("NETWORK  ·  ${networkHealth.value}     BATTERY  ·  $batteryPct", 10f, 0xFFB9C8D4.toInt()).apply {
             gravity = Gravity.START
-            setPadding(dp(2), dp(10), dp(2), dp(5))
+            setPadding(dp(3), dp(10), dp(3), dp(2))
+            maxLines = 2
         }
-        panel.addView(toolsTitle)
+        content.addView(network)
 
-        val rowOne = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val pause = actionButton(if (recordingPaused.value) "RESUME" else "PAUSE", 0xFF2E5362.toInt()) {
+        content.addView(sectionTitle("QUICK CONTROLS"))
+        fun controlRow(vararg views: View) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            views.forEachIndexed { index, view ->
+                row.addView(view, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    if (index < views.lastIndex) marginEnd = dp(7)
+                })
+            }
+            content.addView(row)
+        }
+
+        val pause = action(if (recordingPaused.value) "▶  RESUME" else "Ⅱ  PAUSE", 0xFF254B57.toInt()) {
             if (recording.value) toggleRecordingPause()
         }.apply { visibility = if (recording.value) View.VISIBLE else View.GONE }
         overlayPauseLabel = pause
-        val screenshot = actionButton("SCREENSHOT", 0xFF34444F.toInt()) { saveOverlayScreenshot() }
-        rowOne.addView(pause, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
-        rowOne.addView(screenshot, LinearLayout.LayoutParams(0, dp(44), 1f))
-        panel.addView(rowOne)
+        val screenshot = action("▣  SCREENSHOT") { saveOverlayScreenshot() }
+        controlRow(pause, screenshot)
 
-        val rowTwo = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) }
-        val scene = actionButton("SCENE  ↻", 0xFF34444F.toInt()) {
+        val scene = action("SCENE  ↻") {
             val prefs = getSharedPreferences("streamforge_studio", 0)
             val scenes = runCatching { org.json.JSONArray(prefs.getString("scenes", "[]").orEmpty()) }.getOrNull()
             val count = scenes?.length() ?: 0
@@ -1314,49 +1359,53 @@ class StreamService : Service(), ConnectChecker {
                 status.value = "Scene ${next + 1} applied"
             } else status.value = "No scenes available"
         }
-        val mic = actionButton(if (microphoneMuted.value) "MIC OFF" else "MIC ON", 0xFF34444F.toInt()) { toggleMicrophone() }
+        val mic = action(if (microphoneMuted.value) "MIC  OFF" else "MIC  ON") { toggleMicrophone() }
         overlayMicLabel = mic
-        rowTwo.addView(scene, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
-        rowTwo.addView(mic, LinearLayout.LayoutParams(0, dp(44), 1f))
-        panel.addView(rowTwo)
+        controlRow(scene, mic)
 
-        val chatFeed = label("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
+        val chatFeed = text("Connect a chat source in the Chat tab.", 10f, 0xFFDDE6F5.toInt()).apply {
             gravity = Gravity.START
             maxLines = 4
             visibility = View.GONE
-            background = shape(0xFF202A32.toInt(), 10)
-            setPadding(dp(9), dp(8), dp(9), dp(8))
+            background = surface(0xFF20282E.toInt(), 11)
+            setPadding(dp(10), dp(9), dp(10), dp(9))
         }
         overlayChatText = chatFeed
-        panel.addView(chatFeed)
-        val rowThree = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) }
-        val chat = actionButton("CHAT", 0xFF34444F.toInt()) {
+        content.addView(chatFeed, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
+
+        val chat = action("CHAT  ▾") {
             chatFeed.visibility = if (chatFeed.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             val recent = YouTubeLiveChat.messages.value.takeLast(4).joinToString("\n")
             chatFeed.text = if (recent.isBlank()) YouTubeLiveChat.connectionState.value else recent
             panel.requestLayout()
         }
-        val stop = actionButton(if (recording.value && streaming.value) "STOP REC" else if (recording.value) "STOP REC" else "END LIVE", 0xFFB83D50.toInt()) {
+        val stop = action(if (recording.value) "STOP RECORDING" else "END LIVE", 0xFF7A303B.toInt()) {
             if (recording.value) stopRecording() else stopStream("Stream stopped")
         }
-        rowThree.addView(chat, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(7) })
-        rowThree.addView(stop, LinearLayout.LayoutParams(0, dp(44), 1f))
-        panel.addView(rowThree)
+        controlRow(chat, stop)
+
+        content.addView(text(
+            "Drag the CastDoo bubble to move it. Tap it to open controls.",
+            9f, 0xFF82919B.toInt()
+        ).apply { setPadding(dp(2), dp(12), dp(2), dp(2)) })
 
         val panelParams = WindowManager.LayoutParams(
-            dp(320), WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(310), WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(72) }
+        ).apply { gravity = Gravity.TOP or Gravity.END; x = bubbleParams.x; y = bubbleParams.y + dp(74) }
 
         fun positionPanelWithBubble() {
-            val panelHeight = panel.height.takeIf { it > 0 } ?: dp(330)
             val screenHeight = resources.displayMetrics.heightPixels
+            val maxPanelHeight = (screenHeight - dp(32)).coerceAtLeast(dp(260))
+            panelParams.height = minOf(panel.height.takeIf { it > 0 } ?: dp(430), maxPanelHeight)
             panelParams.x = bubbleParams.x
-            val below = bubbleParams.y + dp(72)
-            panelParams.y = if (below + panelHeight <= screenHeight - dp(12)) below
-                else (bubbleParams.y - panelHeight - dp(8)).coerceAtLeast(dp(8))
+            val below = bubbleParams.y + dp(74)
+            panelParams.y = if (below + panelParams.height <= screenHeight - dp(12)) below
+                else (bubbleParams.y - panelParams.height - dp(8)).coerceAtLeast(dp(8))
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
