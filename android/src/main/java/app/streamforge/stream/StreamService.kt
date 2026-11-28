@@ -1714,6 +1714,7 @@ class StreamService : Service(), ConnectChecker {
                 })
             }
             controlDeck.addView(deviceVolume, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)))
+            micSettings.removeView(micGainSlider)
             controlDeck.addView(label("MICROPHONE LEVEL", 9f, 0xFFB9C8D4.toInt(), true).apply {
                 gravity = Gravity.START
                 setPadding(0, dp(4), 0, 0)
