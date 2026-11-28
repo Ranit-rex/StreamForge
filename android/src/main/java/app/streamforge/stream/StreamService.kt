@@ -1529,6 +1529,7 @@ class StreamService : Service(), ConnectChecker {
         }
         micSettings.addView(micGainSlider)
         micSettings.addView(micMuteAction)
+        var fitPagesWithoutScrolling: () -> Unit = {}
         val micQuick = action("Mic settings  ▾") {
             micSettings.visibility = if (micSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             panel.requestLayout()
@@ -1660,7 +1661,7 @@ class StreamService : Service(), ConnectChecker {
         })
         morePage.addView(action("Hide controls", 0x44303D48) { panel.visibility = View.GONE })
 
-        fun fitPagesWithoutScrolling() {
+        fitPagesWithoutScrolling = {
             pageHost.post {
                 val availableHeight = pageHost.height
                 val availableWidth = pageHost.width
