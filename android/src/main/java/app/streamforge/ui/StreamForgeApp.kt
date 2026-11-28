@@ -129,7 +129,8 @@ fun StreamForgeApp(
     var selectedQuality by remember { mutableStateOf(qualityOptions.getOrElse(prefs.getInt("quality_index", if (lowRamDevice) 6 else 5)) { qualityOptions[if (lowRamDevice) 6 else 5] }) }
     var captureMode by remember { mutableStateOf(if (android.os.Build.VERSION.SDK_INT >= 34) "GAME" else "FULL") }
     var showLiveDashboard by remember { mutableStateOf(true) }
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(if (prefs.getBoolean("open_party_tab", false)) 9 else 0) }
+    LaunchedEffect(Unit) { if (prefs.getBoolean("open_party_tab", false)) prefs.edit().putBoolean("open_party_tab", false).apply() }
     var showMiniAssistant by remember { mutableStateOf(false) }
     var uiThemeMode by remember { mutableStateOf(prefs.getString("ui_theme_mode", "dark") ?: "dark") }
     var uiAccent by remember { mutableStateOf(prefs.getString("ui_accent", "#FF6A35") ?: "#FF6A35") }
