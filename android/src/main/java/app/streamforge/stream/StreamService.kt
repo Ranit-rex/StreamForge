@@ -179,6 +179,7 @@ class StreamService : Service(), ConnectChecker {
     private var overlayChatText: TextView? = null
     private var overlayModeLabel: TextView? = null
     private var overlayPauseLabel: TextView? = null
+    private var overlayBubbleTimer: TextView? = null
     private val overlayHandler = Handler(Looper.getMainLooper())
     private val overlayTicker = object : Runnable {
         override fun run() {
@@ -186,6 +187,7 @@ class StreamService : Service(), ConnectChecker {
             val startedAt = if (recording.value) recordingStartedAt.value else streamStartedAt.value
             val elapsed = ((System.currentTimeMillis() - startedAt).coerceAtLeast(0L) / 1000L)
             overlayTimerLabel?.text = String.format(Locale.US, "%02d:%02d:%02d", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60)
+            overlayBubbleTimer?.text = String.format(Locale.US, "%02d:%02d", (elapsed % 3600) / 60, elapsed % 60)
             overlayStatsLabel?.text = "${streamResolution.value}  •  ${bitrateKbps.value} kbps  •  ${streamFps.value} FPS"
             overlayModeLabel?.text = if (streaming.value && recording.value) "LIVE  +  RECORDING" else if (recording.value) "LOCAL RECORDING" else "LIVE STREAM"
             overlayPauseLabel?.text = if (recordingPaused.value) "RESUME" else "PAUSE"
@@ -1160,8 +1162,6 @@ class StreamService : Service(), ConnectChecker {
 
     private var overlayPanel: LinearLayout? = null
 
-    private var overlayPanel: LinearLayout? = null
-
     /**
      * Shared CastDoo floating console for both LIVE and local recording.
      * The compact launcher expands into a performance panel inspired by the
@@ -1209,6 +1209,7 @@ class StreamService : Service(), ConnectChecker {
         bubble.addView(label(if (recording.value) "● REC" else "● LIVE", 10f, if (recording.value) accent else 0xFFFF6675.toInt(), true))
         val bubbleTimer = label("00:00", 12f, AndroidColor.WHITE, true)
         bubble.addView(bubbleTimer)
+        overlayBubbleTimer = bubbleTimer
         val bubbleParams = WindowManager.LayoutParams(
             dp(66), dp(66), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
@@ -1462,6 +1463,7 @@ class StreamService : Service(), ConnectChecker {
         overlayChatText = null
         overlayModeLabel = null
         overlayPauseLabel = null
+        overlayBubbleTimer = null
     }
 
     private fun rounded(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply { setColor(color); cornerRadius = radius * resources.displayMetrics.density }
