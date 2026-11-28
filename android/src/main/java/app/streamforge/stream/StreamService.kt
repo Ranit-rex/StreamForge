@@ -1671,81 +1671,7 @@ class StreamService : Service(), ConnectChecker {
         }
         showPage("Status")
 
-        // Match the landscape gameplay console reference: live chat on the left,
-        // a dedicated control deck on the right. Portrait keeps the existing pages.
-        val landscapeConsole = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        if (landscapeConsole) {
-            sidebar.visibility = View.GONE
-            statusPage.removeAllViews()
-            statusPage.orientation = LinearLayout.HORIZONTAL
-            chatFeed.maxLines = 14
-            chatFeed.text = YouTubeLiveChat.messages.value.takeLast(14).joinToString("\n").ifBlank { YouTubeLiveChat.connectionState.value }
-            chatVisual.setPadding(dp(10), dp(10), dp(10), dp(10))
-            chatVisual.addView(label("CHAT  ·  LIVE MESSAGES", 9f, 0xFF9BE8F5.toInt(), true).apply {
-                gravity = Gravity.START
-            }, 0)
-            statusPage.addView(chatVisual, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1.05f).apply {
-                marginEnd = dp(9)
-            })
-
-            val controlDeck = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = glass(0x442B3540, 16, 0x33FFFFFF)
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-            }
-            controlDeck.addView(label("STUDIO CONTROLS", 10f, 0xFF9BE8F5.toInt(), true).apply {
-                gravity = Gravity.START
-            })
-            val audioManager = getSystemService(android.media.AudioManager::class.java)
-            val volumeValue = label("DEVICE VOLUME", 9f, 0xFFB9C8D4.toInt(), true).apply {
-                gravity = Gravity.START
-                setPadding(0, dp(7), 0, 0)
-            }
-            controlDeck.addView(volumeValue)
-            val deviceVolume = android.widget.SeekBar(this).apply {
-                max = audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)?.coerceAtLeast(1) ?: 15
-                progress = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 7
-                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-                        if (fromUser) audioManager?.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, progress, 0)
-                    }
-                    override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
-                    override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
-                })
-            }
-            controlDeck.addView(deviceVolume, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)))
-            micSettings.removeView(micGainSlider)
-            controlDeck.addView(label("MICROPHONE LEVEL", 9f, 0xFFB9C8D4.toInt(), true).apply {
-                gravity = Gravity.START
-                setPadding(0, dp(4), 0, 0)
-            })
-            micGainSlider.max = 200
-            controlDeck.addView(micGainSlider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(34)))
-            controlDeck.addView(row(
-                action("Screensaver", 0x443D4651) {
-                    privacyModeEnabled = !privacyModeEnabled
-                    applyScene(activeSceneIndex)
-                    status.value = if (privacyModeEnabled) "Screensaver enabled" else "Screensaver disabled"
-                    updateOverlayLabels(bubble)
-                },
-                action("Camera", 0x443D4651) {
-                    startActivity(Intent(this@StreamService, app.streamforge.MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        .putExtra("castdoo_open_camera", true))
-                }
-            ).apply { setPadding(0, dp(8), 0, dp(4)) })
-            controlDeck.addView(row(
-                action("End", 0x667B3944) {
-                    if (recording.value) stopRecording() else stopStream("Stream stopped")
-                },
-                action("Open PRISM", 0x443D4651) {
-                    val launch = packageManager.getLaunchIntentForPackage("com.prism.live")
-                    if (launch != null) startActivity(launch)
-                    else android.widget.Toast.makeText(this@StreamService, "PRISM Live Studio is not installed", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            ))
-            statusPage.addView(controlDeck, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.95f))
-        }
+        showPage("Status")
 
         // Firebase profile name is resolved from the signed-in account, then the user's Firestore profile.
         user?.uid?.let { uid ->
@@ -1764,15 +1690,15 @@ class StreamService : Service(), ConnectChecker {
         val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
         val screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
         val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        // Landscape follows the reference: a broad floating console with chat left
-        // and the control deck right. Portrait retains the compact Studio layout.
+        // Only landscape gameplay gets the large right-side Studio dock. Portrait keeps
+        // the normal compact floating panel dimensions.
         val panelWidth = if (isLandscape) {
             (screenWidthDp * 0.70f).toInt().coerceAtMost(screenWidthDp - 24).coerceAtLeast(240)
         } else {
             (screenWidthDp - 20).coerceIn(320, 540)
         }
         val panelHeight = if (isLandscape) {
-            (screenHeightDp * 0.74f).toInt().coerceAtMost(screenHeightDp - 32).coerceAtLeast(280)
+            (screenHeightDp - 48).coerceAtLeast(280)
         } else {
             520
         }
@@ -1783,29 +1709,27 @@ class StreamService : Service(), ConnectChecker {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = if (isLandscape) dp((screenWidthDp - panelWidth) / 2) else dp(8)
-            y = if (isLandscape) dp((screenHeightDp - panelHeight) / 2) else dp(12)
+            x = if (isLandscape) dp(screenWidthDp - panelWidth - 12) else dp(8)
+            y = if (isLandscape) dp(24) else dp(12)
         }
 
         fun positionPanelWithBubble() {
             val screenWidth = resources.displayMetrics.widthPixels
             val screenHeight = resources.displayMetrics.heightPixels
             val sideMargin = dp(12)
-            val verticalMargin = if (isLandscape) dp(16) else dp(12)
+            val verticalMargin = if (isLandscape) dp(24) else dp(12)
             val maxPanelWidth = (screenWidth - sideMargin * 2).coerceAtLeast(dp(240))
             val maxPanelHeight = (screenHeight - verticalMargin * 2).coerceAtLeast(dp(280))
             panelParams.width = minOf(dp(panelWidth), maxPanelWidth)
             panelParams.height = minOf(dp(panelHeight), maxPanelHeight)
-            // Landscape console stays centered with safe breathing room around it.
-            // The right half INSIDE the panel is the dedicated control deck.
+            // Landscape: fixed to the RIGHT edge, with a clear 24dp gap above and below.
+            // Portrait: preserve the normal compact placement.
             panelParams.x = if (isLandscape) {
-                ((screenWidth - panelParams.width) / 2).coerceAtLeast(sideMargin)
+                (screenWidth - panelParams.width - sideMargin).coerceAtLeast(sideMargin)
             } else {
                 dp(8).coerceAtMost((screenWidth - panelParams.width) / 2)
             }
-            panelParams.y = if (isLandscape) {
-                ((screenHeight - panelParams.height) / 2).coerceAtLeast(verticalMargin)
-            } else dp(12)
+            panelParams.y = if (isLandscape) verticalMargin else dp(12)
             if (panel.parent != null) runCatching { manager.updateViewLayout(panel, panelParams) }
         }
 
