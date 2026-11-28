@@ -1687,17 +1687,16 @@ class StreamService : Service(), ConnectChecker {
             }
         }
 
-        val screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
-        val screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
-        val isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        // Only landscape gameplay gets the large right-side Studio dock. Portrait keeps
-        // the normal compact floating panel dimensions.
-        val panelWidth = if (isLandscape) {
+        var screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
+        var screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
+        var isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        fun currentPanelWidth(): Int = if (isLandscape) {
             (screenWidthDp * 0.70f).toInt().coerceAtMost(screenWidthDp - 24).coerceAtLeast(240)
         } else {
             (screenWidthDp - 20).coerceIn(320, 540)
         }
-        // Keep the original popup height in both orientations; only landscape width grows.
+        var panelWidth = currentPanelWidth()
+        // Preserve the existing fixed height; landscape changes width only.
         val panelHeight = 520
         val panelParams = WindowManager.LayoutParams(
             dp(panelWidth), dp(panelHeight),
@@ -1711,6 +1710,12 @@ class StreamService : Service(), ConnectChecker {
         }
 
         fun positionPanelWithBubble() {
+            // Re-read orientation and dimensions every time the popup opens or moves.
+            // The overlay service can survive the game's portrait-to-landscape rotation.
+            screenWidthDp = (resources.displayMetrics.widthPixels / density).toInt()
+            screenHeightDp = (resources.displayMetrics.heightPixels / density).toInt()
+            isLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            panelWidth = currentPanelWidth()
             val screenWidth = resources.displayMetrics.widthPixels
             val screenHeight = resources.displayMetrics.heightPixels
             val sideMargin = dp(12)
